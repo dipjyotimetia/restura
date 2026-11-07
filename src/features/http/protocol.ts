@@ -84,6 +84,7 @@ export const httpProtocol: ProtocolModule = {
       useActiveStreamStore.getState().cancels[tabId] ? tabId : undefined,
     disconnect: (tabId) => useActiveStreamStore.getState().stop(tabId),
     removeConnectionForTab: () => undefined,
+    isLive: (tabId) => Boolean(useActiveStreamStore.getState().cancels[tabId]),
   },
   defaultRequest: createDefaultHttpRequest,
   injectVariables: injectHttpVariables,

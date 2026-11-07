@@ -10,6 +10,8 @@ import { generateRuby } from './ruby';
 
 export type { GraphQLGenerateOptions } from './graphql';
 export { graphqlCodeGenerators } from './graphql';
+export type { GrpcCodeGeneratorType, GrpcGenerateOptions } from './grpc';
+export { grpcCodeGenerators } from './grpc';
 export type { McpCodeGeneratorType, McpGenerateOptions } from './mcp';
 export { mcpCodeGenerators } from './mcp';
 export type { SseCodeGeneratorType, SseGenerateOptions } from './sse';

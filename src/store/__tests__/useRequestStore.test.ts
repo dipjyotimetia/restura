@@ -58,6 +58,7 @@ describe('useRequestStore — tabs', () => {
       tabs: [],
       activeTabId: null,
       isLoading: false,
+      loadingTabIds: [],
       closedTabs: [],
     });
   });
@@ -467,6 +468,56 @@ describe('useRequestStore — tabs', () => {
       useRequestStore.getState().setLoading(true);
       expect(useRequestStore.getState().isLoading).toBe(true);
       useRequestStore.getState().setLoading(false);
+      expect(useRequestStore.getState().isLoading).toBe(false);
+    });
+  });
+
+  describe('per-tab loading', () => {
+    it('tracks loading per tab and reflects only the active tab in isLoading', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().switchTab(a);
+      useRequestStore.getState().setLoading(true, a);
+      expect(useRequestStore.getState().isLoading).toBe(true);
+      expect(useRequestStore.getState().loadingTabIds).toEqual([a]);
+
+      useRequestStore.getState().switchTab(b);
+      expect(useRequestStore.getState().isLoading).toBe(false);
+
+      useRequestStore.getState().switchTab(a);
+      expect(useRequestStore.getState().isLoading).toBe(true);
+
+      // Completion on the originating tab clears only that tab.
+      useRequestStore.getState().setLoading(true, b);
+      useRequestStore.getState().setLoading(false, a);
+      expect(useRequestStore.getState().isLoading).toBe(false);
+      expect(useRequestStore.getState().loadingTabIds).toEqual([b]);
+    });
+
+    it('defaults to the active tab and clears the tab it was set on', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeHttp(), { switchTo: false });
+      useRequestStore.getState().setLoading(true);
+      expect(useRequestStore.getState().loadingTabIds).toEqual([a]);
+      useRequestStore.getState().switchTab(b);
+      // A legacy caller (no tabId) finishing after a tab switch still clears
+      // the tab it started on, not the newly active one.
+      useRequestStore.getState().setLoading(false);
+      expect(useRequestStore.getState().loadingTabIds).toEqual([]);
+      useRequestStore.getState().switchTab(a);
+      expect(useRequestStore.getState().isLoading).toBe(false);
+    });
+
+    it('drops a closed tab from loading and recomputes isLoading for the next active tab', () => {
+      const a = useRequestStore.getState().openTab(makeHttp());
+      const b = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().setLoading(true, a);
+      useRequestStore.getState().setLoading(true, b);
+      useRequestStore.getState().closeTab(b);
+      expect(useRequestStore.getState().activeTabId).toBe(a);
+      expect(useRequestStore.getState().loadingTabIds).toEqual([a]);
+      expect(useRequestStore.getState().isLoading).toBe(true);
+      useRequestStore.getState().openTab(makeHttp());
       expect(useRequestStore.getState().isLoading).toBe(false);
     });
   });

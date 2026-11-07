@@ -20,6 +20,7 @@ import { GrpcStatusCodeName } from '@/types';
 import { lazyGrpcInputSchema } from '../lib/grpcClient';
 import { grpcDeadlineMs } from '../lib/grpcDeadline';
 import { type GrpcStreamingHandle, startGrpcStream } from '../lib/grpcStreamingClient';
+import { StreamDroppedNotice } from './GrpcStreamingControls';
 
 export interface GrpcStreamingPanelProps {
   request: GrpcRequest;
@@ -39,9 +40,18 @@ interface FrameEntry extends LogEntry {
 }
 
 const MAX_MESSAGES = 500;
+const EMPTY_LOG: { frames: FrameEntry[]; dropped: number } = { frames: [], dropped: 0 };
 
 const isInteractive = (methodType: GrpcRequest['methodType']) =>
   methodType === 'client-streaming' || methodType === 'bidirectional-streaming';
+
+const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/** "NOT_FOUND (5): user 42 missing" — code name + number + server message. */
+export function describeGrpcFinalStatus(status: number, statusMessage?: string): string {
+  const name = GrpcStatusCodeName[status as GrpcStatusCode] ?? 'UNKNOWN';
+  return statusMessage ? `${name} (${status}): ${statusMessage}` : `${name} (${status})`;
+}
 
 const isClientStream = (methodType: GrpcRequest['methodType']) => methodType === 'client-streaming';
 
@@ -51,12 +61,16 @@ export function GrpcStreamingPanel({
   protoFileName,
   descriptors,
 }: GrpcStreamingPanelProps) {
-  const [frames, setFrames] = useState<FrameEntry[]>([]);
+  // Frames and the cap's dropped count live in one state so the updater stays
+  // pure (React may call it twice in StrictMode / concurrent renders).
+  const [log, setLog] = useState<{ frames: FrameEntry[]; dropped: number }>(EMPTY_LOG);
+  const { frames, dropped } = log;
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [outboundDraft, setOutboundDraft] = useState('{}');
   const [draftError, setDraftError] = useState<string | null>(null);
   const [sendEnded, setSendEnded] = useState(false);
+  /** Frames evicted by the MAX_MESSAGES cap since Start. */
   const handleRef = useRef<GrpcStreamingHandle | null>(null);
   // Stream connection id for the unified console — one per Start so a single
   // invocation's frames group together in the Frames tab. Lives in a ref
@@ -68,17 +82,24 @@ export function GrpcStreamingPanel({
   const interactive = isInteractive(request.methodType);
 
   const pushFrame = (direction: FrameEntry['direction'], payload: unknown) => {
-    setFrames((prev) => {
+    const id = uuidv4();
+    const timestamp = Date.now();
+    const body = JSON.stringify(payload, null, 2);
+    setLog((prev) => {
       const frame: FrameEntry = {
-        id: uuidv4(),
+        id,
         direction,
         payload,
-        body: JSON.stringify(payload, null, 2),
-        timestamp: Date.now(),
-        seq: (prev[prev.length - 1]?.seq ?? 0) + 1,
+        body,
+        timestamp,
+        seq: (prev.frames[prev.frames.length - 1]?.seq ?? 0) + 1,
       };
-      const next = [...prev, frame];
-      return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
+      const next = [...prev.frames, frame];
+      if (next.length <= MAX_MESSAGES) return { frames: next, dropped: prev.dropped };
+      return {
+        frames: next.slice(-MAX_MESSAGES),
+        dropped: prev.dropped + next.length - MAX_MESSAGES,
+      };
     });
   };
   const [query, setQuery] = useState('');
@@ -107,7 +128,7 @@ export function GrpcStreamingPanel({
     });
 
   const start = async () => {
-    setFrames([]);
+    setLog(EMPTY_LOG);
     setError(null);
     setDraftError(null);
     setSendEnded(false);
@@ -141,14 +162,14 @@ export function GrpcStreamingPanel({
           const final = await handle.done;
           if (final.status === 0) {
             streamFrame('system', 'stream completed — OK');
+            setStatus((cur) => (cur === 'error' ? cur : 'closed'));
           } else {
-            const description =
-              final.statusMessage ||
-              GrpcStatusCodeName[final.status as GrpcStatusCode] ||
-              'Stream error';
-            streamFrame('system', `stream closed — ${final.status} ${description}`);
+            // A non-OK trailer is a failed call, not a clean close.
+            const description = describeGrpcFinalStatus(final.status, final.statusMessage);
+            streamFrame('system', `stream closed — ${description}`);
+            setError(description);
+            setStatus('error');
           }
-          setStatus((cur) => (cur === 'error' ? cur : 'closed'));
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Stream failed';
           streamFrame('system', `stream error — ${message}`);
@@ -170,8 +191,8 @@ export function GrpcStreamingPanel({
         lazyGrpcInputSchema(request, { descriptors, protoContent, protoFileName })
       );
       setDraftError(null);
-    } catch {
-      setDraftError('Invalid JSON — fix before sending');
+    } catch (err) {
+      setDraftError(`Invalid JSON — fix before sending: ${errorMessage(err)}`);
       return;
     }
     handleRef.current?.send(parsed);
@@ -288,11 +309,20 @@ export function GrpcStreamingPanel({
             className="w-full font-mono text-xs border rounded p-2 resize-none bg-background min-h-[60px] focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
             value={outboundDraft}
             onChange={(e) => setOutboundDraft(e.target.value)}
+            onKeyDown={(e) => {
+              // Cmd/Ctrl+Enter sends this message (not the builder's Invoke).
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (sendAllowed) send();
+              }
+            }}
+            aria-invalid={draftError ? true : undefined}
+            aria-describedby={draftError ? 'streaming-message-error' : undefined}
             disabled={!sendAllowed}
             rows={3}
           />
           {draftError && (
-            <p role="alert" className="text-xs text-red-600">
+            <p id="streaming-message-error" role="alert" className="text-xs text-red-600">
               {draftError}
             </p>
           )}
@@ -333,11 +363,14 @@ export function GrpcStreamingPanel({
         exportEntries={() => filteredFrames}
         exportName={`${request.service}-${request.method}-stream`}
         exportMeta={{ protocol: 'grpc', method: `${request.service}/${request.method}` }}
-        onClear={() => setFrames([])}
+        onClear={() => {
+          setLog(EMPTY_LOG);
+        }}
         hasEntries={frames.length > 0}
       />
 
       <div className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-2">
+        {dropped > 0 && <StreamDroppedNotice dropped={dropped} />}
         {frames.length > 0 && visibleFrames.length === 0 && (
           <div className="text-muted-foreground italic">
             {filteredEmptyText('message', newCount)}

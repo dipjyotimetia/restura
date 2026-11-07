@@ -16,6 +16,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import { checkBrowserSocketTargetFromSettings } from '@/lib/shared/browserSocketPolicy';
+import { isLiveStatus } from '@/lib/shared/connection-lifecycle';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import {
   connectionChannels,
@@ -304,5 +305,10 @@ export const websocketProtocol: ProtocolModule = {
     connectionIdForTab: (tabId) => useWebSocketStore.getState().connectionByTabId[tabId],
     disconnect: (connectionId) => websocketManager.disconnect(connectionId, true),
     removeConnectionForTab: (tabId) => useWebSocketStore.getState().cleanupConnectionForTab(tabId),
+    isLive: (tabId) => {
+      const state = useWebSocketStore.getState();
+      const id = state.connectionByTabId[tabId];
+      return isLiveStatus(id ? state.connections[id]?.status : undefined);
+    },
   },
 };

@@ -1,4 +1,4 @@
-import { isLocalProvider, type Usage } from '@shared/protocol/ai/types';
+import type { Usage } from '@shared/protocol/ai/types';
 import { Bot, Check, Plus, Square, Wand2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -11,16 +11,19 @@ import {
   onAgentTurnComplete,
   startAgentSession,
 } from '@/features/ai/agent/agentSession';
-import { agentToolDefs, runAgentTool } from '@/features/ai/agent/tools';
+import { applyAgentToolWithUndo, describeProposal } from '@/features/ai/agent/proposalPreview';
+import { agentToolDefs } from '@/features/ai/agent/tools';
 import { captureActive } from '@/features/ai/lib/contextSnapshot';
 import { buildMessages, SYSTEM_AGENT_PROMPT } from '@/features/ai/lib/promptBuilder';
+import { providerReadiness } from '@/features/ai/lib/providerReadiness';
 import { consumeStream } from '@/features/ai/lib/streamConsumer';
-import { type ChatMessage, useAiChatStore } from '@/features/ai/store';
+import { type ChatMessage, type ContextRef, useAiChatStore } from '@/features/ai/store';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { useRequestStore } from '@/store/useRequestStore';
 import { Composer } from './Composer';
 import { ContextPill } from './ContextPill';
 import { MessageList } from './MessageList';
+import { ProviderSetupCard } from './ProviderSetupCard';
 
 interface PendingToolCall {
   id: string;
@@ -40,6 +43,11 @@ const ACTIVE_TAB_TOOLS = new Set(['update_http_request', 'set_test_script', 'enr
 // Stable empty reference so the messages selector doesn't return a fresh array
 // (which would re-render every store change under Object.is equality).
 const EMPTY_MESSAGES: ChatMessage[] = [];
+
+interface SendOptions {
+  forceTools?: boolean;
+  agentMode?: boolean;
+}
 
 function uuid(): string {
   // streamId must satisfy z.uuid() at the IPC boundary. Electron's
@@ -73,10 +81,7 @@ export function ChatPanel({ onClose }: Props) {
   // A cloud provider is ready once its API-key handle is set; a local
   // (openai-compatible) provider is ready once its base URL is set (no key).
   const apiKeyConfigured =
-    !!providerConfig &&
-    (isLocalProvider(providerConfig.provider)
-      ? !!providerConfig.baseUrlOverride
-      : !!providerConfig.apiKeyRef?.id);
+    !!providerConfig && providerReadiness(activeProvider, providerConfig) === 'ready';
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
   // Tool calls proposed by the assistant, awaiting user approval ("propose &
@@ -95,6 +100,9 @@ export function ChatPanel({ onClose }: Props) {
   // until a re-render — a second ⌘+Enter fired during the ai.chat() round-trip
   // would otherwise start a competing stream that clobbers the shared refs.
   const sendingRef = useRef(false);
+  // Send options per user message id (ephemeral), so Retry re-sends a turn
+  // exactly as it was sent (agent system prompt, forced tools).
+  const sendOptsRef = useRef<Map<string, SendOptions>>(new Map());
 
   useEffect(() => {
     if (!activeId) newConversation();
@@ -130,15 +138,31 @@ export function ChatPanel({ onClose }: Props) {
 
   const handleSend = async (
     text: string,
-    rawMode: boolean,
-    opts?: { forceTools?: boolean; agentMode?: boolean }
+    requestedRawMode: boolean,
+    opts?: SendOptions & {
+      /**
+       * Retry: the original turn's context. Its tab is re-captured when still
+       * open, and raw (unredacted) mode is honoured only if the snapshot is of
+       * that same tab — never another tab's credentials.
+       */
+      retryContext?: ContextRef;
+    }
   ): Promise<{ ok: boolean; sawToolCall: boolean }> => {
     if (!providerConfig || sendingRef.current) return { ok: false, sawToolCall: false };
     sendingRef.current = true;
     setToolCalls([]);
     appliedIdsRef.current.clear();
     let sawToolCall = false;
-    const snapshot = captureActive();
+    const retryContext = opts?.retryContext;
+    const retryTabId = retryContext?.tabId;
+    const retryTabOpen =
+      !!retryTabId && useRequestStore.getState().tabs.some((t) => t.id === retryTabId);
+    const snapshot = captureActive(retryTabOpen ? retryTabId : undefined);
+    const rawMode =
+      requestedRawMode &&
+      (!retryContext ||
+        (!!retryTabId && snapshot.contextRef.tabId === retryTabId) ||
+        (!retryTabId && snapshot.contextRef.kind === 'none'));
 
     // Read prior turns from the live store at call time — NOT the render-time
     // `activeConv` closure — so rapid successive sends don't build context from
@@ -151,7 +175,14 @@ export function ChatPanel({ onClose }: Props) {
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.text }));
 
-    useAiChatStore.getState().appendUserMessage(text, snapshot.contextRef, rawMode);
+    const userMsgId = useAiChatStore
+      .getState()
+      .appendUserMessage(text, snapshot.contextRef, rawMode);
+    const sendOpts: SendOptions = {
+      ...(opts?.forceTools ? { forceTools: true } : {}),
+      ...(opts?.agentMode ? { agentMode: true } : {}),
+    };
+    sendOptsRef.current.set(userMsgId, sendOpts);
     const assistantMsgId = useAiChatStore.getState().appendAssistantPlaceholder();
 
     const messages = buildMessages({
@@ -323,9 +354,22 @@ export function ChatPanel({ onClose }: Props) {
       return;
     }
 
-    const res = runAgentTool(tc.name, tc.input);
-    if (res.ok) toast.success(res.summary);
-    else toast.error(res.error);
+    const { result: res, undo } = applyAgentToolWithUndo(tc.name, tc.input);
+    if (res.ok) {
+      toast.success(res.summary, {
+        ...(undo
+          ? {
+              action: {
+                label: 'Undo',
+                onClick: () => {
+                  undo();
+                  toast.info('Reverted the AI change');
+                },
+              },
+            }
+          : {}),
+      });
+    } else toast.error(res.error);
     setToolCalls((prev) => prev.filter((t) => t.id !== tc.id));
 
     // Agent Mode bookkeeping: advance the loop only on success; on failure end
@@ -389,6 +433,31 @@ export function ChatPanel({ onClose }: Props) {
 
   const agentBusy = isAgentActive(agentSession);
 
+  // Regenerate the latest reply: drop the last user turn and its reply (and
+  // any proposals it made), then re-send that turn against its ORIGINAL
+  // context with its original send options. Raw mode carries over only when
+  // that same tab is re-captured (handleSend enforces it); otherwise redacted.
+  const retryLast = () => {
+    if (sendingRef.current) return;
+    const st = useAiChatStore.getState();
+    const conv = st.activeConversationId ? st.conversations[st.activeConversationId] : undefined;
+    const lastUser = conv?.messages.findLast((m) => m.role === 'user');
+    if (!lastUser) return;
+    const opts = sendOptsRef.current.get(lastUser.id) ?? {};
+    sendOptsRef.current.delete(lastUser.id);
+    setToolCalls([]);
+    appliedIdsRef.current.clear();
+    st.truncateMessagesFrom(lastUser.id);
+    void handleSendRef.current(lastUser.text, lastUser.rawMode ?? false, {
+      ...opts,
+      retryContext: lastUser.contextRef ?? { kind: 'none', capturedAt: lastUser.createdAt },
+    });
+  };
+  const activeHttpRequest = useRequestStore((s) => {
+    const req = s.tabs.find((t) => t.id === s.activeTabId)?.request;
+    return req?.type === 'http' ? req : null;
+  });
+
   return (
     <aside
       className="sp-chrome border-sp-line flex h-full flex-col border-l"
@@ -401,7 +470,7 @@ export function ChatPanel({ onClose }: Props) {
             (() => {
               const total = messages.reduce((sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0), 0);
               return total > 0 ? (
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-sp-11 text-muted-foreground">
                   Conversation cost: ${total.toFixed(4)}
                 </span>
               ) : null;
@@ -443,32 +512,79 @@ export function ChatPanel({ onClose }: Props) {
         </div>
       </header>
       <ContextPill />
-      <MessageList messages={messages} />
+      <MessageList
+        messages={messages}
+        {...(!streamingId && !agentBusy && apiKeyConfigured ? { onRetry: retryLast } : {})}
+      />
       {toolCalls.length > 0 && (
         <div className="border-t border-border/40 p-2 space-y-2 max-h-60 overflow-auto">
-          <div className="text-[10px] text-muted-foreground px-0.5">Proposed actions</div>
-          {toolCalls.map((tc) => (
-            <div key={tc.id} className="rounded-md border border-border/40 bg-muted/30 p-2">
-              <div className="flex items-center gap-1.5 text-xs font-medium">
-                <Wand2 className="h-3.5 w-3.5 text-sp-accent" /> {tc.name}
+          <div className="text-sp-11 text-muted-foreground px-0.5">Proposed actions</div>
+          {toolCalls.map((tc) => {
+            const preview = describeProposal(tc.name, tc.input, activeHttpRequest);
+            return (
+              <div
+                key={tc.id}
+                className="rounded-md border border-border/40 bg-muted/30 p-2"
+                data-testid="ai-proposal-card"
+              >
+                <div className="flex items-center gap-1.5 text-xs font-medium">
+                  <Wand2 className="h-3.5 w-3.5 text-sp-accent" aria-hidden="true" />{' '}
+                  {preview.title}
+                </div>
+                {preview.changes.length > 0 && (
+                  <ul className="mt-1 max-h-32 space-y-1 overflow-auto text-sp-11">
+                    {preview.changes.map((c, i) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: static per-render diff list
+                      <li key={`${c.label}-${i}`} className="break-words">
+                        <span className="font-medium text-sp-text">{c.label}</span>{' '}
+                        {c.before !== undefined && c.after === undefined && (
+                          <span className="text-red-600 dark:text-red-400">(removed)</span>
+                        )}
+                        {c.before === undefined && c.after !== undefined && (
+                          <span className="text-emerald-600 dark:text-emerald-400">(added)</span>
+                        )}
+                        {c.before !== undefined && (
+                          <pre className="mt-0.5 whitespace-pre-wrap rounded bg-red-500/10 px-1 text-red-700 line-through dark:text-red-300">
+                            {c.before}
+                          </pre>
+                        )}
+                        {c.after !== undefined && (
+                          <pre className="mt-0.5 whitespace-pre-wrap rounded bg-emerald-500/10 px-1 text-emerald-700 dark:text-emerald-300">
+                            {c.after}
+                          </pre>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {/* Expanded when the summary shows nothing or hid a placeholder
+                    value: the raw input is then the only full account of what
+                    Apply will do, so it must not sit behind a click. */}
+                <details
+                  className="mt-1 text-sp-11 text-muted-foreground"
+                  open={preview.changes.length === 0 || preview.suppressed}
+                  data-testid="ai-proposal-details"
+                >
+                  <summary className="cursor-pointer select-none">Details ({tc.name})</summary>
+                  <pre className="mt-1 whitespace-pre-wrap break-words max-h-24 overflow-auto">
+                    {prettyInput(tc.input)}
+                  </pre>
+                </details>
+                <div className="mt-1.5 flex gap-1.5">
+                  <Button size="sm" onClick={() => applyToolCall(tc)}>
+                    <Check className="mr-1 h-3.5 w-3.5" /> Apply
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => dismissToolCall(tc.id)}>
+                    Dismiss
+                  </Button>
+                </div>
               </div>
-              <pre className="mt-1 text-[10px] text-muted-foreground whitespace-pre-wrap break-words max-h-24 overflow-auto">
-                {prettyInput(tc.input)}
-              </pre>
-              <div className="mt-1.5 flex gap-1.5">
-                <Button size="sm" onClick={() => applyToolCall(tc)}>
-                  <Check className="mr-1 h-3.5 w-3.5" /> Apply
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => dismissToolCall(tc.id)}>
-                  Dismiss
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {agentSession && (
-        <div className="border-t border-border/40 px-3 py-2 text-[11px]">
+        <div className="border-t border-border/40 px-3 py-2 text-sp-11">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1.5">
               <Bot className="h-3.5 w-3.5 shrink-0 text-sp-accent" />
@@ -488,7 +604,7 @@ export function ChatPanel({ onClose }: Props) {
               </Button>
             )}
           </div>
-          <div className="mt-0.5 text-[10px] text-muted-foreground">
+          <div className="mt-0.5 text-sp-11 text-muted-foreground">
             {agentStatusLabel(agentSession.status)} · step {agentSession.stepCount}/
             {agentSession.maxSteps}
           </div>
@@ -519,6 +635,7 @@ export function ChatPanel({ onClose }: Props) {
           </div>
         </form>
       )}
+      {!apiKeyConfigured && <ProviderSetupCard />}
       <Composer
         // Disabled during an agent run: the agent owns the conversation, and a
         // manual send would both race its next turn and pollute the context the

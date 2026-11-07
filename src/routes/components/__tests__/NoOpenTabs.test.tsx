@@ -18,6 +18,17 @@ describe('sample collection entry points', () => {
     expect(screen.queryByRole('button', { name: 'Try sample collection' })).toBeNull();
   });
 
+  it('NoOpenTabs keeps raw-TCP protocols focusable but inert on web, with a tooltip', () => {
+    const onNewRequest = vi.fn();
+    render(<NoOpenTabs onNewRequest={onNewRequest} onOpenImport={vi.fn()} />);
+    const kafka = screen.getByRole('button', { name: /kafka/i });
+    expect(kafka).toHaveAttribute('aria-disabled', 'true');
+    expect(kafka).not.toBeDisabled();
+    expect(kafka.getAttribute('title')).toMatch(/desktop/i);
+    fireEvent.click(kafka);
+    expect(onNewRequest).not.toHaveBeenCalled();
+  });
+
   it('SidebarEmptyState renders an optional action', () => {
     const onClick = vi.fn();
     const { rerender } = render(

@@ -4,9 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { CodeEditorFrame } from '@/components/ui/spatial';
+import { Switch } from '@/components/ui/switch';
 import {
   McpArgumentField,
   type McpArgumentField as McpArgumentFieldType,
+  mcpNumberRangeError,
 } from '@/features/mcp/components/McpArgumentField';
 import { McpCompletableTextField } from '@/features/mcp/components/McpCompletableTextField';
 import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
@@ -148,8 +151,43 @@ export function flattenMcpArgumentFields(
       isComplex: type === 'object' || type === 'array',
     };
     if (sub.description !== undefined) field.description = sub.description;
+    const enumValues = sub.enum?.filter(
+      (v): v is string | number | boolean =>
+        typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+    );
+    if (enumValues && enumValues.length > 0 && !field.isComplex) {
+      field.enumValues = enumValues.map(String);
+    }
+    // `minimum`/`maximum` are standard JSON Schema but not on McpJsonSchema.
+    const bounds = sub as { minimum?: unknown; maximum?: unknown };
+    if (typeof bounds.minimum === 'number') field.minimum = bounds.minimum;
+    if (typeof bounds.maximum === 'number') field.maximum = bounds.maximum;
+    if (sub.default !== undefined) field.defaultValue = sub.default;
     return field;
   });
+}
+
+/**
+ * The schema declares no argument fields but isn't explicitly empty
+ * (`properties: {}`), e.g. `additionalProperties`, `oneOf`, or no schema — so
+ * the form can't render fields and offers raw JSON instead of claiming the
+ * tool takes no arguments.
+ */
+function needsRawArguments(schema: McpJsonSchema | undefined): boolean {
+  return !schema?.properties;
+}
+
+function parseRawArguments(
+  raw: string
+): { ok: true; value: Record<string, unknown> } | { ok: false; error: string } {
+  if (!raw.trim()) return { ok: true, value: {} };
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!isArgumentRecord(value)) return { ok: false, error: 'Arguments must be a JSON object.' };
+    return { ok: true, value };
+  } catch {
+    return { ok: false, error: 'Enter valid JSON for the arguments.' };
+  }
 }
 
 function describeMcpSchemaType(schema: McpJsonSchema | undefined): string {
@@ -176,7 +214,13 @@ function InvokeToolForm({
   onArgumentsChange?: ((args: Record<string, unknown>) => void) | undefined;
 }) {
   const fields = useMemo(() => flattenMcpArgumentFields(tool?.inputSchema), [tool]);
+  const forceRaw = needsRawArguments(tool?.inputSchema);
   const [values, setValues] = useState<Record<string, string>>({});
+  // Raw JSON mode: edit the whole arguments object as JSON (complex/unknown schemas).
+  const [rawMode, setRawMode] = useState(false);
+  const [rawText, setRawText] = useState('{}');
+  const [rawError, setRawError] = useState<string | null>(null);
+  const useRaw = rawMode || forceRaw;
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
   const [pendingArgs, setPendingArgs] = useState<Record<string, unknown> | null>(null);
@@ -194,6 +238,8 @@ function InvokeToolForm({
   useEffect(() => {
     savedArgumentsRef.current = undefined;
     editedFieldsRef.current = new Set();
+    setRawMode(false);
+    setRawError(null);
     if (!tool) {
       setValues({});
       return;
@@ -204,10 +250,13 @@ function InvokeToolForm({
     const next: Record<string, string> = {};
     if (isArgumentRecord(source)) {
       for (const field of fields) {
-        next[field.name] = valueToString(source[field.name]);
+        // An unsaved form also prefills optional fields' schema defaults.
+        const value = source[field.name] ?? (saved ? undefined : field.defaultValue);
+        next[field.name] = valueToString(value);
       }
     }
     setValues(next);
+    setRawText(JSON.stringify(isArgumentRecord(saved) ? saved : {}, null, 2));
     setValidationErrors({});
     // Seeding is not an edit: never report it, or reopening a saved request
     // would rewrite (and dirty) it. The template only persists once edited.
@@ -224,8 +273,38 @@ function InvokeToolForm({
     );
   };
 
+  const toggleRawMode = (on: boolean) => {
+    if (on) {
+      // Carry the field values over as the starting JSON.
+      setRawText(JSON.stringify(toPersistedArguments(fields, values), null, 2));
+    } else {
+      const parsed = parseRawArguments(rawText);
+      if (parsed.ok) {
+        const next: Record<string, string> = {};
+        for (const field of fields) next[field.name] = valueToString(parsed.value[field.name]);
+        setValues(next);
+      }
+    }
+    setRawError(null);
+    setRawMode(on);
+  };
+
   const handleCall = async () => {
     if (!tool) return;
+    if (useRaw) {
+      const parsed = parseRawArguments(rawText);
+      if (!parsed.ok) {
+        setRawError(parsed.error);
+        return;
+      }
+      setRawError(null);
+      if (isDestructiveTool(tool)) {
+        setPendingArgs(parsed.value);
+        return;
+      }
+      await runCall(tool, parsed.value);
+      return;
+    }
     const args: Record<string, unknown> = {};
     const nextErrors: Record<string, string> = {};
     for (const field of fields) {
@@ -237,6 +316,11 @@ function InvokeToolForm({
       const parsed = parseMcpArgument(raw, field.type);
       if (!parsed.ok) {
         nextErrors[field.name] = parsed.error;
+        continue;
+      }
+      const rangeError = mcpNumberRangeError(field, parsed.value);
+      if (rangeError) {
+        nextErrors[field.name] = rangeError;
         continue;
       }
       args[field.name] = parsed.value;
@@ -287,7 +371,42 @@ function InvokeToolForm({
         <div className="p-3 space-y-3">
           <McpToolHintBadges tool={tool} />
           {tool.description && <p className="text-sp-12 text-sp-muted">{tool.description}</p>}
-          {fields.length === 0 ? (
+          {!forceRaw && fields.length > 0 && (
+            <div className="flex items-center gap-2 text-sp-11-5 text-sp-muted">
+              <Switch aria-label="Raw JSON" checked={rawMode} onCheckedChange={toggleRawMode} />
+              <span aria-hidden="true">Raw JSON</span>
+            </div>
+          )}
+          {useRaw ? (
+            <div className="space-y-1.5">
+              {forceRaw && (
+                <p className="text-sp-11-5 text-sp-muted">
+                  This tool&rsquo;s schema doesn&rsquo;t list argument fields. Enter the arguments
+                  as a JSON object (leave <code>{'{}'}</code> for none).
+                </p>
+              )}
+              <CodeEditorFrame gutter={false} className="min-h-[120px]">
+                <textarea
+                  aria-label="Arguments (JSON)"
+                  aria-invalid={rawError !== null}
+                  value={rawText}
+                  spellCheck={false}
+                  onChange={(event) => {
+                    setRawText(event.target.value);
+                    setRawError(null);
+                    const parsed = parseRawArguments(event.target.value);
+                    if (parsed.ok) onArgumentsChange?.(parsed.value);
+                  }}
+                  className="w-full h-full min-h-[100px] bg-transparent outline-none resize-y font-mono text-sp-12 text-sp-text"
+                />
+              </CodeEditorFrame>
+              {rawError && (
+                <p className="text-sp-11-5 text-rose-400" role="alert">
+                  {rawError}
+                </p>
+              )}
+            </div>
+          ) : fields.length === 0 ? (
             <div className="text-sp-12 text-sp-dim italic">This tool takes no arguments.</div>
           ) : (
             fields.map((field) => (

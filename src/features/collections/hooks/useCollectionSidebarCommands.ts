@@ -276,10 +276,22 @@ export function useCollectionSidebarCommands() {
 
   const handleConfirmDelete = useCallback(async () => {
     if (collectionToDelete) {
-      const result = await deleteCollectionWithCleanup(collectionToDelete);
+      const name = useCollectionStore.getState().getCollectionById(collectionToDelete)?.name;
+      const result = await deleteCollectionWithCleanup(collectionToDelete, { undoable: true });
       if (!result.success) {
         toast.error('Collection was not deleted', { description: result.error });
         return;
+      }
+      const { undo } = result;
+      const label = name ? `Deleted "${name}"` : 'Collection deleted';
+      if (undo) {
+        toast.success(label, {
+          action: { label: 'Undo', onClick: undo.restore },
+          onDismiss: undo.finalize,
+          onAutoClose: undo.finalize,
+        });
+      } else {
+        toast.success(label);
       }
       setCollectionToDelete(null);
     }
@@ -311,6 +323,7 @@ export function useCollectionSidebarCommands() {
     collectionRenameValue,
     commitCollectionRename,
     commitItemRename,
+    collectionToDelete,
     deleteDialogOpen,
     directoryPickerMode,
     directoryPickerOpen,

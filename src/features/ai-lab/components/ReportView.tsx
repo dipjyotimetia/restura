@@ -8,6 +8,7 @@ import { Floater, Stat } from '@/components/ui/spatial';
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { computeElo } from '../lib/elo';
 import { newestFirst } from '../lib/newestFirst';
+import { formatReliability, METRIC_HELP } from '../lib/reliabilityFormat';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { useAgentRunLiveStore } from '../run-engine/agentRunService';
 import { type AiLabReportEnvelope, adaptEvalRunReport } from '../run-engine/reportEnvelope';
@@ -124,7 +125,8 @@ function AgentReportDetail({
         />
         <Stat
           label="Reliability"
-          value={`pass@k ${JSON.stringify(payload.summary.passAtK)} · pass^k ${JSON.stringify(payload.summary.passToK)}`}
+          value={formatReliability(payload.summary.passAtK, payload.summary.passToK)}
+          title={METRIC_HELP.passAtK}
         />
       </div>
 
@@ -167,9 +169,8 @@ function AgentReportDetail({
                   {(reliability.confidence95.high * 100).toFixed(1)}%
                 </span>
               </div>
-              <div className="text-sp-11 text-sp-muted">
-                pass@k {JSON.stringify(reliability.passAtK)} · pass^k{' '}
-                {JSON.stringify(reliability.passToK)}
+              <div className="text-sp-11 text-sp-muted" title={METRIC_HELP.passAtK}>
+                {formatReliability(reliability.passAtK, reliability.passToK)}
               </div>
               <div className="grid gap-2 text-sp-11 md:grid-cols-2">
                 <div>

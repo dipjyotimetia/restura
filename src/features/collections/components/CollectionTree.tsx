@@ -83,6 +83,8 @@ export interface TreeActions {
   toggleCollapse: (folderId: string) => void;
   /** Cmd/Ctrl-click multi-select toggle. */
   toggleSelect: (collectionId: string, itemId: string) => void;
+  /** Shift-click: select every visible item between the last anchor and this one. */
+  selectRange: (collectionId: string, itemId: string) => void;
   clearSelection: () => void;
   dragStart: (e: DragEvent, collectionId: string, itemId: string) => void;
   dragEnd: () => void;
@@ -104,26 +106,60 @@ export interface TreeState {
 
 export const selectionKey = (collectionId: string, itemId: string) => `${collectionId}:${itemId}`;
 
+/** Optional collection-header hooks for the single tree spanning all collections. */
+export interface TreeKeyboardExtras {
+  collapsedCollections?: Set<string>;
+  toggleCollectionCollapse?: (collectionId: string) => void;
+  renameCollection?: (collectionId: string) => void;
+  deleteCollection?: (collectionId: string) => void;
+}
+
+/** Roving tabindex: exactly one row in the tree is in the tab order. */
+export function setRovingRow(rows: readonly HTMLElement[], row: HTMLElement | undefined) {
+  if (!row) return;
+  for (const other of rows) if (other !== row && other.tabIndex !== -1) other.tabIndex = -1;
+  row.tabIndex = 0;
+}
+
 /**
- * Container-level keyboard navigation. Attach to the element wrapping the
- * rows of one collection: ↑/↓ move focus across visible rows, → expands a
- * collapsed folder, ← collapses, Enter/Space activate (buttons natively;
- * folder rows toggle). Rename inputs swallow their own keys.
+ * Container-level keyboard navigation for the `role="tree"` element wrapping
+ * every collection: ↑/↓/Home/End move focus across visible rows (headers
+ * included), → expands, ← collapses, Enter/Space activate, F2 renames and
+ * Delete asks to delete (the usual confirm). Rename inputs swallow their own
+ * keys.
  */
 export function handleTreeKeyDown(
   e: KeyboardEvent<HTMLElement>,
-  actions: Pick<TreeActions, 'toggleCollapse'>,
-  collapsedFolders: Set<string>
+  actions: Pick<TreeActions, 'toggleCollapse' | 'startRename' | 'deleteItem'>,
+  collapsedFolders: Set<string>,
+  extras: TreeKeyboardExtras = {}
 ) {
   if (e.target instanceof HTMLInputElement) return; // renaming — leave keys alone
+  if (e.defaultPrevented) return; // a menu/popover inside the tree handled it
   const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-tree-row]'));
   if (rows.length === 0) return;
   const active = document.activeElement as HTMLElement | null;
   const idx = active ? rows.indexOf(active) : -1;
+  // Keys from an open dropdown/context menu (React bubbles them out of Radix
+  // portals) are not tree navigation: only act when a tree row has focus.
+  if (idx === -1) return;
+  const id = active?.dataset['itemId'];
+  const type = active?.dataset['itemType'];
+  const collectionId = active?.dataset['collectionId'];
 
   const focusRow = (i: number) => {
     const row = rows[Math.max(0, Math.min(rows.length - 1, i))];
+    setRovingRow(rows, row);
     row?.focus();
+  };
+  const isCollapsed = () =>
+    type === 'collection'
+      ? Boolean(id && extras.collapsedCollections?.has(id))
+      : Boolean(id && collapsedFolders.has(id));
+  const toggle = () => {
+    if (!id) return;
+    if (type === 'collection') extras.toggleCollectionCollapse?.(id);
+    else if (type === 'folder') actions.toggleCollapse(id);
   };
 
   switch (e.key) {
@@ -135,31 +171,46 @@ export function handleTreeKeyDown(
       e.preventDefault();
       focusRow(idx <= 0 ? 0 : idx - 1);
       break;
-    case 'ArrowRight': {
-      const id = active?.dataset['itemId'];
-      if (id && active?.dataset['itemType'] === 'folder' && collapsedFolders.has(id)) {
+    case 'Home':
+      e.preventDefault();
+      focusRow(0);
+      break;
+    case 'End':
+      e.preventDefault();
+      focusRow(rows.length - 1);
+      break;
+    case 'ArrowRight':
+      if ((type === 'folder' || type === 'collection') && isCollapsed()) {
         e.preventDefault();
-        actions.toggleCollapse(id);
+        toggle();
       }
       break;
-    }
-    case 'ArrowLeft': {
-      const id = active?.dataset['itemId'];
-      if (id && active?.dataset['itemType'] === 'folder' && !collapsedFolders.has(id)) {
+    case 'ArrowLeft':
+      if ((type === 'folder' || type === 'collection') && !isCollapsed()) {
         e.preventDefault();
-        actions.toggleCollapse(id);
+        toggle();
       }
       break;
-    }
     case 'Enter':
-    case ' ': {
+    case ' ':
       // Request rows are <button>s — the browser activates them natively.
-      if (active?.dataset['itemType'] === 'folder' && active.dataset['itemId']) {
+      if (type === 'folder' || type === 'collection') {
         e.preventDefault();
-        actions.toggleCollapse(active.dataset['itemId']);
+        toggle();
       }
       break;
-    }
+    case 'F2':
+      if (!id) break;
+      e.preventDefault();
+      if (type === 'collection') extras.renameCollection?.(id);
+      else actions.startRename(id, active?.dataset['itemName'] ?? '');
+      break;
+    case 'Delete':
+      if (!id) break;
+      e.preventDefault();
+      if (type === 'collection') extras.deleteCollection?.(id);
+      else if (collectionId) actions.deleteItem(collectionId, id);
+      break;
   }
 }
 
@@ -365,6 +416,10 @@ const FolderRow = memo(function FolderRow({
   const handleClick = (e: MouseEvent) => {
     e.stopPropagation();
     if (isRenaming) return;
+    if (e.shiftKey) {
+      actions.selectRange(collectionId, item.id);
+      return;
+    }
     if (e.metaKey || e.ctrlKey) {
       actions.toggleSelect(collectionId, item.id);
       return;
@@ -386,14 +441,20 @@ const FolderRow = memo(function FolderRow({
             data-tree-row
             data-item-id={item.id}
             data-item-type="folder"
-            tabIndex={0}
-            role="button"
+            data-item-name={item.name}
+            data-collection-id={collectionId}
+            tabIndex={-1}
+            role="treeitem"
+            aria-level={depth + 2}
             aria-expanded={!isCollapsed}
+            aria-selected={isSelected}
             draggable={!isRenaming}
             onClick={handleClick}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
+                // Handled here — keep the tree container from toggling it again.
+                e.stopPropagation();
                 if (isRenaming) return;
                 actions.clearSelection();
                 actions.toggleCollapse(item.id);
@@ -542,6 +603,10 @@ const RequestRow = memo(function RequestRow({
   const handleClick = (e: MouseEvent) => {
     e.stopPropagation();
     if (isRenaming) return;
+    if (e.shiftKey) {
+      actions.selectRange(collectionId, item.id);
+      return;
+    }
     if (e.metaKey || e.ctrlKey) {
       actions.toggleSelect(collectionId, item.id);
       return;
@@ -564,6 +629,12 @@ const RequestRow = memo(function RequestRow({
             data-tree-row
             data-item-id={item.id}
             data-item-type="request"
+            data-item-name={item.name}
+            data-collection-id={collectionId}
+            tabIndex={-1}
+            role="treeitem"
+            aria-level={depth + 2}
+            aria-selected={isSelected}
             draggable={!isRenaming}
             onDragStart={(e) => actions.dragStart(e, collectionId, item.id)}
             onDragEnd={actions.dragEnd}
@@ -666,13 +737,15 @@ export function CollectionTreeItems({
             <div key={item.id} className="space-y-1">
               <FolderRow {...common} isCollapsed={isCollapsed} />
               {!isCollapsed && item.items && item.items.length > 0 && (
-                <CollectionTreeItems
-                  collectionId={collectionId}
-                  items={item.items}
-                  depth={depth + 1}
-                  state={state}
-                  actions={actions}
-                />
+                <div role="group" aria-label={`${item.name} items`} className="space-y-1">
+                  <CollectionTreeItems
+                    collectionId={collectionId}
+                    items={item.items}
+                    depth={depth + 1}
+                    state={state}
+                    actions={actions}
+                  />
+                </div>
               )}
             </div>
           );

@@ -1,4 +1,4 @@
-import { Play, Square } from 'lucide-react';
+import { Code2, Play, Square } from 'lucide-react';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { CountToggle, MethodChip } from '@/components/ui/spatial';
@@ -12,9 +12,12 @@ export interface SseUrlBarProps {
   isConnecting: boolean;
   onStream: () => void;
   onStop: () => void;
-  headerCount: number;
+  /** Configured headers, params, auth and non-default reconnect settings. */
+  optionCount: number;
   headersOpen: boolean;
   onToggleHeaders: () => void;
+  /** Open the "Generate code" dialog (EventSource / fetch / cURL). */
+  onCode?: () => void;
 }
 
 /**
@@ -29,9 +32,10 @@ export function SseUrlBar({
   isConnecting,
   onStream,
   onStop,
-  headerCount,
+  optionCount,
   headersOpen,
   onToggleHeaders,
+  onCode,
 }: SseUrlBarProps) {
   const showStop = isStreaming || isConnecting;
   const canStream = !showStop && url.trim().length > 0;
@@ -55,11 +59,23 @@ export function SseUrlBar({
       />
 
       <CountToggle
-        label="Headers"
-        count={headerCount}
+        label="Options"
+        count={optionCount}
         expanded={headersOpen}
         onToggle={onToggleHeaders}
       />
+
+      {onCode && (
+        <button
+          type="button"
+          onClick={onCode}
+          aria-label="Generate code"
+          title="Generate code for this stream"
+          className="h-8 w-8 inline-flex items-center justify-center shrink-0 rounded-sp-btn text-sp-muted hover:text-sp-text hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+        >
+          <Code2 className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      )}
 
       {showStop ? (
         <button

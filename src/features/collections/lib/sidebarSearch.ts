@@ -40,6 +40,21 @@ function pruneItems(items: CollectionItem[], q: string): CollectionItem[] {
   return out;
 }
 
+/** History filter value naming a whole protocol (vs. a bare HTTP method like `GET`). */
+export const PROTOCOL_FILTER_PREFIX = 'protocol:';
+
+/**
+ * Whether a history entry passes the sidebar chip filter: `null` keeps all,
+ * `protocol:<type>` keeps that protocol, anything else is an HTTP method.
+ */
+export function historyItemMatchesFilter(item: HistoryItem, filter: string | null): boolean {
+  if (!filter) return true;
+  if (filter.startsWith(PROTOCOL_FILTER_PREFIX)) {
+    return item.request.type === filter.slice(PROTOCOL_FILTER_PREFIX.length);
+  }
+  return item.request.type === 'http' && item.request.method === filter;
+}
+
 /** Whether a history entry matches the sidebar search text. */
 export function historyItemMatches(item: HistoryItem, query: string): boolean {
   const q = query.trim().toLowerCase();

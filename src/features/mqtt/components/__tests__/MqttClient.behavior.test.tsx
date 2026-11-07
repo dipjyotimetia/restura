@@ -79,6 +79,10 @@ describe('MqttClient shell', () => {
   it('shows the desktop-only panel in the browser', () => {
     hoisted.isElectron.mockReturnValue(false);
     render(<MqttClient />);
+    expect(screen.getByRole('link', { name: /Download the desktop app/ })).toHaveAttribute(
+      'href',
+      'https://github.com/dipjyotimetia/restura/releases/latest'
+    );
     expect(screen.getByText('MQTT is a desktop-only feature')).toBeTruthy();
   });
 
@@ -86,7 +90,6 @@ describe('MqttClient shell', () => {
     useRequestStore.setState({ activeTabId: null });
     render(<MqttClient />);
     expect(screen.getByText(/No connection/)).toBeTruthy();
-    expect((screen.getByTitle('Pause log') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it.each([
@@ -110,19 +113,18 @@ describe('MqttClient shell', () => {
     expect(screen.getByRole('button', { name: /Connect/ })).toBeTruthy();
   });
 
-  it('pauses and resumes the log, disconnects and deletes the connection', async () => {
+  it('freezes and resumes the log, disconnects and deletes the connection', async () => {
     const id = seed({ status: 'connected' });
     render(<MqttClient />);
-    fireEvent.click(screen.getByTitle('Pause log'));
-    expect(screen.getByText('Resume')).toBeTruthy();
-    expect(screen.getByText('Paused')).toBeTruthy();
-    fireEvent.click(screen.getByTitle('Resume log'));
-    expect(screen.getByText('Pause')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Freeze message view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resume live messages' }));
+    expect(screen.getByRole('button', { name: 'Freeze message view' })).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Disconnect/ }));
     await waitFor(() => expect(hoisted.disconnect).toHaveBeenCalledWith(id));
 
-    fireEvent.click(screen.getByTitle('Delete connection'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete connection' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(useMqttStore.getState().connections[id]).toBeUndefined());
   });
 });
@@ -145,7 +147,7 @@ describe('MqttClient messages', () => {
     expect(screen.getByText('Messages (2)')).toBeTruthy();
     fireEvent.click(screen.getByText('one'));
     expect(screen.getByText('Message')).toBeTruthy();
-    fireEvent.click(screen.getByText('Pause'));
+    fireEvent.click(screen.getByRole('button', { name: 'Freeze message view' }));
     act(() => {
       addMessage(id, {
         direction: 'received',
@@ -155,9 +157,9 @@ describe('MqttClient messages', () => {
         retain: false,
       });
     });
-    // paused: the snapshot excludes the new message
+    // frozen: the cutoff excludes the new message
     expect(screen.queryByText('three')).toBeNull();
-    fireEvent.click(screen.getByText('Resume'));
+    fireEvent.click(screen.getByRole('button', { name: 'Resume live messages' }));
     expect(screen.getByText('three')).toBeTruthy();
 
     change(screen.getByPlaceholderText('Search topic, payload'), 'two');

@@ -17,7 +17,7 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import type { DragEvent, RefObject } from 'react';
+import { type DragEvent, type RefObject, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -33,11 +33,13 @@ import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/shared/utils';
 import type { Collection, MockServerStatus } from '@/types';
+import { useRevealActiveCollection } from '../hooks/useRevealActiveCollection';
 import { addSampleCollection } from '../lib/addSampleCollection';
 import { countRequests } from '../lib/countRequests';
 import {
   CollectionTreeItems,
   handleTreeKeyDown,
+  setRovingRow,
   type TreeActions,
   type TreeState,
 } from './CollectionTree';
@@ -90,6 +92,12 @@ interface SidebarCollectionsPanelProps {
   onSetDropTarget: (id: string | null) => void;
 }
 
+function makeCollectionTabStop(row: HTMLElement): void {
+  const tree = row.closest('[role="tree"]');
+  if (!tree) return;
+  setRovingRow(Array.from(tree.querySelectorAll<HTMLElement>('[data-tree-row]')), row);
+}
+
 export function SidebarCollectionsPanel({
   collections,
   collapsedCollections,
@@ -131,6 +139,16 @@ export function SidebarCollectionsPanel({
   onCancelCollectionRename,
   onSetDropTarget,
 }: SidebarCollectionsPanelProps) {
+  // Roving tabindex: rows render tabIndex=-1; keep exactly one row (the last
+  // focused, else the first) in the tab order as the tree changes.
+  const treeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+    const rows = Array.from(tree.querySelectorAll<HTMLElement>('[data-tree-row]'));
+    if (!rows.some((row) => row.tabIndex === 0)) setRovingRow(rows, rows[0]);
+  });
+  useRevealActiveCollection(treeRef, makeCollectionTabStop);
   return (
     <TabsContent value="collections" className="flex-1 overflow-auto p-3 mt-0 min-h-0">
       <div className="flex flex-col gap-2">
@@ -162,7 +180,34 @@ export function SidebarCollectionsPanel({
             })}
           />
         ) : (
-          <Stagger className="flex flex-col" initial={staggerInitial}>
+          <Stagger
+            ref={treeRef}
+            role="tree"
+            aria-label="Collections"
+            aria-multiselectable="true"
+            className="flex flex-col"
+            initial={staggerInitial}
+            onKeyDown={(event: React.KeyboardEvent<HTMLElement>) =>
+              handleTreeKeyDown(event, treeActions, collapsedFolders, {
+                collapsedCollections,
+                toggleCollectionCollapse: onToggleCollectionCollapse,
+                renameCollection: (collectionId) => {
+                  const target = collections.find((c) => c.id === collectionId);
+                  if (target) onStartCollectionRename(target.id, target.name);
+                },
+                deleteCollection: onDeleteCollection,
+              })
+            }
+            onFocus={(event: React.FocusEvent<HTMLElement>) => {
+              const row = (event.target as HTMLElement).closest<HTMLElement>('[data-tree-row]');
+              if (row && treeRef.current) {
+                setRovingRow(
+                  Array.from(treeRef.current.querySelectorAll<HTMLElement>('[data-tree-row]')),
+                  row
+                );
+              }
+            }}
+          >
             {collections.map((collection) => {
               const isCollectionCollapsed = collapsedCollections.has(collection.id);
               const toggleHeader = () => {
@@ -180,13 +225,19 @@ export function SidebarCollectionsPanel({
                     onDragOver={() => onCollectionDragOver(collection.id)}
                   >
                     <div
-                      role="button"
-                      tabIndex={0}
+                      data-tree-row
+                      data-item-id={collection.id}
+                      data-item-type="collection"
+                      role="treeitem"
+                      aria-level={1}
+                      aria-selected={false}
+                      tabIndex={-1}
                       aria-expanded={!isCollectionCollapsed}
                       onClick={toggleHeader}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
+                          event.stopPropagation();
                           toggleHeader();
                         }
                       }}
@@ -267,7 +318,6 @@ export function SidebarCollectionsPanel({
                         )
                       }
                       onDrop={(event) => onDropToRoot(event, collection.id)}
-                      onKeyDown={(event) => handleTreeKeyDown(event, treeActions, collapsedFolders)}
                     >
                       {collection.items.length > 0 ? (
                         <div className="space-y-0.5">

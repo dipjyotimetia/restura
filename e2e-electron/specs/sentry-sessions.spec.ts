@@ -59,8 +59,8 @@ function cacheContains(value: string): boolean {
 }
 
 async function dismissOnboarding(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Skip Tour' }).click();
-  await page.getByRole('button', { name: 'Get Started' }).click();
+  // Desktop first run shows the welcome screen (the tour no longer auto-opens).
+  await page.getByRole('button', { name: 'Skip to workspace' }).click();
 }
 
 async function launch(): Promise<{ electronApp: ElectronApplication; page: Page }> {
@@ -165,9 +165,9 @@ test('opting out in onboarding persists, and a relaunch sends nothing at all', a
   mkdirSync(profile, { recursive: true });
 
   const first = await launch();
-  await first.page.getByRole('button', { name: 'Skip Tour' }).click();
+  // The first-run welcome carries the same consent switch the tour did.
   await first.page.getByRole('switch', { name: 'Send crash and error reports' }).click();
-  await first.page.getByRole('button', { name: 'Get Started' }).click();
+  await first.page.getByRole('button', { name: 'Skip to workspace' }).click();
   await first.page.waitForTimeout(SETTLE_MS);
   await first.electronApp.close();
   await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));

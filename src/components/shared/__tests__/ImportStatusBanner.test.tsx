@@ -147,6 +147,46 @@ describe('ImportStatusBanner', () => {
     expect(screen.getByText('… and 9 more')).toBeInTheDocument();
   });
 
+  it('names the imported collection on success', () => {
+    render(
+      <ImportStatusBanner
+        status="success"
+        warnings={[]}
+        environmentOnlyName={null}
+        collectionName="Billing"
+        errorMessage=""
+        onDismiss={vi.fn()}
+      />
+    );
+    expect(screen.getByText('Imported "Billing"')).toBeInTheDocument();
+  });
+
+  it('expands past the 20-warning cap and copies all warnings', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const warnings = Array.from({ length: 25 }, (_, index) => ({
+      kind: 'unsupported-method' as const,
+      method: `M${index}`,
+      requestName: `R${index}`,
+    }));
+    render(
+      <ImportStatusBanner
+        status="success"
+        warnings={warnings}
+        environmentOnlyName={null}
+        errorMessage=""
+        onDismiss={vi.fn()}
+      />
+    );
+    expect(screen.queryByText(/"M24"/)).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Show all 25' }));
+    expect(screen.getByText(/"M24"/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Copy warnings' }));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('"M24"'));
+    expect(writeText.mock.calls[0]?.[0].split('\n')).toHaveLength(25);
+  });
+
   it('shows generic success and import failure feedback', () => {
     const { rerender } = render(
       <ImportStatusBanner

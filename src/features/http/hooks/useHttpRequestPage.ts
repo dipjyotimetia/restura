@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
@@ -110,6 +110,70 @@ function reportFailure(originTabId: string, message: string) {
   else toast.error(`Request failed: ${message}`, { id: 'request', duration: 5000 });
 }
 
+/**
+ * One in-flight send per tab: tabId → its abort controller. Module-scoped so a
+ * request keeps its controller across a builder remount (switching to a gRPC
+ * tab and back), and per tab so Cancel only aborts the visible tab's send and
+ * other tabs can send meanwhile. Doubles as the synchronous in-flight latch.
+ */
+const inFlightSends = new Map<string, AbortController>();
+
+/**
+ * `raw` set aside when a body type switch crosses the binary boundary, keyed
+ * by request id and side (text / binary), so switching back restores it.
+ * In-memory only: the request itself never carries both.
+ */
+const crossBinaryStash = new Map<string, string>();
+const stashKey = (requestId: string, binary: boolean) =>
+  `${requestId}:${binary ? 'binary' : 'text'}`;
+/** Binary sides hold base64 file contents: keep only the most recent few. */
+export const MAX_BODY_STASH_ENTRIES = 16;
+export function stashCrossBinaryBody(key: string, raw: string): void {
+  crossBinaryStash.delete(key); // re-insert as most recent
+  crossBinaryStash.set(key, raw);
+  while (crossBinaryStash.size > MAX_BODY_STASH_ENTRIES) {
+    const oldest = crossBinaryStash.keys().next().value;
+    if (oldest === undefined) break;
+    crossBinaryStash.delete(oldest);
+  }
+}
+/** Test seam. */
+export function bodyStashSize(): number {
+  return crossBinaryStash.size;
+}
+
+/**
+ * Remove a params / headers row with an Undo toast. Undo re-inserts the row at
+ * its old position in the tab it was removed from (even after a tab switch),
+ * keeping any edits made to the other rows since.
+ */
+function removeRowWithUndo(field: 'params' | 'headers', id: string, noun: string): void {
+  const store = useRequestStore.getState();
+  const tabId = store.activeTabId;
+  const request = store.tabs.find((tab) => tab.id === tabId)?.request;
+  if (!tabId || request?.type !== 'http') return;
+  const rows = request[field];
+  const index = rows.findIndex((row) => row.id === id);
+  const removed = rows[index];
+  if (!removed) return;
+  if (!store.updateRequestForTab(tabId, { [field]: rows.filter((row) => row.id !== id) })) return;
+  const name = removed.key.trim();
+  toast.success(name ? `Removed ${noun} ${name}` : `Removed ${noun}`, {
+    action: {
+      label: 'Undo',
+      onClick: () => {
+        const current = useRequestStore.getState().tabs.find((tab) => tab.id === tabId)?.request;
+        if (current?.type !== 'http') return;
+        const list = current[field];
+        if (list.some((row) => row.id === id)) return;
+        const next = [...list];
+        next.splice(Math.min(index, next.length), 0, removed);
+        useRequestStore.getState().updateRequestForTab(tabId, { [field]: next });
+      },
+    },
+  });
+}
+
 const isStreamTerminal = (event: HttpStreamEvent) => event.type === 'end' || event.type === 'error';
 
 type ScriptOutcome = Pick<
@@ -193,17 +257,17 @@ export function useHttpRequestPage() {
   const globalSettings = useSettingsStore((s) => s.settings);
   const addEntry = useConsoleStore((s) => s.addEntry);
 
-  const {
-    handleAdd: addParam,
-    handleUpdate: updateParam,
-    handleDelete: removeParam,
-  } = useKeyValueCollection(httpRequest?.params ?? [], (params) => updateRequest({ params }));
+  const { handleAdd: addParam, handleUpdate: updateParam } = useKeyValueCollection(
+    httpRequest?.params ?? [],
+    (params) => updateRequest({ params })
+  );
+  const removeParam = useCallback((id: string) => removeRowWithUndo('params', id, 'parameter'), []);
 
-  const {
-    handleAdd: addHeader,
-    handleUpdate: updateHeader,
-    handleDelete: removeHeader,
-  } = useKeyValueCollection(httpRequest?.headers ?? [], (headers) => updateRequest({ headers }));
+  const { handleAdd: addHeader, handleUpdate: updateHeader } = useKeyValueCollection(
+    httpRequest?.headers ?? [],
+    (headers) => updateRequest({ headers })
+  );
+  const removeHeader = useCallback((id: string) => removeRowWithUndo('headers', id, 'header'), []);
 
   const getEffectiveSettings = useCallback(
     (): RequestSettings => resolveEffectiveSettings(httpRequest?.settings, globalSettings),
@@ -214,16 +278,17 @@ export function useHttpRequestPage() {
   // (sonner's live region); a real response only shows visually, so announce it.
   const { announceRequestComplete } = useRequestAnnouncements();
 
-  // Aborts the in-flight send; the executor honours the signal end to end.
-  const abortRef = useRef<AbortController | null>(null);
-  // Cancels the send in flight, or else the active tab's running stream.
+  // Cancels the active tab's send in flight, or else its running stream. The
+  // executor honours the abort signal end to end.
   const cancelRequest = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
+    const tabId = useRequestStore.getState().activeTabId;
+    if (!tabId) return;
+    const controller = inFlightSends.get(tabId);
+    if (controller) {
+      controller.abort();
       return;
     }
-    const tabId = useRequestStore.getState().activeTabId;
-    if (tabId) useActiveStreamStore.getState().stop(tabId);
+    useActiveStreamStore.getState().stop(tabId);
   }, []);
 
   // The interactive Send delegates to the shared `executeRequest` — the same
@@ -235,33 +300,34 @@ export function useHttpRequestPage() {
   // executor; this hook owns only page concerns (toasts, response panel,
   // history, console, persisting refreshed auth / collection var mutations).
   const sendRequest = useCallback(async () => {
-    // `abortRef` is the synchronous in-flight latch: `isLoading` is the render
-    // closure's value, so two sends fired before a re-render would both pass it
-    // and the second would orphan the first one's controller.
-    if (!httpRequest?.url || isLoading || abortRef.current) return;
+    if (!httpRequest?.url) return;
     const originTabId = useRequestStore.getState().activeTabId;
     if (!originTabId) return;
+    // `inFlightSends` is the synchronous per-tab in-flight latch: `isLoading`
+    // is the render closure's value, so two sends fired before a re-render
+    // would both pass it and the second would orphan the first's controller.
+    if (inFlightSends.has(originTabId)) return;
     // A new send replaces this tab's response, so end a stream still running.
     useActiveStreamStore.getState().stop(originTabId);
 
     const controller = new AbortController();
-    abortRef.current = controller;
-    setLoading(true);
+    inFlightSends.set(originTabId, controller);
+    setLoading(true, originTabId);
     useUiStore
       .getState()
       .setInFlight({ tabId: originTabId, startedAt: Date.now(), cancel: () => controller.abort() });
-    // Give the page's shared loading state back (once). A streamed send does
-    // this as soon as its stream starts, so a long-lived stream never blocks
-    // sending from other tabs; it is then stopped from its panel instead.
+    // Give this tab's loading state back (once). A streamed send does this as
+    // soon as its stream starts, so a long-lived stream never blocks a new
+    // send; it is then stopped from its panel instead.
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
-      // Only the send that still owns the page's loading state may clear it.
-      if (abortRef.current !== controller) return;
-      abortRef.current = null;
-      setLoading(false);
-      useUiStore.getState().setInFlight(null);
+      // Only the send that still owns the tab's loading state may clear it.
+      if (inFlightSends.get(originTabId) !== controller) return;
+      inFlightSends.delete(originTabId);
+      setLoading(false, originTabId);
+      useUiStore.getState().clearInFlight(originTabId);
     };
     // Drop the previous run's script output so the Tests/Visualize tabs never
     // show stale results next to a send that ran no scripts or failed.
@@ -434,7 +500,8 @@ export function useHttpRequestPage() {
       // User cancelled: not a failure, so no error response or history entry.
       if (controller.signal.aborted) {
         // A stream replaced by a newer send: that send owns the toast now.
-        if (abortRef.current === null || abortRef.current === controller) {
+        const owner = inFlightSends.get(originTabId);
+        if (owner === undefined || owner === controller) {
           toast.info('Request cancelled', { id: 'request', duration: 2000 });
         }
         return;
@@ -475,7 +542,6 @@ export function useHttpRequestPage() {
     }
   }, [
     httpRequest,
-    isLoading,
     setLoading,
     resolveVariables,
     setScriptResultForTab,
@@ -609,10 +675,29 @@ export function useHttpRequestPage() {
       if (!httpRequest) return;
       // `raw` is reused for binary base64; reset it crossing the binary boundary
       // so base64 never renders in the text editor and text is never base64-decoded.
-      const crossesBinary = type === 'binary' || httpRequest.body.type === 'binary';
-      updateRequest({
-        body: { ...httpRequest.body, type, ...(crossesBinary ? { raw: '' } : {}) },
-      });
+      const wasBinary = httpRequest.body.type === 'binary';
+      const crossesBinary = type !== httpRequest.body.type && (type === 'binary' || wasBinary);
+      if (!crossesBinary) {
+        updateRequest({ body: { ...httpRequest.body, type } });
+        return;
+      }
+      // Set the outgoing content aside so switching back restores it, and let
+      // the user undo a switch that cleared something.
+      const previousBody = httpRequest.body;
+      const previousRaw = previousBody.raw ?? '';
+      if (previousRaw) stashCrossBinaryBody(stashKey(httpRequest.id, wasBinary), previousRaw);
+      const restored = crossBinaryStash.get(stashKey(httpRequest.id, type === 'binary')) ?? '';
+      const tabId = useRequestStore.getState().activeTabId;
+      const applied = updateRequest({ body: { ...previousBody, type, raw: restored } });
+      if (applied && previousRaw && tabId) {
+        toast.success(wasBinary ? 'Binary file cleared' : 'Body text cleared for binary', {
+          description: 'Switch back to restore it.',
+          action: {
+            label: 'Undo',
+            onClick: () => updateRequestForTab(tabId, { body: previousBody }),
+          },
+        });
+      }
     },
     changeBodyContent: (raw: string) => {
       if (!httpRequest) return;

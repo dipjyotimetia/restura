@@ -65,7 +65,8 @@ function setup(
         connection={over.connection ?? conn(messages)}
         messageFilter="all"
         msgPerSec={1.5}
-        paused={over.paused ?? false}
+        freezeControl={over.paused ? <span>Paused</span> : null}
+        newCount={0}
         rapidStream={over.rapid ?? false}
         searchQuery=""
         selectedMessage={over.selected ?? null}

@@ -7,7 +7,7 @@
  *
  * Electron-only, like the rest of the AI assistant.
  */
-import { isLocalProvider } from '@shared/protocol/ai/types';
+import { providerReadiness } from '@/features/ai/lib/providerReadiness';
 import { useAiChatStore } from '@/features/ai/store';
 import { isElectron } from '@/lib/shared/platform';
 
@@ -56,14 +56,21 @@ export function dispatchInlineAiAction(action: InlineAiAction): void {
 }
 
 /**
- * Reactive guard for whether inline AI actions can run: Electron + a configured
- * active provider (cloud key handle present, or a local provider with a base
- * URL). Mirrors the `apiKeyConfigured` logic in ChatPanel so buttons disable in
- * exactly the cases the chat composer does.
+ * Reactive state of inline AI actions: hidden off-desktop (the assistant is
+ * Electron-only); on desktop, 'unconfigured' until the active provider is
+ * usable (shown disabled with a configure hint), else 'ready'. Uses the same
+ * readiness rule as the chat composer.
  */
-export function useAiActionsAvailable(): boolean {
+export function useAiActionsState(): 'hidden' | 'unconfigured' | 'ready' {
+  const activeProvider = useAiChatStore((s) => s.activeProvider);
   const cfg = useAiChatStore((s) => s.providerConfigs[s.activeProvider]);
-  if (!isElectron()) return false;
-  if (!cfg) return false;
-  return isLocalProvider(cfg.provider) ? !!cfg.baseUrlOverride : !!cfg.apiKeyRef?.id;
+  if (!isElectron()) return 'hidden';
+  return providerReadiness(activeProvider, cfg) === 'ready' ? 'ready' : 'unconfigured';
 }
+
+/** Whether inline AI actions can run right now (desktop + a usable provider). */
+export function useAiActionsAvailable(): boolean {
+  return useAiActionsState() === 'ready';
+}
+
+export const CONFIGURE_AI_HINT = 'Configure an AI provider in Settings → AI to use AI actions';

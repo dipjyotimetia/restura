@@ -57,6 +57,13 @@ const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1
 
 export const PARAM_GRID = '26px 1fr 1fr 1fr 26px';
 
+/** "Remove header Accept" — names the row so screen-reader users know which one goes. */
+function removeLabelFor(key: string, itemLabel: string | undefined): string {
+  const trimmed = key.trim();
+  if (trimmed) return `Remove ${itemLabel ? `${itemLabel} ` : ''}${trimmed}`;
+  return itemLabel ? `Remove empty ${itemLabel}` : 'Remove row';
+}
+
 export function ParamRow({
   row,
   onChange,
@@ -71,6 +78,7 @@ export function ParamRow({
   valueSuggestionsFor,
   keyReadOnly = false,
 }: ParamRowProps) {
+  const removeLabel = removeLabelFor(row.key, itemLabel);
   const baseInput =
     'bg-transparent outline-none text-sp-text placeholder:text-sp-dim font-mono text-sp-12 w-full px-2 py-1 focus:bg-sp-hover focus:ring-1 focus:ring-sp-accent/30 transition-colors';
 
@@ -217,7 +225,7 @@ export function ParamRow({
             type="button"
             onClick={() => onRemove?.(row.id)}
             className="text-sp-dim opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 hover:text-sp-text p-0.5 rounded-sp-chip hover:bg-sp-line-strong transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40"
-            aria-label="Remove row"
+            aria-label={removeLabel}
           >
             <X size={12} />
           </button>

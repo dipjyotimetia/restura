@@ -1,4 +1,5 @@
 import { CodeEditorFrame, TextField } from '@/components/ui/spatial';
+import { Switch } from '@/components/ui/switch';
 import { useMcpCompletionField } from '@/features/mcp/components/McpCompletionSuggestions';
 import type { McpCompleteFn } from '@/features/mcp/hooks/useMcpCompletion';
 
@@ -10,7 +11,29 @@ export interface McpArgumentField {
   isComplex: boolean;
   /** Mask the value and warn: the name/format suggests a secret (MCP elicitation). */
   sensitive?: boolean;
+  /** Allowed values (JSON Schema `enum`), rendered as a select. */
+  enumValues?: string[];
+  /** Number bounds (JSON Schema `minimum` / `maximum`). */
+  minimum?: number;
+  maximum?: number;
+  /** JSON Schema `default`, used to prefill an unsaved form. */
+  defaultValue?: unknown;
 }
+
+/** Range error for a parsed number, or null. */
+export function mcpNumberRangeError(field: McpArgumentField, value: unknown): string | null {
+  if (typeof value !== 'number') return null;
+  if (field.minimum !== undefined && value < field.minimum) {
+    return `Must be at least ${field.minimum}.`;
+  }
+  if (field.maximum !== undefined && value > field.maximum) {
+    return `Must be at most ${field.maximum}.`;
+  }
+  return null;
+}
+
+const SELECT_CLASS =
+  'h-8 w-full rounded-sp-btn border border-sp-line bg-sp-surface-lo px-2 font-mono text-sp-12 text-sp-text outline-none focus-visible:ring-2 focus-visible:ring-[var(--sp-accent-glow-33)]';
 
 interface McpArgumentFieldProps {
   field: McpArgumentField;
@@ -47,7 +70,38 @@ export function McpArgumentField({
         )}
       </div>
       {field.description && <div className="text-sp-11-5 text-sp-muted">{field.description}</div>}
-      {field.isComplex ? (
+      {field.enumValues && field.enumValues.length > 0 ? (
+        <select
+          aria-label={field.name}
+          aria-invalid={error !== undefined}
+          aria-describedby={error ? `${field.name}-error` : undefined}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={SELECT_CLASS}
+        >
+          {(!field.required || !field.enumValues.includes(value)) && (
+            <option value="">{field.required ? 'Choose…' : '(not set)'}</option>
+          )}
+          {field.enumValues.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      ) : field.type === 'boolean' ? (
+        <div className="flex items-center gap-2">
+          <Switch
+            aria-label={field.name}
+            aria-invalid={error !== undefined}
+            aria-describedby={error ? `${field.name}-error` : undefined}
+            checked={value === 'true'}
+            onCheckedChange={(checked) => onChange(checked ? 'true' : 'false')}
+          />
+          <span className="font-mono text-sp-11 text-sp-dim">
+            {value === 'true' || value === 'false' ? value : 'not set'}
+          </span>
+        </div>
+      ) : field.isComplex ? (
         <CodeEditorFrame gutter={false} className="min-h-[100px]">
           <textarea
             aria-label={field.name}
@@ -70,7 +124,15 @@ export function McpArgumentField({
           aria-describedby={error ? `${field.name}-error` : undefined}
           aria-label={field.name}
           {...(field.sensitive ? { type: 'password', autoComplete: 'off' } : {})}
-          placeholder={field.type === 'boolean' ? 'true / false' : field.type}
+          {...(field.type === 'number' || field.type === 'integer'
+            ? {
+                type: 'number',
+                step: field.type === 'integer' ? 1 : 'any',
+                ...(field.minimum !== undefined ? { min: field.minimum } : {}),
+                ...(field.maximum !== undefined ? { max: field.maximum } : {}),
+              }
+            : {})}
+          placeholder={field.type}
           className="w-full"
           {...completion.focusProps}
         />
@@ -80,7 +142,16 @@ export function McpArgumentField({
           This looks like a secret. Restura never needs you to type passwords or keys here.
         </p>
       )}
-      {!field.isComplex && completion.suggestions}
+      {(field.minimum !== undefined || field.maximum !== undefined) && (
+        <p className="text-sp-11 text-sp-dim">
+          {field.minimum !== undefined && field.maximum !== undefined
+            ? `Between ${field.minimum} and ${field.maximum}`
+            : field.minimum !== undefined
+              ? `At least ${field.minimum}`
+              : `At most ${field.maximum}`}
+        </p>
+      )}
+      {!field.isComplex && !field.enumValues && field.type !== 'boolean' && completion.suggestions}
       {error && (
         <p id={`${field.name}-error`} className="text-sp-11-5 text-rose-400" role="alert">
           {error}

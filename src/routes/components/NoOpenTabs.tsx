@@ -1,10 +1,15 @@
 import { FolderOpen, Sparkles } from 'lucide-react';
-import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import {
+  ARIA_DISABLED_CLASSES,
+  DesktopOnlyBadge,
+  desktopOnlyGateProps,
+} from '@/components/shared/DesktopOnlyBadge';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { addSampleCollection } from '@/features/collections/lib/addSampleCollection';
 import { MODE_DESCRIPTORS, MODES_IN_MENU_ORDER } from '@/features/registry/modes';
 import { isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { RequestMode } from '@/types';
 
@@ -43,21 +48,26 @@ export function NoOpenTabs({ onNewRequest, onOpenImport }: NoOpenTabsProps) {
         </p>
       </div>
       <ul className="flex flex-wrap justify-center gap-2 max-w-lg" aria-label="New request">
-        {NEW_REQUEST_PROTOCOLS.map((p) => (
-          <li key={p.mode}>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              disabled={p.desktopOnly && !desktop}
-              onClick={() => onNewRequest(p.mode)}
-            >
-              <ProtoChip protocol={p.chip} />
-              {p.label}
-              {p.desktopOnly && !desktop && <DesktopOnlyBadge />}
-            </Button>
-          </li>
-        ))}
+        {NEW_REQUEST_PROTOCOLS.map((p) => {
+          const gated = p.desktopOnly === true && !desktop;
+          return (
+            <li key={p.mode}>
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn('gap-2', ARIA_DISABLED_CLASSES)}
+                {...desktopOnlyGateProps(gated)}
+                onClick={() => {
+                  if (!gated) onNewRequest(p.mode);
+                }}
+              >
+                <ProtoChip protocol={p.chip} />
+                {p.label}
+                {gated && <DesktopOnlyBadge />}
+              </Button>
+            </li>
+          );
+        })}
       </ul>
       <div className="flex flex-wrap justify-center gap-2">
         <Button variant="ghost" size="sm" className="gap-2" onClick={onOpenImport}>

@@ -75,6 +75,13 @@ beforeEach(() => {
 });
 
 describe('MCP stdio transport UI', () => {
+  it('shows legacy HTTP + SSE as desktop-only on web', () => {
+    const web = mcpTransportOptions(false).find((o) => o.value === 'http-sse');
+    expect(web?.disabled).toBe(true);
+    expect(web?.title).toMatch(/desktop only/i);
+    expect(mcpTransportOptions(true).find((o) => o.value === 'http-sse')?.disabled).toBeFalsy();
+  });
+
   it('offers stdio only on desktop', () => {
     expect(mcpTransportOptions(false).map((o) => o.value)).toEqual(['streamable-http', 'http-sse']);
     expect(mcpTransportOptions(true).map((o) => o.value)).toContain('stdio');

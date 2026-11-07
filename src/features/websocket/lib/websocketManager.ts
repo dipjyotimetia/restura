@@ -36,6 +36,28 @@ interface ConnectArgs {
 }
 
 // Singleton manager for WebSocket connections
+/**
+ * Browsers hide why a WebSocket handshake failed (close 1006 before `open`,
+ * with an opaque `error` event). List the likely causes so the user has
+ * somewhere to start instead of a bare "WebSocket error occurred".
+ */
+export function describeWebSocketHandshakeFailure(url: string): string {
+  const secure = url.trim().toLowerCase().startsWith('wss:');
+  const causes = [
+    'the host is unreachable or nothing is listening on that port (check the URL, VPN, firewall)',
+    ...(secure
+      ? [
+          'the TLS certificate is untrusted, expired or for another host (open the https:// URL in a tab to check)',
+        ]
+      : []),
+    'the server rejected the handshake, e.g. an Origin check, auth, or a path that is not a WebSocket endpoint',
+    'the target is a private / local network address the browser blocks; the desktop app can reach it',
+  ];
+  return `Could not open the WebSocket to ${url}. The browser does not report why; likely causes:\n${causes
+    .map((c) => `• ${c}`)
+    .join('\n')}`;
+}
+
 class WebSocketManager {
   private connections: Map<string, WebSocket> = new Map();
   private electronConnections: Set<string> = new Set();
@@ -146,6 +168,7 @@ class WebSocketManager {
 
     try {
       const ws = protocols?.length ? new WebSocket(url, protocols) : new WebSocket(url);
+      let opened = false;
 
       // Set connection timeout
       const timeoutId = setTimeout(() => {
@@ -173,6 +196,7 @@ class WebSocketManager {
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
+        opened = true;
         // Clear connection timeout
         const timeout = this.connectionTimeouts.get(connectionId);
         if (timeout) {
@@ -197,6 +221,9 @@ class WebSocketManager {
       };
 
       ws.onerror = (error) => {
+        // Before `open` the error is always followed by close(1006), which
+        // logs the actionable handshake message; don't add an opaque one.
+        if (!opened) return;
         const state = useWebSocketStore.getState();
         state.addMessage(connectionId, 'system', 'WebSocket error occurred');
         console.error('WebSocket error:', error);
@@ -204,6 +231,11 @@ class WebSocketManager {
 
       ws.onclose = (event) => {
         this.connections.delete(connectionId);
+        if (!opened && event.code === 1006) {
+          useWebSocketStore
+            .getState()
+            .addMessage(connectionId, 'system', describeWebSocketHandshakeFailure(url));
+        }
         this.handleClose(connectionId, event.code, event.reason);
       };
 

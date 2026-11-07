@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthConfig, KeyValue, SseRequest } from '@/types';
@@ -27,6 +27,7 @@ import SseClient from '@/features/sse/components/SseClient';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 
 function openSse(patch: Partial<SseRequest> = {}) {
@@ -66,6 +67,7 @@ describe('SseClient behaviour', () => {
       connections: {},
       summaries: {},
       activeConnectionId: null,
+      connectionByTabId: {},
       searchQuery: '',
     });
   });
@@ -230,13 +232,29 @@ describe('SseClient behaviour', () => {
     expect(screen.getByRole('button', { name: 'Stop SSE stream' })).toBeInTheDocument();
   });
 
-  it('disconnects the stream on unmount', async () => {
+  it('keeps a background tab streaming and gives each SSE tab its own connection', async () => {
     openSse();
+    const firstTab = useRequestStore.getState().activeTabId!;
     const { unmount } = render(<SseClient />);
     await ready();
-    const id = activeId();
+    const first = activeId();
+    act(() => {
+      useRequestStore.getState().openTab({
+        id: 'sse-2',
+        name: 'Other',
+        type: 'sse',
+        url: 'https://other.example.com/events',
+        headers: [],
+        params: [],
+        auth: { type: 'none' },
+      } as SseRequest);
+    });
+    await screen.findByDisplayValue('https://other.example.com/events');
+    const second = activeId();
+    expect(second).not.toBe(first);
     unmount();
-    expect(manager.disconnect).toHaveBeenCalledWith(id);
+    expect(manager.disconnect).not.toHaveBeenCalled();
+    expect(useSseStore.getState().connectionByTabId[firstTab]).toBe(first);
   });
 
   it('clears the log and resets the event filter to all', async () => {
@@ -275,11 +293,82 @@ describe('SseClient behaviour', () => {
     fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'abc' } });
     expect(useSseStore.getState().searchQuery).toBe('abc');
 
-    await user.click(screen.getByRole('button', { name: /Headers/ }));
+    await user.click(screen.getByRole('button', { name: /Options/ }));
     expect(screen.getByText('table:header')).toBeInTheDocument();
     await user.click(screen.getByRole('switch', { name: /Auto-reconnect/ }));
     expect(useRequestStore.getState().tabs[0]?.request).toMatchObject({ autoReconnect: false });
-    await user.click(screen.getByRole('button', { name: /Headers/ }));
+    await user.click(screen.getByRole('button', { name: /Options/ }));
     expect(screen.queryByText('table:header')).not.toBeInTheDocument();
+  });
+
+  it('counts every configured option on the Options toggle (S12)', async () => {
+    openSse({ auth: { type: 'bearer', bearer: { token: 't' } }, autoReconnect: false });
+    render(<SseClient />);
+    await ready();
+    // 1 enabled header + 1 keyed param + auth + auto-reconnect off
+    expect(screen.getByRole('button', { name: 'Options (4)' })).toBeInTheDocument();
+  });
+
+  it('confirms before sending credentials over http:// (S12)', async () => {
+    const user = userEvent.setup();
+    openSse({
+      url: 'http://stream.example.com/events',
+      auth: { type: 'bearer', bearer: { token: 'tok' } },
+    });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(manager.connect).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }));
+    expect(manager.connect).not.toHaveBeenCalled();
+  });
+
+  it('does not ask for http:// without credentials (S12)', async () => {
+    const user = userEvent.setup();
+    openSse({ url: 'http://stream.example.com/events', headers: [], params: [] });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    expect(manager.connect).toHaveBeenCalled();
+  });
+
+  it('records one redacted history entry once the stream connects (S14)', async () => {
+    const user = userEvent.setup();
+    await useHistoryStore.persist.rehydrate();
+    useHistoryStore.setState({ history: [] });
+    openSse({
+      headers: [{ id: 'h1', key: 'Authorization', value: 'Bearer inline-secret', enabled: true }],
+    });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    expect(useHistoryStore.getState().history).toHaveLength(0);
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(activeId(), 'connected');
+    });
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(activeId(), 'reconnecting');
+    });
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(activeId(), 'connected');
+    });
+    const history = useHistoryStore.getState().history;
+    expect(history).toHaveLength(1);
+    expect(history[0]?.request.type).toBe('sse');
+    expect(history[0]?.resolvedUrl).toBe('https://stream.example.com/events?topic=news');
+    expect(JSON.stringify(history[0])).not.toContain('inline-secret');
+  });
+
+  it('still records history when the stream connects after its tab went to the background', async () => {
+    const user = userEvent.setup();
+    await useHistoryStore.persist.rehydrate();
+    useHistoryStore.setState({ history: [] });
+    openSse();
+    const { unmount } = render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    const connectionId = activeId();
+    unmount(); // e.g. the user switched to a non-SSE tab before it connected
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(connectionId, 'connected');
+    });
+    expect(useHistoryStore.getState().history).toHaveLength(1);
   });
 });

@@ -54,7 +54,23 @@ function toKeyValues(pairs?: Array<{ key: string; value: string }>): KeyValue[] 
  * write: the original is kept.
  */
 const REDACTION_PLACEHOLDER = '[REDACTED]';
-const carriesPlaceholder = (value: string): boolean => value.includes(REDACTION_PLACEHOLDER);
+export const carriesPlaceholder = (value: string): boolean => value.includes(REDACTION_PLACEHOLDER);
+
+/**
+ * The (tool, field) pairs whose placeholder-carrying value is NOT written:
+ * runAgentTool keeps the current value instead. Every other field (test
+ * script, docs, create_http_request url/body/headers, update name) is applied
+ * verbatim even when it contains the placeholder — so the proposal preview
+ * must show it. Shared with proposalPreview.ts so the two cannot drift.
+ */
+const PLACEHOLDER_KEPT_FIELDS: Readonly<Record<string, ReadonlySet<string>>> = {
+  update_http_request: new Set(['url', 'body', 'headers', 'params']),
+};
+
+/** True when `value` is a placeholder that `tool` will NOT apply to `field`. */
+export function keepsCurrentValue(tool: string, field: string, value: string): boolean {
+  return (PLACEHOLDER_KEPT_FIELDS[tool]?.has(field) ?? false) && carriesPlaceholder(value);
+}
 
 /**
  * Apply a model-proposed key/value list onto the current rows. The model only
@@ -265,7 +281,7 @@ const updateHttpRequest: AgentTool = {
     }
     const kept: string[] = [];
     if (input.url !== undefined) {
-      if (carriesPlaceholder(input.url)) kept.push('url');
+      if (keepsCurrentValue('update_http_request', 'url', input.url)) kept.push('url');
       else update.url = input.url;
     }
     if (input.name !== undefined) update.name = input.name;
@@ -275,7 +291,7 @@ const updateHttpRequest: AgentTool = {
     if (input.params !== undefined) {
       update.params = mergeKeyValues(active.request.params, input.params, paramKey);
     }
-    if (input.body !== undefined && carriesPlaceholder(input.body)) {
+    if (input.body !== undefined && keepsCurrentValue('update_http_request', 'body', input.body)) {
       kept.push('body');
     } else if (input.body !== undefined) {
       // Preserve the current body type for raw-text bodies instead of forcing

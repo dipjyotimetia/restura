@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Code2,
   FlaskConical,
   PanelLeft,
   Play,
@@ -23,7 +24,6 @@ import { MCP_STDIO_WEB_ERROR } from '@/features/mcp/lib/mcpStdioLaunch';
 import type { McpConnection } from '@/features/mcp/store/useMcpStore';
 import { isCapableHere } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
-import { cn } from '@/lib/shared/utils';
 import type { AuthConfig, KeyValue, McpStdioConfig, McpTransportType } from '@/types';
 
 interface McpConnectionPanelProps {
@@ -46,19 +46,48 @@ interface McpConnectionPanelProps {
   onRefresh: () => Promise<void>;
   /** Open the era/conformance report (#911). */
   onConformance?: () => void;
+  /** Open the "Generate code" dialog (cURL / TypeScript SDK). */
+  onCode?: () => void;
 }
 
-const remoteTransportOptions: Array<{ value: McpTransportType; label: string }> = [
-  { value: 'streamable-http', label: 'Streamable HTTP' },
-  { value: 'http-sse', label: 'HTTP + SSE' },
-];
-const stdioTransportOption = { value: 'stdio' as const, label: 'stdio' };
+interface TransportOption {
+  value: McpTransportType;
+  label: string;
+  title?: string;
+  disabled?: boolean;
+}
 
-/** stdio spawns a local process: offered only where the capability exists (desktop). */
-export function mcpTransportOptions(desktop: boolean) {
-  return isCapableHere('mcp.stdio', desktop)
-    ? [...remoteTransportOptions, stdioTransportOption]
-    : remoteTransportOptions;
+const remoteTransportOptions: TransportOption[] = [
+  {
+    value: 'streamable-http',
+    label: 'Streamable HTTP',
+    title: 'Streamable HTTP — the current MCP transport',
+  },
+  {
+    value: 'http-sse',
+    label: 'HTTP + SSE',
+    title: 'HTTP + SSE — the legacy MCP transport (2024-11-05); use only for older servers',
+  },
+];
+const stdioTransportOption: TransportOption = { value: 'stdio', label: 'stdio' };
+
+const HTTP_SSE_WEB_TITLE =
+  'HTTP + SSE — desktop only. The web build supports Streamable HTTP; legacy HTTP + SSE servers need the Restura desktop app.';
+
+/**
+ * stdio spawns a local process: offered only where the capability exists
+ * (desktop). The legacy HTTP + SSE transport is desktop-only too (the web
+ * client rejects it at connect), so on web it is shown disabled with the reason.
+ */
+export function mcpTransportOptions(desktop: boolean): TransportOption[] {
+  const remote = desktop
+    ? remoteTransportOptions
+    : remoteTransportOptions.map((option) =>
+        option.value === 'http-sse'
+          ? { ...option, disabled: true, title: HTTP_SSE_WEB_TITLE }
+          : option
+      );
+  return isCapableHere('mcp.stdio', desktop) ? [...remote, stdioTransportOption] : remote;
 }
 
 /** Connection configuration and lifecycle controls. The request builder owns the client instance. */
@@ -79,6 +108,7 @@ export function McpConnectionPanel({
   onDisconnect,
   onRefresh,
   onConformance,
+  onCode,
 }: McpConnectionPanelProps) {
   const [headersOpen, setHeadersOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -204,10 +234,13 @@ export function McpConnectionPanel({
           <Segmented<McpTransportType>
             options={mcpTransportOptions(desktop)}
             value={connection.transport}
-            onChange={onTransportChange}
+            onChange={(next) => {
+              // The transport is fixed for a live connection: disconnect first.
+              if (!isConnected && !isBusy) onTransportChange(next);
+            }}
             size="sm"
             ariaLabel="MCP transport"
-            className={cn((isConnected || isBusy) && 'opacity-60 pointer-events-none')}
+            disabled={isConnected || isBusy}
           />
         </div>
         <Button
@@ -233,6 +266,18 @@ export function McpConnectionPanel({
           >
             <FlaskConical className="h-3.5 w-3.5" />
             Conformance
+          </Button>
+        )}
+        {onCode && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCode}
+            title="Generate cURL / TypeScript SDK code for this server"
+            className="h-9 px-3 text-sp-12 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line"
+          >
+            <Code2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Code
           </Button>
         )}
       </div>

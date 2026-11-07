@@ -30,12 +30,12 @@ describe('InFlightBar', () => {
   });
   afterEach(() => {
     vi.useRealTimers();
-    useUiStore.setState({ inFlight: null });
+    useUiStore.setState({ inFlightByTab: {} });
   });
 
   it('ticks the elapsed time and cancels the request in flight on this tab', () => {
     const cancel = vi.fn();
-    useUiStore.setState({ inFlight: { tabId: 'tab-1', startedAt: Date.now(), cancel } });
+    useUiStore.getState().setInFlight({ tabId: 'tab-1', startedAt: Date.now(), cancel });
     render(<InFlightBar />);
     act(() => {
       vi.advanceTimersByTime(1500);
@@ -49,9 +49,25 @@ describe('InFlightBar', () => {
     const { container, rerender } = render(<InFlightBar />);
     expect(container).toBeEmptyDOMElement();
     act(() => {
-      useUiStore.setState({ inFlight: { tabId: 'other', startedAt: Date.now(), cancel: vi.fn() } });
+      useUiStore.getState().setInFlight({ tabId: 'other', startedAt: Date.now(), cancel: vi.fn() });
     });
     rerender(<InFlightBar />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("keeps each tab's timer when two tabs are in flight at once", () => {
+    const cancelA = vi.fn();
+    const ui = useUiStore.getState();
+    ui.setInFlight({ tabId: 'tab-1', startedAt: Date.now(), cancel: cancelA });
+    // A second tab starts its own request; tab-1's entry must survive.
+    ui.setInFlight({ tabId: 'tab-2', startedAt: Date.now(), cancel: vi.fn() });
+    render(<InFlightBar />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(cancelA).toHaveBeenCalledOnce();
+    // Clearing tab-2 leaves tab-1 alone.
+    act(() => {
+      useUiStore.getState().clearInFlight('tab-2');
+    });
+    expect(screen.getByText(/Waiting for response/)).toBeInTheDocument();
   });
 });

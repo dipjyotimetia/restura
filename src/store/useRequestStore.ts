@@ -39,7 +39,14 @@ interface ScriptResults {
 interface RequestState {
   tabs: RequestTab[];
   activeTabId: string | null;
+  /**
+   * Whether the ACTIVE tab has a send in flight. Derived from `loadingTabIds`
+   * and recomputed on every tab switch / open / close, so a request running in
+   * another tab never shows as loading here.
+   */
   isLoading: boolean;
+  /** Tabs with a send in flight (in-memory only). */
+  loadingTabIds: string[];
 
   // Tab lifecycle
   openTab: (request: Request, options?: { savedRequestId?: string; switchTo?: boolean }) => string;
@@ -66,7 +73,13 @@ interface RequestState {
   setCurrentResponseForTab: (tabId: string, response: Response | null) => void;
   setScriptResult: (result: ScriptResults | null) => void;
   setScriptResultForTab: (tabId: string, result: ScriptResults | null) => void;
-  setLoading: (loading: boolean) => void;
+  /**
+   * Mark a tab's send as started/finished. `tabId` defaults to the active tab;
+   * a call without one that clears loading clears the tab the matching
+   * untagged `setLoading(true)` started on, so a tab switch mid-request can't
+   * strand it. Pass the originating tab id on completion when you have it.
+   */
+  setLoading: (loading: boolean, tabId?: string) => void;
   setDirty: (dirty: boolean) => void;
   /**
    * Attach an in-flight streaming response to the active tab. Replaces any
@@ -200,6 +213,24 @@ function patchTab(
 
 const MAX_CLOSED_TABS = 20;
 
+/** `isLoading` for a given active tab, derived from the per-tab set. */
+function loadingFor(loadingTabIds: readonly string[], activeTabId: string | null): boolean {
+  return activeTabId !== null && loadingTabIds.includes(activeTabId);
+}
+
+/**
+ * State patch for a change of tabs/active tab: drops loading entries for tabs
+ * that no longer exist and recomputes the active tab's `isLoading`.
+ */
+function activeLoadingPatch(
+  loadingTabIds: readonly string[],
+  tabs: readonly RequestTab[],
+  activeTabId: string | null
+): { loadingTabIds: string[]; isLoading: boolean } {
+  const live = loadingTabIds.filter((id) => tabs.some((t) => t.id === id));
+  return { loadingTabIds: live, isLoading: loadingFor(live, activeTabId) };
+}
+
 /** Push closed tabs onto the reopen stack without live response/stream state. */
 function rememberClosed(stack: RequestTab[], closed: RequestTab[]): RequestTab[] {
   const snapshots = closed.map(
@@ -228,10 +259,13 @@ export const useRequestStore = create<RequestState>()(
     (set, get) => {
       // Seed initial state with one blank HTTP tab so the page never renders empty.
       const initialTab = createTabFromRequest(createDefaultHttpRequest());
+      // The tab an untagged `setLoading(true)` started on (legacy callers).
+      let untaggedLoadingTabId: string | null = null;
       return {
         tabs: [initialTab],
         activeTabId: initialTab.id,
         isLoading: false,
+        loadingTabIds: [],
         closedTabs: [],
 
         openTab: (request, options = {}) => {
@@ -240,10 +274,14 @@ export const useRequestStore = create<RequestState>()(
             options.savedRequestId !== undefined ? { savedRequestId: options.savedRequestId } : {}
           );
           const switchTo = options.switchTo ?? true;
-          set((state) => ({
-            tabs: [...state.tabs, tab],
-            activeTabId: switchTo ? tab.id : state.activeTabId,
-          }));
+          set((state) => {
+            const activeTabId = switchTo ? tab.id : state.activeTabId;
+            return {
+              tabs: [...state.tabs, tab],
+              activeTabId,
+              isLoading: loadingFor(state.loadingTabIds, activeTabId),
+            };
+          });
           return tab.id;
         },
 
@@ -261,6 +299,7 @@ export const useRequestStore = create<RequestState>()(
           set({
             tabs: newTabs,
             activeTabId: nextActive,
+            ...activeLoadingPatch(state.loadingTabIds, newTabs, nextActive),
             closedTabs: rememberClosed(state.closedTabs, [state.tabs[idx] as RequestTab]),
           });
           dispatchTabCleanup([id]);
@@ -269,7 +308,7 @@ export const useRequestStore = create<RequestState>()(
         switchTab: (id) => {
           const state = get();
           if (findTabIndex(state.tabs, id) === -1) return;
-          set({ activeTabId: id });
+          set({ activeTabId: id, isLoading: loadingFor(state.loadingTabIds, id) });
         },
 
         duplicateTab: (id) => {
@@ -288,6 +327,7 @@ export const useRequestStore = create<RequestState>()(
           set((s) => ({
             tabs: [...s.tabs, tab],
             activeTabId: tab.id,
+            isLoading: false,
           }));
           return tab.id;
         },
@@ -311,6 +351,7 @@ export const useRequestStore = create<RequestState>()(
           set({
             tabs: [keep],
             activeTabId: keep.id,
+            ...activeLoadingPatch(state.loadingTabIds, [keep], keep.id),
             closedTabs: rememberClosed(state.closedTabs, removedTabs),
           });
           dispatchTabCleanup(removedTabs.map((t) => t.id));
@@ -321,6 +362,8 @@ export const useRequestStore = create<RequestState>()(
           set({
             tabs: [],
             activeTabId: null,
+            loadingTabIds: [],
+            isLoading: false,
             closedTabs: rememberClosed(state.closedTabs, state.tabs),
           });
           dispatchTabCleanup(state.tabs.map((t) => t.id));
@@ -334,9 +377,11 @@ export const useRequestStore = create<RequestState>()(
           if (removedTabs.length === 0) return;
           const kept = state.tabs.slice(0, idx + 1);
           const activeKept = kept.some((t) => t.id === state.activeTabId);
+          const nextActive = activeKept ? state.activeTabId : id;
           set({
             tabs: kept,
-            activeTabId: activeKept ? state.activeTabId : id,
+            activeTabId: nextActive,
+            ...activeLoadingPatch(state.loadingTabIds, kept, nextActive),
             closedTabs: rememberClosed(state.closedTabs, removedTabs),
           });
           dispatchTabCleanup(removedTabs.map((t) => t.id));
@@ -351,6 +396,7 @@ export const useRequestStore = create<RequestState>()(
           set({
             tabs: [...state.tabs, tab],
             activeTabId: tab.id,
+            isLoading: false,
             closedTabs: state.closedTabs.slice(0, -1),
           });
         },
@@ -463,7 +509,26 @@ export const useRequestStore = create<RequestState>()(
           }));
         },
 
-        setLoading: (loading) => set({ isLoading: loading }),
+        setLoading: (loading, tabId) => {
+          const state = get();
+          let target: string | null = tabId ?? null;
+          if (tabId === undefined) {
+            target = loading ? state.activeTabId : (untaggedLoadingTabId ?? state.activeTabId);
+            untaggedLoadingTabId = loading ? target : null;
+          }
+          // No tab to attribute it to (e.g. every tab closed): legacy flag.
+          if (target === null) {
+            set({ isLoading: loading });
+            return;
+          }
+          const has = state.loadingTabIds.includes(target);
+          const loadingTabIds = loading
+            ? has
+              ? state.loadingTabIds
+              : [...state.loadingTabIds, target]
+            : state.loadingTabIds.filter((id) => id !== target);
+          set({ loadingTabIds, isLoading: loadingFor(loadingTabIds, state.activeTabId) });
+        },
 
         setDirty: (dirty) => {
           set((s) => ({
@@ -491,6 +556,7 @@ export const useRequestStore = create<RequestState>()(
           set((state) => ({
             tabs: [...state.tabs, tab],
             activeTabId: tab.id,
+            isLoading: false,
           }));
           return tab.id;
         },

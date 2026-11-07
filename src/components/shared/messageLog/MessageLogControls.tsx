@@ -1,11 +1,13 @@
-import { Download, Pause, Play, Search, Trash2 } from 'lucide-react';
+import { AlertCircle, ArrowDown, Download, Pause, Play, Search, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { DESKTOP_RELEASES_URL as DESKTOP_APP_DOWNLOAD_URL } from '@/components/shared/WebNativeDownloadBanner';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import {
   exportLog,
   type LogDirection,
@@ -202,5 +204,110 @@ export function MessageLogToolbar({
         <Trash2 className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+/** Floating "Jump to latest" pill for a log the user has scrolled up in (see useStickToBottom). */
+export function JumpToLatestPill({ visible, onClick }: { visible: boolean; onClick: () => void }) {
+  if (!visible) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="absolute right-3 bottom-3 z-10 flex items-center gap-1 rounded-full bg-sp-accent px-3 py-1 text-sp-11 text-white shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+    >
+      <ArrowDown className="h-3 w-3" aria-hidden="true" /> Jump to latest
+    </button>
+  );
+}
+
+/** "Showing last 1,000 — N older dropped" once the rolling log cap has evicted entries. */
+export function DroppedNotice({
+  dropped,
+  max = MAX_MESSAGES_PER_CONNECTION,
+}: {
+  dropped: number | undefined;
+  max?: number;
+}) {
+  if (!dropped) return null;
+  return (
+    <div className="shrink-0 border-b border-sp-line px-3 py-1 text-sp-11 text-sp-muted">
+      Showing last {max.toLocaleString()} — {dropped.toLocaleString()} older dropped
+    </div>
+  );
+}
+
+interface ErrorLike {
+  direction: string;
+  error?: string;
+  timestamp: number;
+}
+
+/**
+ * The newest error a connect attempt produced, for an inline banner. Errors
+ * from before the last `markAttempt()` are ignored, so the banner clears as
+ * soon as the user tries again; it also hides while connecting or connected.
+ */
+export function useConnectAttemptError(
+  connectionId: string | undefined,
+  messages: readonly ErrorLike[] | undefined,
+  status: string | undefined
+) {
+  const [attempt, setAttempt] = useState<{ id: string; at: number } | null>(null);
+  const error = useMemo(() => {
+    if (!attempt || attempt.id !== connectionId || !messages) return null;
+    if (status === 'connected' || status === 'connecting') return null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (!m || m.timestamp < attempt.at) break;
+      if (m.direction === 'system' && m.error) return m.error;
+    }
+    return null;
+  }, [attempt, connectionId, messages, status]);
+  const markAttempt = () => {
+    if (connectionId) setAttempt({ id: connectionId, at: Date.now() });
+  };
+  return { error, markAttempt };
+}
+
+/** Inline alert under a connection bar showing why the last connect failed. */
+export function ConnectErrorBanner({ error }: { error: string | null }) {
+  if (!error) return null;
+  return (
+    <div
+      role="alert"
+      className="flex shrink-0 items-start gap-2 rounded-sp-btn border px-3 py-2 text-sp-12 text-sp-text"
+      style={{
+        borderColor: 'color-mix(in oklch, var(--color-danger) 40%, transparent)',
+        background: 'color-mix(in oklch, var(--color-danger) 10%, transparent)',
+      }}
+    >
+      <AlertCircle
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-danger)]"
+        aria-hidden="true"
+      />
+      <span className="min-w-0 break-words">
+        <span className="font-medium">Connection failed: </span>
+        {error}
+      </span>
+    </div>
+  );
+}
+
+/** Same destination as WebNativeDownloadBanner's "Download native app" menu. */
+export { DESKTOP_APP_DOWNLOAD_URL };
+
+/** Link to the desktop app for the desktop-only streaming protocols (Kafka, MQTT). */
+export function DesktopAppDownloadLink() {
+  return (
+    <a
+      href={DESKTOP_APP_DOWNLOAD_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 rounded-sp-btn border border-sp-line px-3 py-1.5 text-sp-12 font-medium text-sp-text hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+    >
+      <Download className="h-3.5 w-3.5" aria-hidden="true" />
+      Download the desktop app
+    </a>
   );
 }

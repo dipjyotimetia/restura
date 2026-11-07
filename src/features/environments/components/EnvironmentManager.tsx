@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useShallow } from 'zustand/react/shallow';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -25,10 +26,10 @@ import { RailPin } from '@/features/environments/components/RailPin';
 import { ScopeInspector } from '@/features/environments/components/ScopeInspector';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint as hostHint } from '@/features/environments/lib/envHint';
-import { duplicateEnvironment } from '@/features/environments/lib/environmentActions';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { Environment, KeyValue } from '@/types';
+import { duplicateEnvironment, subEnvironmentDeleteRefusal } from '../lib/environmentActions';
 
 interface EnvironmentManagerProps {
   open: boolean;
@@ -507,18 +508,21 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
   };
 
   const handleDeleteEnvironment = (id: string) => {
+    const refusal = subEnvironmentDeleteRefusal(environments, id);
+    if (refusal) return void toast.error(refusal);
     setEnvToDelete(id);
     setDeleteDialogOpen(true);
   };
 
   const confirmDeleteEnvironment = () => {
     if (envToDelete) {
-      removeEnvironment(envToDelete);
+      if (!removeEnvironment(envToDelete)) toast.error('Remove its sub-environments first.');
       setEnvToDelete(null);
     }
     setDeleteDialogOpen(false);
   };
 
+  const envToDeleteName = environments.find((environment) => environment.id === envToDelete)?.name;
   const handleAddVariable = () => {
     if (!selectedEnvId) return;
     const v: KeyValue = { id: uuidv4(), key: '', value: '', enabled: true };
@@ -782,7 +786,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         title="Delete environment"
-        description="Are you sure you want to delete this environment? This action cannot be undone and all variables in this environment will be lost."
+        description={`Delete "${envToDeleteName ?? 'this environment'}"? This action cannot be undone and all variables in this environment will be lost.`}
         confirmText="Delete"
         cancelText="Cancel"
         onConfirm={confirmDeleteEnvironment}

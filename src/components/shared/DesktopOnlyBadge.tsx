@@ -5,6 +5,27 @@ import { isElectron } from '@/lib/shared/platform';
 const DEFAULT_TITLE =
   'This feature is only available in the Electron desktop app. The web client cannot present client certificates, override the system trust store, tunnel through SOCKS, or disable TLS verification — these are restricted by the browser sandbox.';
 
+/** Tooltip for a protocol/action that only the desktop app can run. */
+export const DESKTOP_ONLY_ACTION_TITLE =
+  'Desktop only — needs the Restura desktop app (the browser cannot open raw TCP connections).';
+
+/**
+ * Props for a control that is unavailable on this platform but should stay
+ * discoverable: `aria-disabled` instead of `disabled`, so it remains focusable
+ * and hoverable and its tooltip (and any `DesktopOnlyBadge` inside) can show —
+ * a natively disabled button gets `pointer-events: none`. Callers must also
+ * make the click a no-op when `gated`.
+ */
+export function desktopOnlyGateProps(
+  gated: boolean,
+  title: string = DESKTOP_ONLY_ACTION_TITLE
+): { 'aria-disabled'?: true; title?: string } {
+  return gated ? { 'aria-disabled': true, title } : {};
+}
+
+/** Disabled look for an `aria-disabled` (still focusable) control. */
+export const ARIA_DISABLED_CLASSES = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50';
+
 interface DesktopOnlyBadgeProps {
   /** Optional override for the tooltip text. */
   title?: string;

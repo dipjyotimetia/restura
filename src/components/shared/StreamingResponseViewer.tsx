@@ -1,7 +1,8 @@
 'use client';
 
-import { ArrowDown, Pause, Play } from 'lucide-react';
+import { Pause, Play } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { JumpToLatestPill } from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
 import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
 import { WindowedList, type WindowedListHandle } from './lib/windowedList';
@@ -122,38 +123,38 @@ export function StreamingResponseViewer(props: StreamingResponseViewerProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 border-b px-3 py-2 text-sm">
+      <div className="flex items-center gap-3 border-b border-sp-line px-3 py-2 text-sm">
         <span
           className={[
             'flex items-center gap-1.5',
             status === 'streaming'
-              ? 'text-green-600'
+              ? 'text-[var(--color-success)]'
               : status === 'error'
-                ? 'text-red-600'
-                : 'text-muted-foreground',
+                ? 'text-[var(--color-danger)]'
+                : 'text-sp-muted',
           ].join(' ')}
         >
           <span
             className={[
               'inline-block size-2 rounded-full',
               status === 'streaming'
-                ? 'bg-green-500 animate-pulse'
+                ? 'bg-[var(--color-success)] animate-pulse'
                 : status === 'error'
-                  ? 'bg-red-500'
+                  ? 'bg-[var(--color-danger)]'
                   : 'bg-muted-foreground',
             ].join(' ')}
           />
           {status === 'streaming' ? 'Streaming' : status === 'error' ? 'Error' : 'Ended'}
         </span>
-        <span className="text-muted-foreground">{totalCount} events</span>
-        <span className="text-muted-foreground">{totalBytes} bytes</span>
+        <span className="text-sp-muted">{totalCount} events</span>
+        <span className="text-sp-muted">{totalBytes} bytes</span>
         <div className="flex-1" />
         {(status === 'streaming' || bufferedCount > 0) && (
           <Button
             size="sm"
             variant="ghost"
             onClick={togglePause}
-            aria-label={paused ? 'resume' : 'pause'}
+            aria-label={paused ? 'Resume' : 'Pause'}
           >
             {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
             <span className="ml-1">{paused ? 'Resume' : 'Pause'}</span>
@@ -170,19 +171,15 @@ export function StreamingResponseViewer(props: StreamingResponseViewerProps) {
           onScroll={onScroll}
           renderItem={(event, index) => <HttpStreamEventRow key={index} event={event} />}
         />
-        {showJumpPill && (
-          <button
-            type="button"
-            onClick={jumpToLatest}
-            className="absolute right-3 bottom-3 flex items-center gap-1 rounded-full bg-foreground/80 text-background px-3 py-1 text-xs shadow-lg"
-          >
-            <ArrowDown className="size-3" /> Jump to latest
-          </button>
-        )}
+        <JumpToLatestPill visible={showJumpPill} onClick={jumpToLatest} />
       </div>
 
       {errorMessage && (
-        <div className="border-t px-3 py-2 text-sm text-red-600 bg-red-50 dark:bg-red-950/30">
+        <div
+          role="alert"
+          className="border-t border-sp-line px-3 py-2 text-sm text-[var(--color-danger)]"
+          style={{ background: 'color-mix(in oklch, var(--color-danger) 10%, transparent)' }}
+        >
           {errorMessage}
         </div>
       )}
@@ -194,7 +191,7 @@ function HttpStreamEventRow({ event }: { event: HttpStreamEvent }) {
   if (event.type === 'sse') {
     const e = event.payload;
     return (
-      <div className="flex items-baseline gap-2 px-3 py-1.5 text-sm border-b border-border/30">
+      <div className="flex items-baseline gap-2 px-3 py-1.5 text-sm border-b border-sp-line">
         <span className="text-xs font-mono opacity-60">{e.event ?? 'message'}</span>
         {e.id && <span className="text-xs font-mono opacity-40">#{e.id}</span>}
         <span className="truncate font-mono text-xs">{e.data}</span>
@@ -203,28 +200,28 @@ function HttpStreamEventRow({ event }: { event: HttpStreamEvent }) {
   }
   if (event.type === 'ndjson') {
     return (
-      <div className="px-3 py-1.5 text-sm border-b border-border/30 font-mono text-xs truncate">
+      <div className="px-3 py-1.5 text-sm border-b border-sp-line font-mono text-xs truncate">
         {JSON.stringify(event.payload)}
       </div>
     );
   }
   if (event.type === 'raw') {
     return (
-      <div className="px-3 py-1.5 text-sm border-b border-border/30 font-mono text-xs whitespace-pre-wrap">
+      <div className="px-3 py-1.5 text-sm border-b border-sp-line font-mono text-xs whitespace-pre-wrap">
         {event.payload}
       </div>
     );
   }
   if (event.type === 'end') {
     return (
-      <div className="px-3 py-2 text-xs text-muted-foreground italic border-b border-border/30">
+      <div className="px-3 py-2 text-xs text-sp-muted italic border-b border-sp-line">
         ▾ Stream ended ({event.bytesRead} B in {event.durationMs}ms)
       </div>
     );
   }
   // error type — also rendered in the error footer; but show inline for context
   return (
-    <div className="px-3 py-2 text-xs text-red-600 border-b border-border/30">
+    <div className="px-3 py-2 text-xs text-[var(--color-danger)] border-b border-sp-line">
       Error: {event.error}
     </div>
   );

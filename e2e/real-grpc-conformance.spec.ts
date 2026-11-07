@@ -81,10 +81,14 @@ async function prepare(
     mimeType: 'text/plain',
     buffer: Buffer.from(CONFORMANCE_PROTO),
   });
-  // The upload fills service + first method (Unary). With no reflection from
-  // this server they stay text fields; type the method under test.
-  await expect(page.getByPlaceholder(/Service \(e\.g\./i)).toHaveValue(SERVICE);
-  await page.getByPlaceholder(/Method \(e\.g\./i).fill(call.method);
+  // The upload selects its service and first method, and lists the proto's
+  // services/methods in the picker (no reflection needed); pick the method
+  // under test from it.
+  await expect(page.getByRole('combobox', { name: 'gRPC service' })).toContainText(SERVICE);
+  await page.getByRole('combobox', { name: 'gRPC method' }).click();
+  // Options may carry a streaming-type label after the method name.
+  await page.getByRole('option', { name: new RegExp(`^${call.method}(\\s|$)`) }).click();
+  await expect(page.getByRole('combobox', { name: 'gRPC method' })).toContainText(call.method);
   await fillFirstMonacoEditor(page, call.body);
 
   if (call.metadata) {

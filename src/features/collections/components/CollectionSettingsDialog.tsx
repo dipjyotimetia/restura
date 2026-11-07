@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -298,11 +299,14 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
                   Attach an OpenAPI spec — used to generate mock server routes. Execution-time
                   response validation against the spec is not wired up yet.
                 </p>
+                <Label htmlFor="collection-contract-source" className="text-xs">
+                  Contract source
+                </Label>
                 <Select
                   value={contractSource}
                   onValueChange={(v) => setContractSource(v as ContractSource)}
                 >
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger id="collection-contract-source" className="w-48">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -313,6 +317,7 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
                 </Select>
                 {contractSource === 'url' && (
                   <Input
+                    aria-label="OpenAPI spec URL"
                     value={contractUrl}
                     onChange={(e) => setContractUrl(e.target.value)}
                     placeholder="https://example.com/openapi.yaml"
@@ -321,6 +326,7 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
                 )}
                 {contractSource === 'inline' && (
                   <Textarea
+                    aria-label="Inline OpenAPI spec"
                     value={contractInline}
                     onChange={(e) => setContractInline(e.target.value)}
                     placeholder="Paste OpenAPI YAML or JSON…"

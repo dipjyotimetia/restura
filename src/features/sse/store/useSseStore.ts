@@ -52,6 +52,8 @@ export interface SseConnection {
   reconnectDelay: number;
   createdAt: number;
   lastConnectedAt?: number;
+  /** Entries evicted by the rolling log cap since the last clear (runtime only). */
+  droppedCount?: number;
 }
 
 interface SseState {
@@ -59,12 +61,18 @@ interface SseState {
   /** Transient aggregates for rendering active streams without rescanning their logs. */
   summaries: Record<string, SseStreamSummary>;
   activeConnectionId: string | null;
+  /** Each SSE tab owns its own stream, so background tabs keep streaming. */
+  connectionByTabId: Record<string, string>;
 
   searchQuery: string;
 
   createConnection: () => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
+  /** Returns the tab's connection, creating it on first use, and marks it active. */
+  ensureConnectionForTab: (tabId: string) => string;
+  /** Removes the tab's connection (the caller disconnects the stream first). */
+  cleanupConnectionForTab: (tabId: string) => void;
 
   updateConnectionStatus: (id: string, status: SseConnectionStatus) => void;
   setReconnectAttempts: (id: string, attempts: number) => void;
@@ -86,12 +94,30 @@ const DEFAULT_MAX_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_RECONNECT_DELAY = 1000;
 const MAX_LOG_PER_CONNECTION = 1000;
 
+function capLog(
+  log: SseLogEntry[],
+  dropped: number | undefined
+): { log: SseLogEntry[]; droppedCount: number; trimmed: boolean } {
+  const over = log.length - MAX_LOG_PER_CONNECTION;
+  if (over <= 0) return { log, droppedCount: dropped ?? 0, trimmed: false };
+  return { log: log.slice(over), droppedCount: (dropped ?? 0) + over, trimmed: true };
+}
+
+/** True when some tab still maps to this connection id. */
+export function isMappedConnection(
+  connectionByTabId: Readonly<Record<string, string>>,
+  connectionId: string
+): boolean {
+  return Object.values(connectionByTabId).includes(connectionId);
+}
+
 export const useSseStore = create<SseState>()(
   persist(
     (set, get) => ({
       connections: {},
       summaries: {},
       activeConnectionId: null,
+      connectionByTabId: {},
       searchQuery: '',
 
       createConnection: () => {
@@ -120,11 +146,41 @@ export const useSseStore = create<SseState>()(
           return {
             connections: rest,
             summaries,
+            connectionByTabId: Object.fromEntries(
+              Object.entries(s.connectionByTabId).filter(([, cid]) => cid !== id)
+            ),
             activeConnectionId: s.activeConnectionId === id ? null : s.activeConnectionId,
           };
         }),
 
       setActiveConnection: (id) => set({ activeConnectionId: id }),
+
+      ensureConnectionForTab: (tabId) => {
+        const existing = get().connectionByTabId[tabId];
+        if (existing && get().connections[existing]) {
+          if (get().activeConnectionId !== existing) set({ activeConnectionId: existing });
+          return existing;
+        }
+        const id = get().createConnection();
+        set((s) => ({ connectionByTabId: { ...s.connectionByTabId, [tabId]: id } }));
+        return id;
+      },
+
+      cleanupConnectionForTab: (tabId) => {
+        const connectionId = get().connectionByTabId[tabId];
+        if (!connectionId) return;
+        set((s) => {
+          const { [connectionId]: _drop, ...connections } = s.connections;
+          const { [connectionId]: _dropSummary, ...summaries } = s.summaries;
+          const { [tabId]: _dropTab, ...connectionByTabId } = s.connectionByTabId;
+          return {
+            connections,
+            summaries,
+            connectionByTabId,
+            activeConnectionId: s.activeConnectionId === connectionId ? null : s.activeConnectionId,
+          };
+        });
+      },
 
       updateConnectionStatus: (id, status) =>
         set((s) => {
@@ -167,9 +223,11 @@ export const useSseStore = create<SseState>()(
             ...(event.retry !== undefined ? { retry: event.retry } : {}),
             timestamp: Date.now(),
           };
-          let log = [...c.log, record];
-          const logWasTrimmed = log.length > MAX_LOG_PER_CONNECTION;
-          if (logWasTrimmed) log = log.slice(-MAX_LOG_PER_CONNECTION);
+          const {
+            log,
+            droppedCount,
+            trimmed: logWasTrimmed,
+          } = capLog([...c.log, record], c.droppedCount);
           // Mirror to the unified console so SSE events show up alongside
           // WS/Kafka frames in the Frames tab (same pattern as useWebSocketStore).
           useConsoleStore.getState().addFrame({
@@ -194,6 +252,7 @@ export const useSseStore = create<SseState>()(
           const next: SseConnection = {
             ...c,
             log,
+            droppedCount,
             ...(event.lastEventId !== undefined ? { lastEventId: event.lastEventId } : {}),
           };
           const summary = logWasTrimmed
@@ -218,8 +277,7 @@ export const useSseStore = create<SseState>()(
             message,
             timestamp: Date.now(),
           };
-          let log = [...c.log, entry];
-          if (log.length > MAX_LOG_PER_CONNECTION) log = log.slice(-MAX_LOG_PER_CONNECTION);
+          const { log, droppedCount } = capLog([...c.log, entry], c.droppedCount);
           useConsoleStore.getState().addFrame({
             timestamp: entry.timestamp,
             protocol: 'sse',
@@ -234,7 +292,7 @@ export const useSseStore = create<SseState>()(
             direction: 'system',
             payload: message,
           });
-          return { connections: { ...s.connections, [connectionId]: { ...c, log } } };
+          return { connections: { ...s.connections, [connectionId]: { ...c, log, droppedCount } } };
         }),
 
       clearLog: (connectionId) =>
@@ -242,7 +300,7 @@ export const useSseStore = create<SseState>()(
           const c = s.connections[connectionId];
           if (!c) return s;
           return {
-            connections: { ...s.connections, [connectionId]: { ...c, log: [] } },
+            connections: { ...s.connections, [connectionId]: { ...c, log: [], droppedCount: 0 } },
             summaries: { ...s.summaries, [connectionId]: createSseStreamSummary() },
           };
         }),
@@ -279,27 +337,32 @@ export const useSseStore = create<SseState>()(
       version: 1,
       steps: [],
       partialize: (state) => ({
+        // Only connections a tab still owns: rows from the old single-connection
+        // model (never mapped to a tab) are shed on the next write.
         connections: Object.fromEntries(
-          Object.entries(state.connections).map(([id, conn]) => [
-            id,
-            {
-              // Explicit pick (not a spread) so request config persisted by
-              // older versions (url/headers/auth…) is shed on the next write.
-              id: conn.id,
-              status: 'disconnected' as const,
-              log: [],
-              // No lastEventId: it only resumes reconnects within one session.
-              reconnectAttempts: 0,
-              maxReconnectAttempts: conn.maxReconnectAttempts,
-              reconnectDelay: conn.reconnectDelay,
-              createdAt: conn.createdAt,
-              ...(conn.lastConnectedAt !== undefined
-                ? { lastConnectedAt: conn.lastConnectedAt }
-                : {}),
-            },
-          ])
+          Object.entries(state.connections)
+            .filter(([id]) => isMappedConnection(state.connectionByTabId, id))
+            .map(([id, conn]) => [
+              id,
+              {
+                // Explicit pick (not a spread) so request config persisted by
+                // older versions (url/headers/auth…) is shed on the next write.
+                id: conn.id,
+                status: 'disconnected' as const,
+                log: [],
+                // No lastEventId: it only resumes reconnects within one session.
+                reconnectAttempts: 0,
+                maxReconnectAttempts: conn.maxReconnectAttempts,
+                reconnectDelay: conn.reconnectDelay,
+                createdAt: conn.createdAt,
+                ...(conn.lastConnectedAt !== undefined
+                  ? { lastConnectedAt: conn.lastConnectedAt }
+                  : {}),
+              },
+            ])
         ),
         activeConnectionId: state.activeConnectionId,
+        connectionByTabId: state.connectionByTabId,
       }),
       // Pre-#873 blobs carried url/headers here; hand them to blank SSE tabs.
       onRehydrate: (state) => migrateLegacySseConfig(state),

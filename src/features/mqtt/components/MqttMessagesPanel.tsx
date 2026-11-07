@@ -1,17 +1,14 @@
-import { RefreshCw, Search } from 'lucide-react';
-import { memo, useState } from 'react';
-import { LogExportMenu } from '@/components/shared/messageLog/MessageLogControls';
+import { Search, Trash2 } from 'lucide-react';
+import { memo, type ReactNode, useState } from 'react';
+import {
+  DroppedNotice,
+  JumpToLatestPill,
+  LogExportMenu,
+} from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { CodeEditorFrame, ConnectionBadge, Floater, Stat } from '@/components/ui/spatial';
+import { CodeEditorFrame, Floater, Stat } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
 import { mqttToLogEntries } from '@/features/mqtt/lib/mqttLogExport';
 import { displayMqttBinary, mqttBinaryLength } from '@/features/mqtt/lib/mqttPayload';
@@ -20,6 +17,8 @@ import type {
   MqttMessage,
   MqttMessageDirection,
 } from '@/features/mqtt/store/useMqttStore';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { cn } from '@/lib/shared/utils';
 import { MQTT_GREEN, QosPill } from './mqttUi';
 
@@ -101,7 +100,10 @@ interface MqttMessagesPanelProps {
   onMessageFilterChange: (filter: MqttMessageDirection | 'all') => void;
   onSearchQueryChange: (query: string) => void;
   onSelectMessage: (id: string) => void;
-  paused: boolean;
+  /** Shared FreezeToggle, owned by MqttClient (it holds the frozen state). */
+  freezeControl: ReactNode;
+  /** Messages that arrived since the view was frozen. */
+  newCount: number;
   rapidStream: boolean;
   searchQuery: string;
   selectedMessage: MqttMessage | null;
@@ -120,7 +122,8 @@ export function MqttMessagesPanel({
   onMessageFilterChange,
   onSearchQueryChange,
   onSelectMessage,
-  paused,
+  freezeControl,
+  newCount,
   rapidStream,
   searchQuery,
   selectedMessage,
@@ -128,6 +131,7 @@ export function MqttMessagesPanel({
   filteredMessages,
   visibleMessages,
 }: MqttMessagesPanelProps) {
+  const stick = useStickToBottom<HTMLDivElement>(visibleMessages.length);
   return (
     <TabsContent value="messages" className="flex-1 flex flex-col min-h-0 gap-3 m-0">
       <Floater
@@ -144,32 +148,34 @@ export function MqttMessagesPanel({
       <div className="flex-1 min-h-0 grid gap-2.5" style={{ gridTemplateColumns: '1.6fr 1fr' }}>
         <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-sp-line shrink-0">
-            <Select
+            <select
               value={messageFilter}
-              onValueChange={(filter) =>
-                onMessageFilterChange(filter as MqttMessageDirection | 'all')
+              onChange={(event) =>
+                onMessageFilterChange(event.target.value as MqttMessageDirection | 'all')
               }
+              aria-label="Filter messages"
+              className="h-7 w-28 rounded-sp-btn border border-sp-line bg-sp-surface-lo px-1.5 text-xs text-sp-text outline-none"
             >
-              <SelectTrigger className="h-7 w-28 text-xs bg-sp-surface-lo border border-sp-line">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="sent">Published</SelectItem>
-                <SelectItem value="received">Received</SelectItem>
-                <SelectItem value="system">System</SelectItem>
-              </SelectContent>
-            </Select>
+              <option value="all">All</option>
+              <option value="sent">Published</option>
+              <option value="received">Received</option>
+              <option value="system">System</option>
+            </select>
             <div className="relative flex-1">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-sp-dim" />
+              <Search
+                className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-sp-dim"
+                aria-hidden="true"
+              />
               <Input
+                type="search"
+                aria-label="Search messages"
                 value={searchQuery}
                 onChange={(event) => onSearchQueryChange(event.target.value)}
                 placeholder="Search topic, payload"
                 className="h-7 pl-7 text-xs bg-sp-surface-lo border-sp-line font-mono"
               />
             </div>
-            {paused && <ConnectionBadge label="Paused" tone="warning" />}
+            {freezeControl}
             <LogExportMenu
               entries={() => mqttToLogEntries(filteredMessages)}
               name={`${connection.name}-mqtt`}
@@ -182,8 +188,10 @@ export function MqttMessagesPanel({
               onClick={onClearMessages}
               className="h-7 w-7 p-0"
               title="Clear messages"
+              aria-label="Clear messages"
+              disabled={connection.messages.length === 0}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
 
@@ -197,21 +205,34 @@ export function MqttMessagesPanel({
             <span className="sp-label">Topic / Payload</span>
           </div>
 
-          <ScrollArea className="flex-1 min-h-0">
-            <ul className="text-xs" data-stream-rapid={rapidStream || undefined}>
-              {visibleMessages.map((message) => (
-                <MessageRow
-                  key={message.id}
-                  message={message}
-                  selected={message.id === selectedMessageId}
-                  onSelect={onSelectMessage}
-                />
-              ))}
-              {visibleMessages.length === 0 && (
-                <li className="px-3 py-8 text-center text-sp-muted">No messages yet.</li>
-              )}
-            </ul>
-          </ScrollArea>
+          <DroppedNotice dropped={connection.droppedCount} />
+          <div className="relative flex-1 min-h-0">
+            <div ref={stick.ref} onScroll={stick.onScroll} className="h-full overflow-auto">
+              <ul
+                role="log"
+                aria-label="MQTT messages"
+                className="text-xs"
+                data-stream-rapid={rapidStream || undefined}
+              >
+                {visibleMessages.map((message) => (
+                  <MessageRow
+                    key={message.id}
+                    message={message}
+                    selected={message.id === selectedMessageId}
+                    onSelect={onSelectMessage}
+                  />
+                ))}
+                {visibleMessages.length === 0 && (
+                  <li className="px-3 py-8 text-center text-sp-muted">
+                    {connection.messages.length === 0
+                      ? 'No messages yet.'
+                      : filteredEmptyText('message', newCount)}
+                  </li>
+                )}
+              </ul>
+            </div>
+            <JumpToLatestPill visible={stick.showJump} onClick={stick.jumpToLatest} />
+          </div>
         </Floater>
 
         <MessageDetail message={selectedMessage} />

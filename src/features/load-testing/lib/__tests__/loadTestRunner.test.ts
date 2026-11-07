@@ -4,7 +4,12 @@ import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { handleSecret } from '@/lib/shared/secretRef';
 import type { AuthConfig, Collection, HttpRequest } from '@/types';
-import { runLoadTest } from '../loadTestRunner';
+import {
+  clampLoadTestOptions,
+  MAX_LOAD_CONCURRENCY,
+  MAX_LOAD_ITERATIONS,
+  runLoadTest,
+} from '../loadTestRunner';
 
 // The runner reuses the real send path + several stores. We only care about its
 // orchestration (concurrency, abort, outcome classification, single summary),
@@ -120,6 +125,19 @@ describe('runLoadTest', () => {
     expect(mockExec).toHaveBeenCalledTimes(1);
     expect(final.total).toBe(1);
     expect(final.completed).toBe(1);
+  });
+
+  it('clamps iterations and concurrency down to the stated maximums', () => {
+    expect(clampLoadTestOptions({ iterations: 250_000, concurrency: 9_999 })).toEqual({
+      iterations: MAX_LOAD_ITERATIONS,
+      concurrency: MAX_LOAD_CONCURRENCY,
+    });
+    expect(MAX_LOAD_ITERATIONS).toBe(100_000);
+    expect(MAX_LOAD_CONCURRENCY).toBe(500);
+    expect(clampLoadTestOptions({ iterations: Number.NaN, concurrency: 2.7 })).toEqual({
+      iterations: 1,
+      concurrency: 2,
+    });
   });
 
   it('classifies 2xx/3xx as ok and everything else as not ok', async () => {

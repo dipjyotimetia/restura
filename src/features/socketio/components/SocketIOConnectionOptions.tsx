@@ -25,8 +25,9 @@ export function countConfiguredOptions(c: SocketIOConnection): number {
     c.query.length +
     c.extraHeaders.length +
     (c.path && c.path !== '/socket.io' ? 1 : 0) +
-    (c.transports.length === 1 ? 1 : 0) +
-    (c.forceNew ? 1 : 0)
+    (c.transports.length === 1 ? 1 : 0)
+    // forceNew is not counted (or offered): every connect already creates a
+    // fresh Manager, so the saved option has no effect (capabilities/socketio.ts).
   );
 }
 
@@ -78,8 +79,8 @@ const SectionLabel = ({ children }: { children: ReactNode }) => (
 
 /**
  * Connection options pane (SIO-3/4): handshake auth (key/value or JSON),
- * query, extraHeaders, path, transports, reconnection tuning, timeout and
- * forceNew. Edited while disconnected; persisted with the connection
+ * query, extraHeaders, path, transports, reconnection tuning and timeout
+ * (forceNew is not offered: every connect already creates a new manager). Edited while disconnected; persisted with the connection
  * (templates stored unresolved).
  */
 export function SocketIOConnectionOptions({ connection }: { connection: SocketIOConnection }) {
@@ -232,17 +233,6 @@ export function SocketIOConnectionOptions({ connection }: { connection: SocketIO
           max={120_000}
           onChange={(v) => update(id, 'timeout', v)}
         />
-        <div className="flex flex-col gap-1">
-          <span className="text-sp-11 text-sp-muted">Force new</span>
-          <span className="flex items-center h-7">
-            <ToggleField
-              size="sm"
-              checked={connection.forceNew}
-              onChange={(v) => update(id, 'forceNew', v)}
-              ariaLabel="Force new connection"
-            />
-          </span>
-        </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-4">

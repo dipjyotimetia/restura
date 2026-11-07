@@ -55,8 +55,16 @@ describe('FirstRunWelcome', () => {
     const props = renderWelcome();
     fireEvent.click(screen.getByRole('button', { name: 'New gRPC request' }));
     expect(props.onNewRequest).toHaveBeenCalledWith('grpc');
-    expect(screen.getByRole('button', { name: 'New Kafka request' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'New MQTT request' })).toBeDisabled();
+    for (const name of ['New Kafka request', 'New MQTT request']) {
+      const button = screen.getByRole('button', { name });
+      // aria-disabled, not disabled: stays focusable/hoverable so its
+      // "Desktop only" tooltip can actually show.
+      expect(button).toHaveAttribute('aria-disabled', 'true');
+      expect(button).not.toBeDisabled();
+      expect(button.getAttribute('title')).toMatch(/desktop/i);
+      fireEvent.click(button);
+    }
+    expect(props.onNewRequest).toHaveBeenCalledTimes(1);
   });
 
   it('carries the crash-report opt-out the tour used to own', () => {

@@ -83,7 +83,12 @@ describe('TabBar', () => {
       const item = screen.getByRole('menuitem', { name });
       expect(item).toHaveAttribute('aria-disabled', 'true');
       expect(item).toHaveTextContent('Desktop only');
+      // Not Radix-disabled (pointer-events: none would swallow the badge's
+      // tooltip) — focusable but inert.
+      expect(item).not.toHaveAttribute('data-disabled');
     }
+    await user.click(screen.getByRole('menuitem', { name: /Kafka client/i }));
+    expect(useRequestStore.getState().tabs.some((t) => t.modeOverride === 'kafka')).toBe(false);
     expect(screen.getByRole('menuitem', { name: /HTTP request/i })).not.toHaveAttribute(
       'aria-disabled'
     );

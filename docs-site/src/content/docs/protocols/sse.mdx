@@ -18,11 +18,14 @@ A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events 
 - **Per-connection event-type filter** — narrow the view to a single event name; each connection keeps its own filter.
 - **Freeze & export the log** — freeze pauses the view while messages keep arriving (a counter shows how many are new; search and filters still apply), and export downloads the current filtered log as JSON or NDJSON (one message per line).
 - **Long-running session** — stays open until you disconnect; capped by your platform's connection budget.
-- **Resizable config pane** — with **Headers** open, headers, auth and the resume option get their own pane above the event timeline; drag the divider (or focus it and use the arrow keys) to resize. The position is remembered.
+- **Per-tab streams** — each tab owns its stream, and a stream keeps running while its tab is in the background. Closing a tab with a live stream asks first.
+- **Capped log** — the log keeps the newest 1,000 events per connection; once older ones are dropped a notice shows how many. Scrolling up stops autoscroll and shows a **Jump to latest** pill.
+- **Cleartext guard** — connecting over `http://` with credentials configured (auth or auth headers) asks before sending them unencrypted.
+- **Resizable config pane** — the **Options (N)** toggle opens headers, query params, auth and the resume options (N counts what differs from a fresh request) in their own pane above the event timeline; drag the divider (or focus it and use the arrow keys) to resize. The position is remembered.
 - **JSON pretty-printing** — when the event `data:` is valid JSON.
 - **Custom request headers + structured auth** — Basic, Bearer, API Key, and OAuth 2.0 (API-key-in-query supported) applied at connect. In the CLI, external secret references on SSE items resolve like HTTP and fail the item explicitly when no resolver is available. Restura does **not** use the browser `EventSource` API — the stream is proxied through the Worker on web and over IPC on desktop, so custom headers and auth work on **both** platforms. A request with no auth inherits from its folder or collection. Auth or a variable stored as a keychain or external secret refuses the connection instead of connecting without it. Sign-at-wire and challenge schemes — AWS SigV4, OAuth 1.0a, WSSE, Digest, NTLM — can't be applied to SSE, so a connection that uses one (own or inherited) is refused with a message and not made, in the app, workflows and the CLI.
 - **Header table** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; header values resolve `{{variables}}`.
-- **Code generation** — copy the connection as browser `EventSource` (no custom headers), `fetch` + `ReadableStream` (supports headers), or `curl -N`.
+- **Code generation** — the **Code** button copies the connection as browser `EventSource` (no custom headers), `fetch` + `ReadableStream` (supports headers), or `curl -N`. Headers are used as typed: `{{variables}}` stay unresolved and Auth-tab credentials are not included.
 
 ## Reconnection behavior
 
@@ -57,7 +60,7 @@ Reconnection is **automatic** (WHATWG §9.2.3) while **Auto-reconnect** is on (t
 ## Tips
 
 - Many AI providers (OpenAI, Anthropic, OpenRouter) stream completions over SSE. Restura's [AI assistant](/guides/ai-assistant/) does this internally.
-- Stream assertions are not available yet. In the app, SSE writes no request history and has no script hook, and the desktop collection runner skips SSE requests. The [CLI](/reference/cli/) runs SSE requests in a collection (capturing events for `--sse-duration` ms or until `--sse-events N`) and writes the captured events to the JSON report as `streamEvents`, but a test script only sees the status, headers, timing and byte count — not the events.
+- Stream assertions are not available yet. In the app, each stream you start writes one History entry when it first connects (auto-reconnects don't add more), with inline credentials and URL secrets redacted as for HTTP; SSE has no script hook, and the desktop collection runner skips SSE requests. The [CLI](/reference/cli/) runs SSE requests in a collection (capturing events for `--sse-duration` ms or until `--sse-events N`) and writes the captured events to the JSON report as `streamEvents`, but a test script only sees the status, headers, timing and byte count — not the events.
 
 ## Test it locally
 

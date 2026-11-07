@@ -49,3 +49,19 @@ describe('McpConnectionPanel negotiated protocol version (#862)', () => {
     expect(screen.queryByTestId('mcp-protocol-version')).toBeNull();
   });
 });
+
+describe('McpConnectionPanel transport selector (M10)', () => {
+  it('disables the transport radios while connected', () => {
+    renderPanel({ status: 'connected' });
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled();
+  });
+
+  it('enables them when disconnected and labels HTTP + SSE as legacy', () => {
+    renderPanel({ status: 'disconnected' });
+    expect(screen.getByRole('radio', { name: /Streamable HTTP/ })).toBeEnabled();
+    expect(screen.getByRole('radio', { name: /HTTP \+ SSE/ })).toHaveAttribute(
+      'title',
+      expect.stringMatching(/legacy/i)
+    );
+  });
+});

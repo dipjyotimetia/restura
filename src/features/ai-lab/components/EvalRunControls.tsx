@@ -90,6 +90,12 @@ export function EvalRunControls({
           </Button>
         </div>
       )}
+      {/* Always mounted so screen readers pick up changes to its text. */}
+      <p role="status" aria-live="polite" className="sr-only" data-testid="eval-run-status">
+        {progress
+          ? `Eval ${progress.done ? 'finished' : 'running'}: ${progress.completed} of ${progress.total} cells complete, ${passCount} passed`
+          : ''}
+      </p>
       {progress && (
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">

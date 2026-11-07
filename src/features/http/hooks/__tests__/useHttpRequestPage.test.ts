@@ -510,6 +510,87 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
     expect(useRequestStore.getState().isLoading).toBe(false);
   });
 
+  it('tracks loading per tab: another tab can send, and Cancel aborts only the visible tab', async () => {
+    const signals: AbortSignal[] = [];
+    const executeRequest = vi.fn(
+      (opts: { signal?: AbortSignal }) =>
+        new Promise<requestExecutorModule.RequestExecutionResult>((_resolve, reject) => {
+          if (opts.signal) signals.push(opts.signal);
+          opts.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        })
+    );
+    vi.doMock('@/features/http/lib/requestExecutor', async (importOriginal) => ({
+      ...(await importOriginal<typeof requestExecutorModule>()),
+      executeRequest,
+    }));
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const base = {
+      name: 'r',
+      type: 'http' as const,
+      method: 'GET' as const,
+      headers: [],
+      params: [],
+      body: { type: 'none' as const },
+      auth: { type: 'none' as const },
+    };
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-a',
+          request: { ...base, id: 'req-a', url: 'https://a.example' },
+          isDirty: false,
+        },
+        {
+          id: 'tab-b',
+          request: { ...base, id: 'req-b', url: 'https://b.example' },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-a',
+      isLoading: false,
+      loadingTabIds: [],
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+
+    let sendA: Promise<void> | undefined;
+    act(() => {
+      sendA = result.current.handlers.sendRequest();
+    });
+    await vi.waitFor(() => expect(executeRequest).toHaveBeenCalledTimes(1));
+    expect(result.current.isLoading).toBe(true);
+
+    act(() => useRequestStore.getState().switchTab('tab-b'));
+    // Tab B is idle while A is in flight…
+    expect(result.current.isLoading).toBe(false);
+    // …and can send meanwhile.
+    let sendB: Promise<void> | undefined;
+    act(() => {
+      sendB = result.current.handlers.sendRequest();
+    });
+    await vi.waitFor(() => expect(executeRequest).toHaveBeenCalledTimes(2));
+    expect(result.current.isLoading).toBe(true);
+
+    // Cancel on B aborts B's request only.
+    await act(async () => {
+      result.current.handlers.cancelRequest();
+      await sendB;
+    });
+    expect(signals[1]?.aborted).toBe(true);
+    expect(signals[0]?.aborted).toBe(false);
+    expect(useRequestStore.getState().loadingTabIds).toEqual(['tab-a']);
+    expect(result.current.isLoading).toBe(false);
+
+    act(() => useRequestStore.getState().switchTab('tab-a'));
+    expect(result.current.isLoading).toBe(true);
+    await act(async () => {
+      result.current.handlers.cancelRequest();
+      await sendA;
+    });
+    expect(signals[0]?.aborted).toBe(true);
+    expect(useRequestStore.getState().loadingTabIds).toEqual([]);
+  });
+
   it('writes a delayed thrown error only to the tab that sent the request', async () => {
     let rejectExecution: ((reason: Error) => void) | undefined;
     const execution = new Promise<requestExecutorModule.RequestExecutionResult>(
@@ -748,5 +829,152 @@ describe('useHttpRequestPage — clearing a settings override key', () => {
       maxRedirects: 3,
       verifySsl: true,
     });
+  });
+});
+
+describe('useHttpRequestPage — removing a param / header', () => {
+  beforeEach(() => vi.resetModules());
+
+  it('offers Undo that puts the removed row back in place on the tab it came from', async () => {
+    const toastSuccess = vi.fn();
+    vi.doMock('sonner', () => ({
+      toast: Object.assign(vi.fn(), {
+        success: toastSuccess,
+        error: vi.fn(),
+        info: vi.fn(),
+        loading: vi.fn(),
+        dismiss: vi.fn(),
+        warning: vi.fn(),
+      }),
+    }));
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const headers = [
+      { id: 'h1', key: 'Accept', value: 'a', enabled: true },
+      { id: 'h2', key: 'X-Two', value: 'b', enabled: true },
+    ];
+    const params = [{ id: 'p1', key: 'q', value: '1', enabled: true }];
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab1',
+          isDirty: false,
+          request: {
+            id: 'req-rows',
+            name: 'Rows',
+            type: 'http',
+            method: 'GET',
+            url: 'https://x.dev',
+            headers,
+            params,
+            body: { type: 'none' },
+            auth: { type: 'none' },
+          },
+        },
+        {
+          id: 'tab2',
+          isDirty: false,
+          request: {
+            id: 'req-other',
+            name: 'Other',
+            type: 'http',
+            method: 'GET',
+            url: 'https://y.dev',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+          },
+        },
+      ],
+      activeTabId: 'tab1',
+      isLoading: false,
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    const req = (id: string) =>
+      useRequestStore.getState().tabs.find((t) => t.id === id)?.request as {
+        headers: { id: string }[];
+        params: { id: string }[];
+      };
+    type UndoToast = [string, { action: { label: string; onClick: () => void } }];
+
+    act(() => result.current.handlers.removeHeader('h1'));
+    expect(req('tab1').headers.map((h) => h.id)).toEqual(['h2']);
+    const [message, options] = toastSuccess.mock.calls.at(-1) as UndoToast;
+    expect(message).toMatch(/Accept/);
+    expect(options.action.label).toBe('Undo');
+    // Undo after switching tabs still restores on the originating tab.
+    act(() => useRequestStore.getState().switchTab('tab2'));
+    act(() => options.action.onClick());
+    expect(req('tab1').headers.map((h) => h.id)).toEqual(['h1', 'h2']);
+    expect(req('tab2').headers).toEqual([]);
+
+    act(() => useRequestStore.getState().switchTab('tab1'));
+    act(() => result.current.handlers.removeParam('p1'));
+    expect(req('tab1').params).toEqual([]);
+    const [, paramUndo] = toastSuccess.mock.calls.at(-1) as UndoToast;
+    act(() => paramUndo.action.onClick());
+    expect(req('tab1').params.map((p) => p.id)).toEqual(['p1']);
+  });
+});
+
+describe('useHttpRequestPage — body type switch across binary', () => {
+  beforeEach(() => vi.resetModules());
+
+  it('keeps the text body when switching to binary and back, and offers Undo', async () => {
+    const toastSuccess = vi.fn();
+    vi.doMock('sonner', () => ({
+      toast: Object.assign(vi.fn(), {
+        success: toastSuccess,
+        error: vi.fn(),
+        info: vi.fn(),
+        loading: vi.fn(),
+        dismiss: vi.fn(),
+        warning: vi.fn(),
+      }),
+    }));
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab1',
+          isDirty: false,
+          request: {
+            id: 'req-body',
+            name: 'Body',
+            type: 'http',
+            method: 'POST',
+            url: 'https://x.dev',
+            headers: [],
+            params: [],
+            body: { type: 'json', raw: '{"keep":true}' },
+            auth: { type: 'none' },
+          },
+        },
+      ],
+      activeTabId: 'tab1',
+      isLoading: false,
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    const body = () =>
+      (useRequestStore.getState().tabs[0]?.request as { body: { type: string; raw?: string } })
+        .body;
+    type UndoToast = [string, { action: { label: string; onClick: () => void } }];
+
+    act(() => result.current.handlers.changeBodyType('binary'));
+    expect(body()).toMatchObject({ type: 'binary', raw: '' });
+    // Clearing the text is announced with an Undo action.
+    const [, first] = toastSuccess.mock.calls.at(-1) as UndoToast;
+    expect(first.action.label).toBe('Undo');
+
+    // Switching back restores the text.
+    act(() => result.current.handlers.changeBodyType('json'));
+    expect(body()).toMatchObject({ type: 'json', raw: '{"keep":true}' });
+
+    act(() => result.current.handlers.changeBodyType('binary'));
+    const [, again] = toastSuccess.mock.calls.at(-1) as UndoToast;
+    act(() => again.action.onClick());
+    expect(body()).toMatchObject({ type: 'json', raw: '{"keep":true}' });
   });
 });

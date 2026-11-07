@@ -44,7 +44,9 @@ export function bodyTab(page: Page): Locator {
 }
 
 export function settingsTab(page: Page): Locator {
-  return page.getByRole('tab', { name: 'Settings', exact: true });
+  // The tab gains a "Custom" badge once a per-request override is set, which
+  // becomes part of its accessible name ("Settings Custom").
+  return page.getByRole('tab', { name: /^Settings(\s|$)/ });
 }
 
 export async function setUrl(page: Page, url: string): Promise<void> {

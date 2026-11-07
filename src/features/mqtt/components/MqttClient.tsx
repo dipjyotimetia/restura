@@ -1,7 +1,16 @@
-import { ArrowLeftRight, Pause, Play, Plug, PlugZap, Send, Trash2, X } from 'lucide-react';
+import { ArrowLeftRight, Plug, PlugZap, Send, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useConnectionStatusAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import {
+  ConnectErrorBanner,
+  DesktopAppDownloadLink,
+  FreezeToggle,
+  useConnectAttemptError,
+  useFrozenView,
+} from '@/components/shared/messageLog/MessageLogControls';
 import { MessageTemplateList } from '@/components/shared/messageTemplates/MessageTemplateList';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,11 +36,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { MQTT_SECRET_LABELS, mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import { resolveMqttText } from '@/features/mqtt/lib/mqttVariables';
 import { type PublishInput, publishWithVariables } from '@/features/mqtt/lib/publishWithVariables';
-import type {
-  MqttMessage,
-  MqttQoS,
-  MqttSubscriptionOptions,
-} from '@/features/mqtt/store/useMqttStore';
+import type { MqttQoS, MqttSubscriptionOptions } from '@/features/mqtt/store/useMqttStore';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { putBrokerSecret, removeBrokerSecret } from '@/lib/shared/broker-secrets';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
@@ -62,6 +67,7 @@ function DesktopOnlyPanel() {
           The MQTT client opens raw TCP/TLS sockets to your broker, which the browser cannot do.
           Download the Restura desktop app to publish and subscribe over MQTT.
         </p>
+        <DesktopAppDownloadLink />
       </Floater>
     </div>
   );
@@ -170,11 +176,17 @@ function MqttClient() {
     );
     return Math.round((recent.length / 5) * 10) / 10;
   }, [connectionMessages]);
-  const [pausedSnapshot, setPausedSnapshot] = useState<MqttMessage[] | null>(null);
-  useEffect(() => {
-    setPausedSnapshot(paused ? filteredMessages : null);
-  }, [paused]);
-  const visibleMessages = paused && pausedSnapshot ? pausedSnapshot : filteredMessages;
+  // Shared freeze: a time cutoff, so search/filter still apply and "N new" shows.
+  const { visible: visibleMessages, newCount } = useFrozenView(filteredMessages, paused);
+  const connectError = useConnectAttemptError(connectionId, connectionMessages, connection?.status);
+  useConnectionStatusAnnouncements('MQTT broker', connection?.status);
+  const { confirm: confirmDelete, DialogComponent: DeleteDialog } = useConfirmDialog({
+    title: 'Delete MQTT connection?',
+    description:
+      'This disconnects from the broker and removes the connection with its subscriptions, templates and message log.',
+    confirmText: 'Delete',
+    variant: 'destructive',
+  });
   const selectedMessage = useMemo(() => {
     if (!connectionMessages || !selectedMessageId) return null;
     return connectionMessages.find((message) => message.id === selectedMessageId) ?? null;
@@ -187,6 +199,7 @@ function MqttClient() {
 
   const handleConnect = async (): Promise<void> => {
     if (!connection) return;
+    connectError.markAttempt();
     let next = connection;
     // Typed secrets become main-process handles; the connect IPC then carries
     // only the handle reference (ADR-0007).
@@ -230,6 +243,16 @@ function MqttClient() {
 
   const handleDisconnect = async (): Promise<void> => {
     if (connection) await mqttManager.disconnect(connection.id);
+  };
+  const handleDelete = async (): Promise<void> => {
+    if (!connection) return;
+    const id = connection.id;
+    if (!(await confirmDelete())) return;
+    // Close the broker session first so no listener outlives the connection.
+    if (connection.status !== 'disconnected') {
+      await Promise.resolve(mqttManager.disconnect(id)).catch(() => undefined);
+    }
+    removeConnection(id);
   };
   // {{var}} resolution, unresolved warnings and secret masking: publishWithVariables (#974).
   const publishInput = async (input: PublishInput): Promise<void> => {
@@ -371,34 +394,25 @@ function MqttClient() {
           </Badge>
         )}
         <div className="ml-auto flex items-center gap-2">
-          {badge && <ConnectionBadge label={badge.label} tone={badge.tone} />}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setPaused((current) => !current)}
-            className="h-7 px-2.5 text-xs font-mono rounded-sp-btn"
-            disabled={!connection}
-            title={paused ? 'Resume log' : 'Pause log'}
-          >
-            {paused ? (
-              <>
-                <Play className="h-3 w-3 mr-1.5" /> Resume
-              </>
-            ) : (
-              <>
-                <Pause className="h-3 w-3 mr-1.5" /> Pause
-              </>
-            )}
-          </Button>
+          {badge && (
+            <ConnectionBadge
+              label={badge.label}
+              tone={badge.tone}
+              role="status"
+              aria-live="polite"
+              aria-label={`MQTT connection status: ${badge.label}`}
+            />
+          )}
           {connection && (
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => removeConnection(connection.id)}
+              onClick={() => void handleDelete()}
               title="Delete connection"
+              aria-label="Delete connection"
               className="h-7 w-7 p-0 rounded-sp-btn"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           )}
           {connection && canConnect && (
@@ -418,6 +432,8 @@ function MqttClient() {
           )}
         </div>
       </Floater>
+      <ConnectErrorBanner error={connectError.error} />
+      <DeleteDialog />
 
       {!connection ? (
         <Floater
@@ -449,7 +465,10 @@ function MqttClient() {
             onMessageFilterChange={setMessageFilter}
             onSearchQueryChange={setSearchQuery}
             onSelectMessage={handleSelectMessage}
-            paused={paused}
+            freezeControl={
+              <FreezeToggle frozen={paused} newCount={newCount} onChange={setPaused} />
+            }
+            newCount={newCount}
             rapidStream={rapidStream}
             searchQuery={searchQuery}
             selectedMessage={selectedMessage}
@@ -479,8 +498,11 @@ function MqttClient() {
             </Floater>
             <Floater radius="panel" className="p-3 space-y-3">
               <div className="space-y-2">
-                <Label className="text-xs sp-label">Topic</Label>
+                <Label htmlFor="mqtt-pub-topic" className="text-xs sp-label">
+                  Topic
+                </Label>
                 <Input
+                  id="mqtt-pub-topic"
                   value={pubTopic}
                   onChange={(event) => setPubTopic(event.target.value)}
                   placeholder="restura/test"
@@ -490,12 +512,14 @@ function MqttClient() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-2">
-                  <Label className="text-xs sp-label">QoS</Label>
+                  <Label htmlFor="mqtt-pub-qos" className="text-xs sp-label">
+                    QoS
+                  </Label>
                   <Select
                     value={String(pubQos)}
                     onValueChange={(value) => setPubQos(Number(value) as MqttQoS)}
                   >
-                    <SelectTrigger className="h-8 text-xs">
+                    <SelectTrigger id="mqtt-pub-qos" className="h-8 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -508,16 +532,33 @@ function MqttClient() {
                 <div className="space-y-2">
                   <Label className="text-xs sp-label">Retain</Label>
                   <div className="flex items-center gap-2 h-8">
-                    <Switch checked={pubRetain} onCheckedChange={setPubRetain} />
-                    <Label className="text-xs">Retain message on broker</Label>
+                    <Switch
+                      id="mqtt-pub-retain"
+                      checked={pubRetain}
+                      onCheckedChange={setPubRetain}
+                    />
+                    <Label htmlFor="mqtt-pub-retain" className="text-xs">
+                      Retain message on broker
+                    </Label>
                   </div>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-xs sp-label">Payload</Label>
+                <Label htmlFor="mqtt-pub-payload" className="text-xs sp-label">
+                  Payload
+                </Label>
                 <Textarea
+                  id="mqtt-pub-payload"
                   value={pubPayload}
                   onChange={(event) => setPubPayload(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Ctrl/Cmd+Enter publishes, matching the WebSocket / Socket.IO composers.
+                    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault();
+                      if (isConnected && pubTopic) void handlePublish();
+                    }
+                  }}
+                  aria-describedby="mqtt-pub-hint"
                   className="font-mono text-xs"
                   rows={8}
                   placeholder={
@@ -536,6 +577,9 @@ function MqttClient() {
                 serverTopicAliasMaximum={connection.serverTopicAliasMaximum}
               />
               <div className="flex items-center gap-2">
+                <span id="mqtt-pub-hint" className="sr-only">
+                  Press Control or Command plus Enter to publish.
+                </span>
                 <Button onClick={handlePublish} disabled={!isConnected || !pubTopic}>
                   <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
                 </Button>

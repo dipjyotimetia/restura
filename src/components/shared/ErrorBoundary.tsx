@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Component } from 'react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,13 @@ interface Props {
   children: ReactNode;
   fallback?: ReactNode;
   onError?: (error: Error, errorInfo: React.ErrorInfo) => void;
+  /**
+   * When set, the default fallback offers "Close this tab" — the way out of a
+   * request tab whose workspace keeps crashing (Try again would re-crash).
+   */
+  onCloseTab?: () => void;
+  /** Changing this clears a caught error (e.g. pass the active tab id). */
+  resetKey?: string | number | null;
 }
 
 interface State {
@@ -28,6 +35,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(error: Error): State {
     return { hasError: true, error };
+  }
+
+  override componentDidUpdate(prevProps: Props): void {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.handleReset();
+    }
   }
 
   override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
@@ -108,9 +121,16 @@ export class ErrorBoundary extends Component<Props, State> {
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Try Again
               </Button>
-              <Button onClick={() => window.location.reload()} variant="outline">
-                Reload Page
-              </Button>
+              {this.props.onCloseTab ? (
+                <Button onClick={this.props.onCloseTab} variant="outline">
+                  <X className="mr-2 h-4 w-4" />
+                  Close this tab
+                </Button>
+              ) : (
+                <Button onClick={() => window.location.reload()} variant="outline">
+                  Reload Page
+                </Button>
+              )}
             </div>
           </div>
         </div>

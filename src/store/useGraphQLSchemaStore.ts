@@ -16,12 +16,17 @@ interface GraphQLSchemaState {
   loading: Record<string, boolean>;
 
   // Actions
-  fetchSchema: (endpoint: string, options?: IntrospectionOptions) => Promise<IntrospectionResult>;
+  /** `force` skips the cache (an explicit Refresh); otherwise a fresh entry is reused. */
+  fetchSchema: (endpoint: string, options?: FetchSchemaOptions) => Promise<IntrospectionResult>;
   getSchema: (endpoint: string) => IntrospectionResult | null;
   clearSchema: (endpoint: string) => void;
   clearAllSchemas: () => void;
   setActiveEndpoint: (endpoint: string | null) => void;
   isLoading: (endpoint: string) => boolean;
+}
+
+export interface FetchSchemaOptions extends IntrospectionOptions {
+  force?: boolean;
 }
 
 const CACHE_DURATION_MS = 60 * 60 * 1000;
@@ -34,9 +39,9 @@ export const useGraphQLSchemaStore = create<GraphQLSchemaState>()(
       activeEndpoint: null,
       loading: {},
 
-      fetchSchema: async (endpoint, options) => {
+      fetchSchema: async (endpoint, { force = false, ...options } = {}) => {
         const cached = get().schemas[endpoint];
-        if (cached) {
+        if (cached && !force) {
           const age = Date.now() - cached.timestamp;
           const ttl = cached.success ? CACHE_DURATION_MS : ERROR_CACHE_DURATION_MS;
           if (age < ttl) return cached;

@@ -10,7 +10,7 @@ import {
   toParamRow,
 } from '@/components/shared/ParamHeaderTable';
 import { Button } from '@/components/ui/button';
-import { Segmented, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
+import { Segmented, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { type AuthTypeGroup, AuthTypePicker } from '@/features/auth/components/AuthTypePicker';
 import { InheritedAuthHint, useInheritedAuth } from '@/features/auth/components/InheritedAuthHint';
@@ -117,6 +117,27 @@ function contentTypeFor(type: BodyType): string {
   return CONTENT_TYPE_FOR[type] ?? '—';
 }
 
+/** The value of the request's own enabled Content-Type header, if any (last wins). */
+function userContentType(headers: HttpRequest['headers']): string | undefined {
+  let value: string | undefined;
+  for (const h of headers) {
+    if (h.enabled && h.key.trim().toLowerCase() === 'content-type' && h.value.trim()) {
+      value = h.value.trim();
+    }
+  }
+  return value;
+}
+
+/** Short tab badge for which script phases are set ("Pre", "Test", "Pre+Test"). */
+function scriptsBadge(request: HttpRequest): string | undefined {
+  const pre = Boolean(request.preRequestScript?.trim());
+  const test = Boolean(request.testScript?.trim());
+  if (pre && test) return 'Pre+Test';
+  if (pre) return 'Pre';
+  if (test) return 'Test';
+  return undefined;
+}
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -136,6 +157,9 @@ export function RequestBuilderTabs({
   const getVarStatus = useVariableStatus();
 
   const inheritedAuth = useInheritedAuth(request);
+  const scriptBadge = scriptsBadge(request);
+  const hasSettingsOverride = request.settings !== undefined;
+  const headerContentType = userContentType(request.headers);
   const tabs = useMemo(() => {
     // An inherited auth still goes out with the request, so badge it too.
     const authBadge =
@@ -144,25 +168,40 @@ export function RequestBuilderTabs({
         ? `↑ ${AUTH_BADGE[inheritedAuth.auth.type] ?? inheritedAuth.auth.type}`
         : undefined);
     const bodyBadge = BODY_BADGE[request.body.type];
-    const items: Array<{
-      value: SubTabKey;
-      label: string;
-      count?: number;
-      badge?: string;
-    }> = [
+    const items: Array<SubTab<SubTabKey>> = [
       { value: 'params', label: 'Params' },
       { value: 'headers', label: 'Headers' },
       { value: 'body', label: 'Body' },
       { value: 'auth', label: 'Auth' },
-      { value: 'scripts', label: 'Scripts' },
-      { value: 'settings', label: 'Settings' },
+      // Scripts / Settings otherwise give no hint that they change the send.
+      {
+        value: 'scripts',
+        label: 'Scripts',
+        ...(scriptBadge && { badge: scriptBadge, title: 'This request has scripts' }),
+      },
+      {
+        value: 'settings',
+        label: 'Settings',
+        ...(hasSettingsOverride && {
+          badge: 'Custom',
+          title: 'This request overrides the global settings',
+        }),
+      },
     ];
     if (paramsCount > 0) items[0]!.count = paramsCount;
     if (headersCount > 0) items[1]!.count = headersCount;
     if (bodyBadge) items[2]!.badge = bodyBadge;
     if (authBadge) items[3]!.badge = authBadge;
     return items;
-  }, [paramsCount, headersCount, request.auth.type, request.body.type, inheritedAuth]);
+  }, [
+    paramsCount,
+    headersCount,
+    request.auth.type,
+    request.body.type,
+    inheritedAuth,
+    scriptBadge,
+    hasSettingsOverride,
+  ]);
 
   const bodyBytes = useMemo(
     () => (request.body.raw ? new Blob([request.body.raw]).size : 0),
@@ -286,9 +325,18 @@ export function RequestBuilderTabs({
                   </Button>
                 )}
                 {request.body.type !== 'none' && (
-                  <div className="flex items-center gap-1.5 text-sp-11 text-sp-muted font-mono">
+                  <div
+                    data-testid="body-content-type"
+                    className="flex items-center gap-1.5 text-sp-11 text-sp-muted font-mono"
+                    {...(headerContentType && {
+                      title: `Overrides the default ${contentTypeFor(request.body.type)}`,
+                    })}
+                  >
                     <span className="sp-label">Content-Type</span>
-                    <span className="text-sp-text/80">{contentTypeFor(request.body.type)}</span>
+                    <span className="text-sp-text/80">
+                      {headerContentType ?? contentTypeFor(request.body.type)}
+                    </span>
+                    {headerContentType && <span className="text-sp-dim">(from header)</span>}
                   </div>
                 )}
               </div>

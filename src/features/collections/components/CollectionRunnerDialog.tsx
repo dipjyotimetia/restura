@@ -77,6 +77,11 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
   const activeEnvironmentId = useEnvironmentStore((s) => s.activeEnvironmentId);
 
   const { running, progress, start, stop } = useCollectionRun();
+  // A close attempt (Esc / overlay / ×) while running is refused; say why.
+  const [closeBlocked, setCloseBlocked] = useState(false);
+  useEffect(() => {
+    if (!running) setCloseBlocked(false);
+  }, [running]);
 
   const [environmentId, setEnvironmentId] = useState<string>(activeEnvironmentId ?? 'none');
   const [iterations, setIterations] = useState(1);
@@ -207,7 +212,9 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
     <Dialog
       open={isOpen}
       onOpenChange={(open) => {
-        if (!open && !running) onClose();
+        if (open) return;
+        if (running) setCloseBlocked(true);
+        else onClose();
       }}
     >
       <DialogContent className="max-w-4xl h-[82vh] flex flex-col">
@@ -363,6 +370,27 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
               )}
             </div>
 
+            {running && closeBlocked && (
+              <div
+                role="status"
+                className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 space-y-1.5"
+              >
+                <p className="text-sp-11 text-amber-600 dark:text-amber-400">
+                  Stop the run to close this dialog.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-7 text-xs"
+                  onClick={() => {
+                    stop();
+                    onClose();
+                  }}
+                >
+                  Stop &amp; close
+                </Button>
+              </div>
+            )}
             {running ? (
               <Button className="w-full" variant="destructive" onClick={stop}>
                 <StopCircle className="mr-2 h-4 w-4" /> Stop

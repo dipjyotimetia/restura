@@ -97,6 +97,25 @@ describe('StreamingResponseViewer', () => {
     await waitFor(() => expect(screen.getByText('second')).toBeInTheDocument());
   });
 
+  it('uses design tokens and a label that matches the visible Pause text (S13)', async () => {
+    const events: HttpStreamEvent[] = [
+      { type: 'sse', payload: { data: 'one' } },
+      { type: 'error', error: 'boom', bytesRead: 3 },
+    ];
+    async function* slow(): AsyncIterable<HttpStreamEvent> {
+      yield { type: 'sse', payload: { data: 'live' } };
+      await new Promise(() => undefined);
+    }
+    const live = render(<StreamingResponseViewer events={slow()} />);
+    await waitFor(() => expect(screen.getByText('live')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
+    live.unmount();
+    const { container } = render(<StreamingResponseViewer events={makeIterable(events)} />);
+    await waitFor(() => expect(screen.getByText(/boom/)).toBeInTheDocument());
+    expect(container.innerHTML).not.toMatch(/\b(?:text|bg)-(?:green|red)-\d{2,3}\b/);
+    expect(container.innerHTML).not.toContain('text-muted-foreground');
+  });
+
   it('shows event count and bytes read in the header bar', async () => {
     const events: HttpStreamEvent[] = [
       { type: 'sse', payload: { data: 'a' } },

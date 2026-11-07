@@ -261,7 +261,7 @@ test.describe('Import Collection', () => {
     await uploadFile(page, 'bruno', `${FIXTURES_DIR}/bruno-with-warning.bru`);
     await confirmImport(page);
 
-    const banner = dialog(page).getByText(/Imported with \d+ warning/);
+    const banner = dialog(page).getByText(/Imported ("[^"]+" )?with \d+ warning/);
     await expect(banner).toBeVisible({ timeout: 8_000 });
     // Warnings path requires a deliberate dismiss — the dialog must stay open.
     await expect(dialog(page)).toBeVisible();

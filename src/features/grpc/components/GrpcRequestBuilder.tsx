@@ -1,5 +1,5 @@
-import { AlertCircle, Loader2, Radio } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Code2, Loader2, Radio } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
@@ -11,12 +11,14 @@ import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint'
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import { useGrpcSchemaDrift } from '@/features/grpc/hooks/useGrpcSchemaDrift';
 import { useStreamMessageLog } from '@/features/grpc/hooks/useStreamMessageLog';
+import { useTabStreamControls } from '@/features/grpc/hooks/useTabStreamControls';
 import {
   createErrorResponse,
   describeGrpcAuthMetadata,
   GrpcClientError,
   getMethodTypeDescription,
 } from '@/features/grpc/lib/grpcClient';
+import { mirrorGrpcCallToConsole } from '@/features/grpc/lib/grpcConsoleMirror';
 import { grpcDeadlineMs } from '@/features/grpc/lib/grpcDeadline';
 import {
   generateProtoFromReflection,
@@ -34,11 +36,14 @@ import {
 import { useSubTabWithViolationJump } from '@/features/grpc/lib/grpcViolationFocus';
 import { canUseDescriptorSnapshot } from '@/features/grpc/lib/grpcWebClient';
 import { uploadedDescriptors } from '@/features/grpc/lib/protoUpload';
+import {
+  mergeMethodPicker,
+  servicesFromUploadedSchema,
+} from '@/features/grpc/lib/uploadedServices';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
-import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type {
@@ -46,22 +51,25 @@ import type {
   GrpcMethodType,
   GrpcRequest,
   GrpcResponse,
+  GrpcSchemaSnapshot,
   ReflectionMethodInfo,
   ReflectionServiceInfo,
 } from '@/types';
+import { GrpcCodeDialog } from './GrpcCodeDialog';
 import { GrpcDeadlineField } from './GrpcDeadlineField';
 import { GrpcInvocationBar } from './GrpcInvocationBar';
 import { GrpcMessageEditor } from './GrpcMessageEditor';
 import { GrpcMethodContext } from './GrpcMethodContext';
 import { GrpcMethodSelector } from './GrpcMethodSelector';
 import GrpcProtoUploader from './GrpcProtoUploader';
+import { GrpcReflectionErrorBanner } from './GrpcReflectionErrorBanner';
 import { GrpcSchemaDriftBanner } from './GrpcSchemaDriftBanner';
 import { GrpcSettingsPanel } from './GrpcSettingsPanel';
 import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { GrpcUnknownFieldsLint } from './GrpcUnknownFieldsLint';
 import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
-import { type BuilderStreamControl, runBuilderStream } from './runBuilderStream';
+import { runBuilderStream } from './runBuilderStream';
 
 type GrpcSubTab =
   | 'message'
@@ -100,7 +108,7 @@ function GrpcRequestBuilder() {
   const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
-  const { run: runViaRegistry } = useRequestRunner();
+  const { run: runViaRegistry, abort: abortRun } = useRequestRunner();
   const schemaDrift = useGrpcSchemaDrift();
   const [activeTab, setActiveTab] = useSubTabWithViolationJump<GrpcSubTab>('message', activeTabId);
   const [resolvedProto, setResolvedProto] = useState<{
@@ -110,10 +118,21 @@ function GrpcRequestBuilder() {
   const [validation, setValidation] = useState<GrpcValidationState>(INITIAL_VALIDATION_STATE);
   const streamLog = useStreamMessageLog();
   const streamingMessages = streamLog.messages;
-  const [streamControl, setStreamControl] = useState<BuilderStreamControl | null>(null);
+  const {
+    activeRun: activeStreamRun,
+    activeControl: streamControl,
+    setFor: setStreamControlFor,
+  } = useTabStreamControls(activeTabId);
   const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
   const [retryDelayMs, setRetryDelayMs] = useState(0);
   const [useCompression, setUseCompression] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
+  // Services from an uploaded .proto / descriptor set — the picker offers
+  // them alongside (ahead of) reflection's, with request templates.
+  const uploadedServices = useMemo(
+    () => servicesFromUploadedSchema(currentRequest?.schema),
+    [currentRequest?.schema]
+  );
 
   // Stable URL reference for use in callbacks and effects — must compute before early return
   const grpcUrl = currentRequest?.url;
@@ -213,24 +232,13 @@ function GrpcRequestBuilder() {
     ...(currentRequest?.method && { currentMethodName: currentRequest.method }),
   });
 
-  // Keep a ref so unmount cleanup always sees the current stream without re-running the effect
-  const streamControlRef = useRef(streamControl);
-  useEffect(() => {
-    streamControlRef.current = streamControl;
-  }, [streamControl]);
-  // Send generation: a cancelled stream settles after Cancel re-enables Send,
-  // so its late callbacks must not clobber a newer send's response / controls.
+  // Send generations. `sendRunRef` is the latest send from ANY tab: it owns the
+  // builder-wide stream log. `tabRunRef` is the latest send per tab: a cancelled
+  // stream settles after Cancel re-enables Send, so its late callbacks must not
+  // clobber a newer send's response / loading in the same tab — while a send in
+  // another tab must not silence them.
   const sendRunRef = useRef(0);
-
-  useEffect(() => {
-    return () => {
-      try {
-        streamControlRef.current?.cancelStream();
-      } catch {
-        /* ignore cleanup errors */
-      }
-    };
-  }, []);
+  const tabRunRef = useRef(new Map<string, number>());
 
   const activeMetadataCount = currentRequest?.metadata.filter((m) => m.enabled).length ?? 0;
   const hasScripts =
@@ -285,6 +293,37 @@ function GrpcRequestBuilder() {
   const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
     ? reflectionResult.services
     : [];
+  const picker = mergeMethodPicker({
+    uploaded: uploadedServices,
+    reflected: reflectionServices,
+    reflectedService: reflection.selectedService,
+    reflectedMethod: reflection.selectedMethod,
+    service: grpcRequest.service,
+    method: grpcRequest.method,
+  });
+  const handlePickService = (service: ReflectionServiceInfo) => {
+    if (!picker.isUploaded(service.fullName)) {
+      reflection.selectService(service);
+      return;
+    }
+    handleServiceChange(service.fullName);
+    const first = service.methods[0];
+    if (first) handleReflectionMethodSelected(first);
+  };
+  const handlePickMethod = (method: ReflectionMethodInfo) => {
+    if (picker.uploadedSelected) handleReflectionMethodSelected(method);
+    else reflection.selectMethod(method);
+  };
+  // After an upload: pick its first method with a generated request template.
+  const handleSchemaUploaded = (schema: GrpcSchemaSnapshot) => {
+    schemaDrift.saveUpload(schema);
+    const first = servicesFromUploadedSchema(schema)[0];
+    if (!first || !activeTabId) return;
+    updateRequestForTab(activeTabId, { service: first.fullName });
+    validateService(first.fullName);
+    const method = first.methods[0];
+    if (method) handleReflectionMethodSelected(method);
+  };
 
   const handleMethodTypeChange = (methodType: GrpcMethodType) => {
     updateRequest({ methodType });
@@ -331,12 +370,12 @@ function GrpcRequestBuilder() {
     }
 
     // Schema validation against reflection schema (if available)
-    if (reflection.selectedMethod?.inputMessageSchema && grpcRequest.message) {
+    if (picker.selectedMethod?.inputMessageSchema && grpcRequest.message) {
       try {
         const parsed = JSON.parse(grpcRequest.message);
         const schemaValidation = validateRequestAgainstSchema(
           parsed,
-          reflection.selectedMethod.inputMessageSchema
+          picker.selectedMethod.inputMessageSchema
         );
         if (!schemaValidation.valid) {
           toast.warning('Schema validation warnings', {
@@ -349,7 +388,8 @@ function GrpcRequestBuilder() {
     }
 
     const runId = ++sendRunRef.current;
-    setLoading(true);
+    tabRunRef.current.set(originTabId, runId);
+    setLoading(true, originTabId);
     streamLog.reset();
     setScriptResultForTab(originTabId, null);
     const startTime = Date.now();
@@ -384,7 +424,7 @@ function GrpcRequestBuilder() {
         toast.error('Proto file or reflection required', {
           description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
         });
-        setLoading(false);
+        setLoading(false, originTabId);
         return;
       }
 
@@ -407,7 +447,10 @@ function GrpcRequestBuilder() {
         // the runner resolves after the stream ends with the aggregated
         // response. The web supports server streams only — client / bidi
         // fail with a desktop-only error from the streaming client.
+        // The shared stream log shows the latest send from any tab; the tab's
+        // own response / spinner follow the latest send from THAT tab.
         const current = () => sendRunRef.current === runId;
+        const currentInTab = () => tabRunRef.current.get(originTabId) === runId;
         void runBuilderStream({
           request: grpcRequest,
           protocolOptions,
@@ -416,22 +459,22 @@ function GrpcRequestBuilder() {
           retryDelayMs,
           onMessage: (text) => current() && streamLog.append(text),
           onReset: () => current() && streamLog.reset(),
-          setStreamControl: (control) => current() && setStreamControl(control),
+          setStreamControl: (control) =>
+            currentInTab() && setStreamControlFor(originTabId, runId, control),
         })
-          .then((response) => current() && setCurrentResponseForTab(originTabId, response))
+          .then((response) => currentInTab() && setCurrentResponseForTab(originTabId, response))
           .catch((err: unknown) => {
             const errorResponse = createErrorResponse(grpcRequest.id, err, startTime);
             addHistoryItem(grpcRequest, errorResponse);
-            if (!current()) return;
+            if (!currentInTab()) return;
             setCurrentResponseForTab(originTabId, errorResponse);
             toast.error('gRPC stream error', {
               description: err instanceof Error ? err.message : String(err),
             });
           })
           .finally(() => {
-            if (!current()) return;
-            setLoading(false);
-            setStreamControl(null);
+            setStreamControlFor(originTabId, runId, null);
+            if (currentInTab()) setLoading(false, originTabId);
           });
         return;
       }
@@ -459,43 +502,7 @@ function GrpcRequestBuilder() {
 
       setCurrentResponseForTab(originTabId, grpcResponse);
 
-      // Mirror the final attempt into the unified console (interactive sends
-      // previously only appeared when run via a collection). Retried attempts
-      // are intentionally not mirrored — one entry per user action.
-      const consoleLogs = [
-        ...(scriptResult?.preRequest?.logs ?? []),
-        ...(scriptResult?.test?.logs ?? []),
-      ];
-      const consoleTests = (scriptResult?.test?.tests ?? []).map((t) => ({
-        name: t.name,
-        passed: t.passed,
-        ...(t.error ? { error: t.error } : {}),
-      }));
-      const sentMetadata: Record<string, string> = {};
-      for (const m of grpcRequest.metadata) {
-        if (m.enabled && m.key) sentMetadata[m.key] = m.value;
-      }
-      useConsoleStore.getState().addEntry(
-        createProtocolConsoleEntry({
-          protocol: 'grpc',
-          method: `${grpcRequest.service}/${grpcRequest.method}`,
-          url: grpcRequest.url,
-          headers: sentMetadata,
-          ...(grpcRequest.message ? { body: grpcRequest.message } : {}),
-          response: grpcResponse,
-          ...(consoleLogs.length > 0 && { scriptLogs: consoleLogs }),
-          ...(consoleTests.length > 0 && { tests: consoleTests }),
-          nativeDraft: {
-            kind: 'grpc',
-            credentialsOmitted: true,
-            url: grpcRequest.url,
-            service: grpcRequest.service,
-            method: grpcRequest.method,
-            message: grpcRequest.message,
-            metadata: sentMetadata,
-          },
-        })
-      );
+      mirrorGrpcCallToConsole(grpcRequest, grpcResponse, scriptResult);
 
       if (grpcResponse.grpcStatus === 0) {
         if (grpcResponse.messages) {
@@ -509,8 +516,8 @@ function GrpcRequestBuilder() {
     } catch (error: unknown) {
       console.error('gRPC request error:', error);
       // Always clear loading on error — stream never started if we're in catch
-      setLoading(false);
-      setStreamControl(null);
+      setLoading(false, originTabId);
+      setStreamControlFor(originTabId, runId, null);
       const errorResponse = createErrorResponse(grpcRequest.id, error, startTime);
       setCurrentResponseForTab(originTabId, errorResponse);
       addHistoryItem(grpcRequest, errorResponse);
@@ -523,7 +530,7 @@ function GrpcRequestBuilder() {
       }
     } finally {
       if (grpcRequest.methodType === 'unary') {
-        setLoading(false);
+        setLoading(false, originTabId);
       }
     }
   };
@@ -540,7 +547,24 @@ function GrpcRequestBuilder() {
     );
   };
 
-  sendShortcut.current = !isLoading && isFormValid() ? () => void handleSendRequest() : null;
+  // Cancel acts on the ACTIVE tab's send only — never another tab's.
+  const cancelInFlight = () => {
+    if (!activeTabId) return;
+    if (activeStreamRun) {
+      activeStreamRun.control.cancelStream();
+      setStreamControlFor(activeTabId, activeStreamRun.runId, null);
+      setLoading(false, activeTabId);
+    } else {
+      abortRun(activeTabId);
+    }
+  };
+
+  // Cmd/Ctrl+Enter invokes; pressed again while in flight it cancels (like HTTP).
+  sendShortcut.current = isLoading
+    ? cancelInFlight
+    : isFormValid()
+      ? () => void handleSendRequest()
+      : null;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 p-2.5 gap-2.5">
@@ -556,11 +580,7 @@ function GrpcRequestBuilder() {
         onMethodTypeChange={handleMethodTypeChange}
         onUrlChange={handleUrlChange}
         onSend={handleSendRequest}
-        onCancelStream={() => {
-          streamControl?.cancelStream();
-          setStreamControl(null);
-          setLoading(false);
-        }}
+        onCancelStream={cancelInFlight}
       />
 
       {/* Request builder body — single column. The response panel is a
@@ -570,7 +590,7 @@ function GrpcRequestBuilder() {
         <GrpcMethodContext
           methodName={grpcRequest.method}
           methodType={grpcRequest.methodType}
-          selectedMethod={reflection.selectedMethod}
+          selectedMethod={picker.selectedMethod}
           showSchema={reflection.showSchema}
           onToggleSchema={() => reflection.setShowSchema(!reflection.showSchema)}
         />
@@ -599,15 +619,15 @@ function GrpcRequestBuilder() {
                 free-text takes over when reflection is unavailable. */}
           <div className="flex gap-2 px-3 py-2 border-b border-sp-line">
             <GrpcMethodSelector
-              services={reflectionServices}
-              selectedService={reflection.selectedService}
-              selectedMethod={reflection.selectedMethod}
+              services={picker.services}
+              selectedService={picker.selectedService}
+              selectedMethod={picker.selectedMethod}
               serviceValue={grpcRequest.service}
               methodValue={grpcRequest.method}
               serviceValidation={validation.service}
               methodValidation={validation.method}
-              onSelectService={reflection.selectService}
-              onSelectMethod={reflection.selectMethod}
+              onSelectService={handlePickService}
+              onSelectMethod={handlePickMethod}
               onServiceTextChange={handleServiceChange}
               onMethodTextChange={handleMethodChange}
             />
@@ -628,24 +648,26 @@ function GrpcRequestBuilder() {
             </Button>
             <GrpcProtoUploader
               protoFileName={protoSnapshot?.fileName ?? uploaded?.fileName ?? null}
-              onSchemaLoaded={schemaDrift.saveUpload}
+              onSchemaLoaded={handleSchemaUploaded}
               onServiceChange={handleServiceChange}
               onMethodChange={handleMethodChange}
               onMethodTypeChange={handleMethodTypeChange}
             />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCodeOpen(true)}
+              aria-label="Generate code"
+              title="Export as grpcurl / buf curl"
+              className="h-8 shrink-0 text-sp-12"
+            >
+              <Code2 className="mr-1.5 h-3.5 w-3.5" />
+              Code
+            </Button>
           </div>
 
           {reflectionResult && !reflectionResult.success && (
-            <div className="mx-3 mt-2 p-2 rounded-sp-btn bg-red-500/10 text-destructive text-sp-11 font-mono flex items-start gap-1.5">
-              <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span className="break-words">
-                Reflection failed: {reflectionResult.error || 'Could not reach the gRPC server.'}
-                {/certificate|self.?signed|unable to (get|verify)|\btls\b|\bssl\b/i.test(
-                  reflectionResult.error ?? ''
-                ) &&
-                  ' — if the server uses a self-signed or private-CA certificate, add its CA in Settings → Certificates.'}
-              </span>
-            </div>
+            <GrpcReflectionErrorBanner error={reflectionResult.error} />
           )}
 
           <GrpcSchemaDriftBanner drift={schemaDrift} />
@@ -744,6 +766,12 @@ function GrpcRequestBuilder() {
                     messages={streamingMessages}
                     dropped={streamLog.dropped}
                     positions={streamLog.positions}
+                    exportName={`${grpcRequest.service}-${grpcRequest.method}-stream`}
+                    exportMeta={{
+                      protocol: 'grpc',
+                      method: `${grpcRequest.service}/${grpcRequest.method}`,
+                    }}
+                    onClear={streamLog.reset}
                   />
                 </div>
               )}
@@ -759,6 +787,7 @@ function GrpcRequestBuilder() {
           </SubTabPanel>
         </Floater>
       </div>
+      <GrpcCodeDialog open={codeOpen} onOpenChange={setCodeOpen} request={grpcRequest} />
     </div>
   );
 }

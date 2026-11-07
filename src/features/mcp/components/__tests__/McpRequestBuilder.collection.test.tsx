@@ -242,7 +242,7 @@ describe('McpRequestBuilder ↔ collections', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Connect' }));
     await waitFor(() => expect(screen.getByPlaceholderText('string')).toHaveValue('saved'));
-    expect(screen.getByPlaceholderText('number')).toHaveValue('7');
+    expect(screen.getByPlaceholderText('number')).toHaveValue(7);
     expect(client.options[0]).toMatchObject({
       url: 'https://saved.example.com/mcp',
       headers: { 'X-Key': 'k' },
@@ -282,7 +282,7 @@ describe('McpRequestBuilder ↔ collections', () => {
     render(<McpRequestBuilder />);
 
     await user.click(await screen.findByRole('button', { name: 'Connect' }));
-    await waitFor(() => expect(screen.getByPlaceholderText('number')).toHaveValue('7'));
+    await waitFor(() => expect(screen.getByPlaceholderText('number')).toHaveValue(7));
     expect(screen.getByPlaceholderText('string')).toHaveValue('');
 
     const tab = useRequestStore.getState().tabs[0];

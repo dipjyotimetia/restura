@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { GrpcRequest } from '@/types';
@@ -139,6 +140,79 @@ describe('GrpcStreamingPanel', () => {
       expect(screen.getByText(/"i": 1/)).toBeInTheDocument();
       expect(screen.getByText(/"i": 2/)).toBeInTheDocument();
     });
+  });
+
+  it('a non-OK final status is an error, with code name and server message', async () => {
+    async function* none() {}
+    vi.mocked(streamingModule.startGrpcStream).mockResolvedValue({
+      messages: none(),
+      send: vi.fn(),
+      closeSend: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({
+        headers: {},
+        trailers: {},
+        status: 5,
+        statusMessage: 'user 42 missing',
+      }),
+    } as never);
+    render(<GrpcStreamingPanel request={mockRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('NOT_FOUND (5): user 42 missing');
+    expect(screen.getByText('Error')).toBeInTheDocument();
+  });
+
+  it('shows how many frames the 500-message cap dropped', async () => {
+    async function* many() {
+      for (let i = 0; i < 503; i++) yield { i };
+    }
+    vi.mocked(streamingModule.startGrpcStream).mockResolvedValue({
+      messages: many(),
+      send: vi.fn(),
+      closeSend: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({ headers: {}, trailers: {}, status: 0 }),
+    } as never);
+    render(<GrpcStreamingPanel request={mockRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
+    expect(await screen.findByText(/3 messages dropped/)).toBeInTheDocument();
+  });
+
+  it('counts dropped frames exactly once under StrictMode (pure state updater)', async () => {
+    async function* many() {
+      for (let i = 0; i < 503; i++) yield { i };
+    }
+    vi.mocked(streamingModule.startGrpcStream).mockResolvedValue({
+      messages: many(),
+      send: vi.fn(),
+      closeSend: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({ headers: {}, trailers: {}, status: 0 }),
+    } as never);
+    render(
+      <StrictMode>
+        <GrpcStreamingPanel request={mockRequest} />
+      </StrictMode>
+    );
+    fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
+    expect(await screen.findByText(/3 messages dropped/)).toBeInTheDocument();
+  });
+
+  it('bidi: invalid JSON names the parser error; Cmd/Ctrl+Enter sends', async () => {
+    const { handle } = makeControlledHandle();
+    vi.mocked(streamingModule.startGrpcStream).mockResolvedValue(handle as never);
+    render(<GrpcStreamingPanel request={bidiRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
+    const box = await screen.findByRole('textbox', { name: 'Streaming message JSON' });
+    fireEvent.change(box, { target: { value: '{ nope' } });
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/Invalid JSON — fix before sending: .+/);
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(box).toHaveAttribute('aria-describedby', alert.id);
+    fireEvent.change(box, { target: { value: '{"a":1}' } });
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    await waitFor(() => expect(handle.send).toHaveBeenCalled());
   });
 
   it('renders error when stream fails to start', async () => {

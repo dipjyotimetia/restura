@@ -51,7 +51,7 @@ describe('ImportDialog environment secrets (#1231)', () => {
     const user = await previewPostmanEnv();
 
     const review = await screen.findByRole('region', { name: /import preview/i });
-    expect(within(review).getByText(/apiKey/)).toBeInTheDocument();
+    expect(within(review).getAllByText(/apiKey/)[0]).toBeInTheDocument();
     expect(review.textContent).not.toContain('sk-live-123');
 
     await user.click(screen.getByRole('button', { name: /confirm import/i }));
@@ -84,7 +84,7 @@ describe('ImportDialog environment secrets (#1231)', () => {
     await previewPostmanEnv();
 
     const review = await screen.findByRole('region', { name: /import preview/i });
-    expect(within(review).getByText(/apiKey/)).toBeInTheDocument();
+    expect(within(review).getAllByText(/apiKey/)[0]).toBeInTheDocument();
     expect(review.textContent).not.toContain('sk-live-123');
   });
 
@@ -109,7 +109,7 @@ describe('ImportDialog environment secrets (#1231)', () => {
     await user.click(screen.getByRole('button', { name: /preview pasted hoppscotch/i }));
 
     const review = await screen.findByRole('region', { name: /import preview/i });
-    expect(within(review).getByText(/apiKey/)).toBeInTheDocument();
+    expect(within(review).getAllByText(/apiKey/)[0]).toBeInTheDocument();
     expect(review.textContent).not.toContain('sk-live-123');
     await user.click(screen.getByRole('button', { name: /confirm import/i }));
     expect(importedVar('apiKey')).toMatchObject({ value: '', secret: true });

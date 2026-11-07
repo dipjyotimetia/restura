@@ -1,4 +1,6 @@
-import { History, Star } from 'lucide-react';
+import { History, Star, Trash2, X } from 'lucide-react';
+import { useState } from 'react';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
@@ -6,8 +8,8 @@ import { TabsContent } from '@/components/ui/tabs';
 import { httpLikeStatus } from '@/lib/shared/console-format';
 import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
-import type { HistoryItem } from '@/types';
-import { groupHistory } from '../lib/sidebarSearch';
+import type { HistoryItem, RequestType } from '@/types';
+import { groupHistory, PROTOCOL_FILTER_PREFIX } from '../lib/sidebarSearch';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const;
@@ -25,6 +27,10 @@ interface SidebarHistoryPanelProps {
   onLoadMore: () => void;
   onMethodFilterChange: (method: string | null) => void;
   onToggleFavorite: (itemId: string) => void;
+  /** Non-HTTP protocols present in history, offered as filter chips. */
+  availableProtocols?: readonly RequestType[];
+  onRemoveHistoryItem?: (itemId: string) => void;
+  onClearHistory?: () => void;
 }
 
 export function SidebarHistoryPanel({
@@ -40,11 +46,15 @@ export function SidebarHistoryPanel({
   onLoadMore,
   onMethodFilterChange,
   onToggleFavorite,
+  availableProtocols = [],
+  onRemoveHistoryItem,
+  onClearHistory,
 }: SidebarHistoryPanelProps) {
+  const [confirmClear, setConfirmClear] = useState(false);
   return (
     <TabsContent value="history" className="flex-1 overflow-auto p-3 mt-0">
       {totalHistoryCount > 0 && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
+        <div className="flex flex-wrap items-center gap-1.5 mb-3">
           <Button
             variant={methodFilter === null ? 'secondary' : 'ghost'}
             size="sm"
@@ -67,7 +77,51 @@ export function SidebarHistoryPanel({
               {method}
             </Button>
           ))}
+          {availableProtocols
+            .filter((protocol) => protocol !== 'http')
+            .map((protocol) => {
+              const value = `${PROTOCOL_FILTER_PREFIX}${protocol}`;
+              return (
+                <Button
+                  key={protocol}
+                  variant={methodFilter === value ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-6 text-sp-11 font-mono px-2"
+                  onClick={() => onMethodFilterChange(methodFilter === value ? null : value)}
+                >
+                  {PROTOCOL_LABELS[protocol] ?? protocol}
+                </Button>
+              );
+            })}
+          {onClearHistory && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-sp-11 px-2 ml-auto text-sp-dim hover:text-red-500"
+              onClick={() => setConfirmClear(true)}
+            >
+              <Trash2 className="h-3 w-3 mr-1" aria-hidden="true" />
+              Clear history
+            </Button>
+          )}
         </div>
+      )}
+      {onClearHistory && (
+        <ConfirmDialog
+          open={confirmClear}
+          onOpenChange={setConfirmClear}
+          title="Clear history?"
+          description={`Remove all ${totalHistoryCount} history ${
+            totalHistoryCount === 1 ? 'entry' : 'entries'
+          }, including favorites? This action cannot be undone.`}
+          confirmText="Clear"
+          cancelText="Cancel"
+          onConfirm={() => {
+            onClearHistory();
+            setConfirmClear(false);
+          }}
+          variant="destructive"
+        />
       )}
 
       {filteredHistory.length === 0 ? (
@@ -162,6 +216,20 @@ export function SidebarHistoryPanel({
                           </span>
                         );
                       })()}
+                    {onRemoveHistoryItem && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="pointer-events-auto ml-auto h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRemoveHistoryItem(item.id);
+                        }}
+                        aria-label="Remove from history"
+                      >
+                        <X className="h-3.5 w-3.5 text-sp-dim" />
+                      </Button>
+                    )}
                   </div>
                   <p className="pointer-events-none relative text-xs font-mono truncate pl-6 mb-1 text-foreground">
                     {item.request.type === 'grpc'

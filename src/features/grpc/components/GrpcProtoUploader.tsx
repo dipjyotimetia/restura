@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { loadProtoUpload, PROTO_UPLOAD_ACCEPT } from '@/features/grpc/lib/protoUpload';
-import type { GrpcMethodType, GrpcSchemaSnapshot, ProtoFileInfo } from '@/types';
+import type { GrpcMethodType, GrpcSchemaSnapshot } from '@/types';
 
 interface GrpcProtoUploaderProps {
   /** Label of the uploaded schema persisted on the request, if any. */
@@ -124,23 +124,6 @@ export default function GrpcProtoUploader({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
-  );
-}
-
-// Separate component for proto info display
-export function GrpcProtoInfo({ protoInfo }: { protoInfo: ProtoFileInfo | null }) {
-  if (!protoInfo) return null;
-
-  return (
-    <div className="bg-muted p-2 rounded text-xs space-y-1 border border-border">
-      <div className="flex items-center gap-1 font-medium">
-        <FileText className="h-3 w-3" />
-        Proto File Info
-      </div>
-      <div>Package: {protoInfo.package || 'default'}</div>
-      <div>Services: {protoInfo.services.map((s) => s.name).join(', ') || 'None'}</div>
-      <div>Messages: {Object.keys(protoInfo.messages).join(', ') || 'None'}</div>
     </div>
   );
 }

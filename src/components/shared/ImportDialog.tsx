@@ -3,8 +3,14 @@ import type { DeepLinkImportFormat } from '@shared/deep-link';
 import { load } from 'js-yaml';
 import { Check, Download, Link, Lock, Upload, X } from 'lucide-react';
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
+import {
+  ImportPendingReview,
+  type NameClashChoice,
+} from '@/features/collections/components/ImportPendingReview';
+import { deleteCollectionWithCleanup } from '@/features/collections/lib/deleteCollection';
 import {
   buildHarImportCollections,
   type EnvironmentImportResult,
@@ -21,6 +27,7 @@ import {
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
 import { importPostmanV3Files } from '@/features/collections/lib/importers/postman';
+import { uniqueName } from '@/features/collections/lib/names';
 import { useResettableTimeout } from '@/hooks/useResettableTimeout';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
@@ -65,6 +72,12 @@ export default function ImportDialog({
   droppedFile,
 }: ImportDialogProps) {
   const addCollection = useCollectionStore((s) => s.addCollection);
+  const existingCollectionNames = useCollectionStore(
+    useShallow((s) => s.collections.map((collection) => collection.name))
+  );
+  // Name clash on import: keep both (auto-suffixed) or replace the existing one.
+  const [clashChoice, setClashChoice] = useState<NameClashChoice>('keep-both');
+  const [importedCollectionName, setImportedCollectionName] = useState<string | null>(null);
   const addEnvironment = useEnvironmentStore((s) => s.addEnvironment);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
@@ -183,6 +196,7 @@ export default function ImportDialog({
     sourceFormat: ParsedImportType | 'har' | null = null
   ) => {
     if ('kind' in outcome && outcome.kind === 'har-preview') {
+      setImportedCollectionName(null);
       setHarPreview(outcome.preview);
       setSelectedHarEntries(
         new Set(
@@ -209,6 +223,8 @@ export default function ImportDialog({
       setWarnings(outcome.warnings);
     }
     setHarPreview(null);
+    setClashChoice('keep-both');
+    setImportedCollectionName(null);
     setPendingOutcome(outcome);
     setReviewFormat(sourceFormat === 'har' ? null : sourceFormat);
     setImportStatus('idle');
@@ -248,11 +264,33 @@ export default function ImportDialog({
       }
       return;
     }
-    const collection =
+    const converted =
       storeSecretsAsHandles && isElectron()
         ? await convertCollectionSecretsToHandles(outcome.collection)
         : outcome.collection;
+    const clash = useCollectionStore
+      .getState()
+      .collections.find((existing) => existing.name === converted.name);
+    let collection = converted;
+    if (clash && clashChoice === 'replace') {
+      // Validate first: an invalid import must not cost the collection it replaces.
+      useCollectionStore.getState().prepareCollection(converted);
+      const removed = await deleteCollectionWithCleanup(clash.id);
+      if (!removed.success) {
+        throw new Error(`Couldn't replace "${clash.name}": ${removed.error ?? 'unknown error'}`);
+      }
+    } else if (clash) {
+      collection = {
+        ...converted,
+        name: uniqueName(
+          converted.name,
+          useCollectionStore.getState().collections.map((existing) => existing.name)
+        ),
+      };
+    }
     addCollection(collection);
+    setImportedCollectionName(collection.name);
+    useCollectionStore.getState().setActiveCollection(collection.id);
     for (const environment of outcome.environments ?? []) addEnvironment(environment);
     setImportStatus('success');
     setWarnings(outcome.warnings);
@@ -276,6 +314,7 @@ export default function ImportDialog({
         selectedHarEnvironments
       );
       if (results.length === 0) throw new Error('Select at least one HAR entry to import');
+      const importedNames: string[] = [];
       for (const result of results) {
         const validation = validateImportedCollection(result.collection);
         if (!validation.ok) {
@@ -284,9 +323,15 @@ export default function ImportDialog({
           );
         }
         assertValidEnvironments(result.environments);
-        addCollection(result.collection);
+        const existingNames = useCollectionStore
+          .getState()
+          .collections.map((existing) => existing.name);
+        const name = uniqueName(result.collection.name, existingNames);
+        addCollection({ ...result.collection, name });
+        importedNames.push(name);
         for (const environment of result.environments ?? []) addEnvironment(environment);
       }
+      setImportedCollectionName(importedNames.length === 1 ? (importedNames[0] ?? null) : null);
       setWarnings(harPreview.warnings);
       setHarPreview(null);
       setImportStatus('success');
@@ -510,6 +555,7 @@ export default function ImportDialog({
               status={importStatus}
               warnings={warnings}
               environmentOnlyName={environmentOnlyName}
+              collectionName={importedCollectionName}
               errorMessage={errorMessage}
               onDismiss={() => {
                 onOpenChange(false);
@@ -519,70 +565,25 @@ export default function ImportDialog({
             />
 
             {pendingOutcome && (
-              <section
-                className="rounded-sp-btn border border-sp-accent/50 bg-sp-active p-4"
-                aria-label="Import preview"
-              >
-                <div className="sp-label">Review before importing</div>
-                {reviewFormat && (
-                  <p className="mt-1 text-sp-12 text-sp-muted">
-                    Detected format:{' '}
-                    {('kind' in pendingOutcome ? undefined : pendingOutcome.sourceLabel) ??
-                      FORMATS.find((candidate) => candidate.id === reviewFormat)?.name}
-                  </p>
-                )}
-                {'kind' in pendingOutcome ? (
-                  <>
-                    <p className="mt-1 text-sp-12 text-sp-text">
-                      Environment: <strong>{pendingOutcome.environment.name}</strong>
-                    </p>
-                    {pendingOutcome.droppedSecretKeys.length > 0 && (
-                      <p className="mt-1 text-sp-12 text-amber-300">
-                        Secret values are not imported in the browser. Re-enter after import:{' '}
-                        {pendingOutcome.droppedSecretKeys.join(', ')}
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-1 text-sp-12 text-sp-text">
-                      Collection: <strong>{pendingOutcome.collection.name}</strong> ·{' '}
-                      {pendingOutcome.collection.items.length} top-level item
-                      {pendingOutcome.collection.items.length === 1 ? '' : 's'}
-                    </p>
-                    <p className="mt-1 text-sp-12 text-sp-muted">
-                      Imported scripts and requests are stored only; nothing is executed during
-                      import.
-                    </p>
-                  </>
-                )}
-                {warnings.length > 0 && (
-                  <p className="mt-2 text-sp-12 text-sp-muted">
-                    {warnings.length} warning{warnings.length === 1 ? '' : 's'} will be retained in
-                    the import review.
-                  </p>
-                )}
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void confirmImport()}
-                    disabled={confirming}
-                    className="rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent disabled:opacity-60"
-                  >
-                    Confirm import
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPendingOutcome(null);
-                      setReviewFormat(null);
-                    }}
-                    className="rounded-sp-btn border border-sp-line px-3 py-2 text-sp-12 text-sp-text"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </section>
+              <ImportPendingReview
+                outcome={pendingOutcome}
+                formatName={
+                  reviewFormat
+                    ? (('kind' in pendingOutcome ? undefined : pendingOutcome.sourceLabel) ??
+                      FORMATS.find((candidate) => candidate.id === reviewFormat)?.name)
+                    : undefined
+                }
+                warnings={warnings}
+                existingNames={existingCollectionNames}
+                clashChoice={clashChoice}
+                onClashChoiceChange={setClashChoice}
+                confirming={confirming}
+                onConfirm={() => void confirmImport()}
+                onCancel={() => {
+                  setPendingOutcome(null);
+                  setReviewFormat(null);
+                }}
+              />
             )}
 
             {harPreview && (

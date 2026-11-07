@@ -1,3 +1,4 @@
+import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { CLOUD_PROVIDERS, getProviderModule } from '@shared/protocol/ai/providers';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import type { ChatProvider, CloudProvider } from '@shared/protocol/ai/types';
@@ -13,17 +14,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { AI_PROVIDER_LABELS, providerReadiness } from '@/features/ai/lib/providerReadiness';
 import { type Conversation, useAiChatStore } from '@/features/ai/store';
 import { getElectronAPI } from '@/lib/shared/platform';
 
 // The chat panel talks to the cloud providers plus a local OpenAI-compatible
 // endpoint (Ollama/LM Studio/vLLM at a user-supplied base URL, no API key).
-const PROVIDER_LABELS: Record<ChatProvider, string> = {
-  openai: 'OpenAI',
-  anthropic: 'Anthropic',
-  openrouter: 'OpenRouter',
-  'openai-compatible': 'OpenAI-compatible (local)',
-};
+const PROVIDER_LABELS = AI_PROVIDER_LABELS;
+
+type KeyStatus = { kind: 'error' | 'success' | 'pending'; message: string };
 
 const CHAT_PROVIDERS: readonly ChatProvider[] = [...CLOUD_PROVIDERS, 'openai-compatible'];
 
@@ -69,6 +68,15 @@ export function ProviderSettings() {
     openrouter: '',
   });
   const [removingKey, setRemovingKey] = useState<CloudProvider | null>(null);
+  // Per-provider outcome of the last save / connection test, shown inline.
+  const [keyStatus, setKeyStatus] = useState<Partial<Record<CloudProvider, KeyStatus>>>({});
+  const setStatus = (provider: CloudProvider, status: KeyStatus | null) =>
+    setKeyStatus((s) => {
+      const next = { ...s };
+      if (status) next[provider] = status;
+      else delete next[provider];
+      return next;
+    });
   const { confirm: confirmRemoveKey, DialogComponent: RemoveKeyDialog } = useConfirmDialog({
     title: 'Remove API key',
     description: removingKey
@@ -98,15 +106,44 @@ export function ProviderSettings() {
       defaultModel: model,
       baseUrlOverride: url,
     });
+    adoptIfActiveUnusable('openai-compatible');
+  };
+
+  // When the active provider can't be used yet, switch to the one the user just
+  // configured, so saving a first key makes chat work without a second step.
+  const adoptIfActiveUnusable = (provider: ChatProvider) => {
+    const st = useAiChatStore.getState();
+    if (st.activeProvider === provider) return;
+    if (providerReadiness(st.activeProvider, st.providerConfigs[st.activeProvider]) !== 'ready') {
+      setActiveProvider(provider);
+    }
   };
 
   const saveKey = async (provider: CloudProvider) => {
     const value = pendingKeys[provider].trim();
     if (!value) return;
     const api = getElectronAPI()?.secrets;
-    if (!api) return;
-    const result = await api.store({ scope: `ai:${provider}`, value, label: `${provider} key` });
-    if (!result.ok) return;
+    if (!api) {
+      setStatus(provider, {
+        kind: 'error',
+        message: 'Could not save the key: secure storage is not available in this build.',
+      });
+      return;
+    }
+    let result: Awaited<ReturnType<typeof api.store>>;
+    try {
+      result = await api.store({ scope: `ai:${provider}`, value, label: `${provider} key` });
+    } catch (e) {
+      result = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    if (!result.ok) {
+      setStatus(provider, {
+        kind: 'error',
+        message: `Could not save the key: ${'error' in result ? result.error : 'unknown error'}`,
+      });
+      return;
+    }
+    setStatus(provider, null);
     const providerModule = getProviderModule(provider);
     const defaultModel =
       providerConfigs[provider]?.defaultModel ?? providerModule.models[0]?.id ?? '';
@@ -116,6 +153,45 @@ export function ProviderSettings() {
       apiKeyRef: { kind: 'handle', id: result.id, label: `${provider} key` },
     });
     setPendingKeys((p) => ({ ...p, [provider]: '' }));
+    adoptIfActiveUnusable(provider);
+  };
+
+  // Validate the saved key with the provider over the existing (handle-only)
+  // connection-test IPC; the key itself never returns to the renderer.
+  const testKey = async (provider: CloudProvider) => {
+    const cfg = useAiChatStore.getState().providerConfigs[provider];
+    const handleId = cfg?.apiKeyRef?.id;
+    if (!handleId) return;
+    const testConnection = getElectronAPI()?.aiLab?.testConnection;
+    if (!testConnection) {
+      setStatus(provider, {
+        kind: 'error',
+        message: 'Connection test is not available in this build.',
+      });
+      return;
+    }
+    setStatus(provider, { kind: 'pending', message: 'Testing connection…' });
+    try {
+      const res = await testConnection({
+        provider,
+        baseUrl: resolveBaseUrl(provider, cfg.baseUrlOverride),
+        apiKeyHandleId: handleId,
+      });
+      setStatus(
+        provider,
+        res.ok
+          ? {
+              kind: 'success',
+              message: `Connected — ${res.modelCount} model${res.modelCount === 1 ? '' : 's'} available.`,
+            }
+          : { kind: 'error', message: `Connection failed: ${res.error}` }
+      );
+    } catch (e) {
+      setStatus(provider, {
+        kind: 'error',
+        message: `Connection failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
   };
 
   const clearKey = async (provider: CloudProvider) => {
@@ -125,6 +201,7 @@ export function ProviderSettings() {
       await api.delete(handleId);
     }
     setProviderConfig(provider, null);
+    setStatus(provider, null);
   };
 
   const handleRemoveKeyClick = async (provider: CloudProvider) => {
@@ -189,13 +266,24 @@ export function ProviderSettings() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">{PROVIDER_LABELS[provider]}</h3>
               {cfg && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void handleRemoveKeyClick(provider)}
-                >
-                  Remove key
-                </Button>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    aria-label={`Test ${PROVIDER_LABELS[provider]} connection`}
+                    disabled={keyStatus[provider]?.kind === 'pending'}
+                    onClick={() => void testKey(provider)}
+                  >
+                    Test connection
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void handleRemoveKeyClick(provider)}
+                  >
+                    Remove key
+                  </Button>
+                </div>
               )}
             </div>
             {cfg ? (
@@ -245,14 +333,32 @@ export function ProviderSettings() {
                           : 'sk-or-…'
                     }
                   />
-                  <Button size="sm" onClick={() => void saveKey(provider)}>
+                  <Button
+                    size="sm"
+                    aria-label={`Save ${PROVIDER_LABELS[provider]} key`}
+                    onClick={() => void saveKey(provider)}
+                  >
                     Save
                   </Button>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-sp-11 text-muted-foreground">
                   Stored encrypted in the OS keychain. Never sent to Restura&apos;s servers.
                 </p>
               </div>
+            )}
+            {keyStatus[provider] && (
+              <p
+                role={keyStatus[provider].kind === 'error' ? 'alert' : 'status'}
+                className={
+                  keyStatus[provider].kind === 'error'
+                    ? 'text-sp-11 text-destructive'
+                    : keyStatus[provider].kind === 'success'
+                      ? 'text-sp-11 text-emerald-600 dark:text-emerald-400'
+                      : 'text-sp-11 text-muted-foreground'
+                }
+              >
+                {keyStatus[provider].message}
+              </p>
             )}
           </div>
         );
@@ -292,7 +398,7 @@ export function ProviderSettings() {
           Save local provider
         </Button>
         {localCfg && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-sp-11 text-muted-foreground">
             Configured: {localCfg.baseUrlOverride} · {localCfg.defaultModel}
           </p>
         )}
@@ -301,7 +407,7 @@ export function ProviderSettings() {
       <div className="border-t border-border/40 pt-3 space-y-3">
         <div>
           <Label className="text-sm">Conversation history</Label>
-          <p className="text-[11px] text-muted-foreground mb-2">
+          <p className="text-sp-11 text-muted-foreground mb-2">
             All chats are stored locally (encrypted). Export redacts recognizable secrets to
             placeholders.
           </p>
@@ -316,7 +422,7 @@ export function ProviderSettings() {
         </div>
       </div>
 
-      <div className="text-[11px] text-muted-foreground">
+      <div className="text-sp-11 text-muted-foreground">
         Note: providers may retain prompts up to 30 days. See your provider&apos;s privacy policy.
       </div>
 

@@ -1,13 +1,16 @@
 import { Search, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
+  DroppedNotice,
   FreezeToggle,
+  JumpToLatestPill,
   LogExportMenu,
   useFrozenView,
 } from '@/components/shared/messageLog/MessageLogControls';
 import { Floater } from '@/components/ui/spatial';
 import { sseToLogEntries } from '@/features/sse/lib/sseLogExport';
 import type { SseLogEntry } from '@/features/sse/store/useSseStore';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 
@@ -21,6 +24,8 @@ export interface SseEventTimelineProps {
   onClearLog: () => void;
   /** Base file name for exports, e.g. the stream URL's host. */
   exportName?: string;
+  /** Entries the 1,000-entry cap has evicted since the last clear. */
+  droppedCount?: number;
 }
 
 interface EventStyle {
@@ -98,24 +103,23 @@ export function SseEventTimeline({
   eventNames,
   onClearLog,
   exportName = 'sse-stream',
+  droppedCount,
 }: SseEventTimelineProps) {
-  const listRef = useRef<HTMLDivElement>(null);
   const [frozen, setFrozen] = useState(false);
   const { visible, newCount } = useFrozenView(log, frozen);
   // Suppresses per-row entry animation while events arrive faster than ~10/s
   // (token streams would otherwise animate every chunk).
   const rapidStream = useRapidAppendFlag(log.length);
 
-  // Auto-scroll to bottom when new entries arrive (not while frozen).
-  useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [visible.length]);
+  // Follow new entries only while the user is at the bottom; otherwise offer
+  // a "Jump to latest" pill instead of yanking the scroll position.
+  const stick = useStickToBottom<HTMLDivElement>(visible.length);
 
   return (
     <Floater
       radius="panel"
       elevation="float"
-      className="flex flex-col overflow-hidden h-full"
+      className="relative flex flex-col overflow-hidden h-full"
       style={{ flex: 1.4, minWidth: 0 }}
     >
       {/* Header: title + legend + filters */}
@@ -162,18 +166,23 @@ export function SseEventTimeline({
           <button
             type="button"
             onClick={onClearLog}
+            disabled={log.length === 0 && !droppedCount}
             aria-label="Clear log"
             title="Clear log"
-            className="h-7 w-7 inline-flex items-center justify-center rounded-sp-btn text-sp-dim hover:text-sp-text hover:bg-sp-hover transition-colors"
+            className="h-7 w-7 inline-flex items-center justify-center rounded-sp-btn text-sp-dim hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>
 
+      <DroppedNotice dropped={droppedCount} />
       {/* Timeline body */}
       <div
-        ref={listRef}
+        ref={stick.ref}
+        onScroll={stick.onScroll}
+        role="log"
+        aria-label="SSE events"
         className="relative flex-1 overflow-y-auto px-4 py-3"
         data-stream-rapid={rapidStream || undefined}
       >
@@ -282,6 +291,7 @@ export function SseEventTimeline({
           </ul>
         )}
       </div>
+      <JumpToLatestPill visible={stick.showJump} onClick={stick.jumpToLatest} />
     </Floater>
   );
 }

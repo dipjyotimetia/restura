@@ -92,7 +92,7 @@ export default function AiLabWorkspace() {
   const showTrafficLights = isElectron() && getPlatform() === 'darwin';
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-sp-bg text-sp-text">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-sp-bg text-sp-text">
       <header
         style={{ ...region('drag'), height: 44 }}
         className="flex shrink-0 select-none items-center gap-3 border-b border-sp-line bg-sp-surface px-3.5"

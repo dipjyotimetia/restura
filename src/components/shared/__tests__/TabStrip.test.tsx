@@ -85,7 +85,7 @@ describe('TabStrip', () => {
     );
   });
 
-  it('keeps save and close tab actions in the keyboard tab order', async () => {
+  it('keeps the save action in the keyboard tab order; close is reachable via Delete', async () => {
     const user = userEvent.setup();
     const tabId = useRequestStore.getState().createNewRequest('http');
     useRequestStore.setState((state) => ({
@@ -105,7 +105,8 @@ describe('TabStrip', () => {
     await user.tab();
     expect(save).toHaveFocus();
     await user.tab();
-    expect(close).toHaveFocus();
+    expect(close).not.toHaveFocus();
+    expect(close).toHaveAttribute('tabindex', '-1');
   });
 
   it('renders tab actions as native buttons', () => {

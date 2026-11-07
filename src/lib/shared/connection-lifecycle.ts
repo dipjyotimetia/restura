@@ -2,6 +2,16 @@ export interface ConnectionLifecycle {
   connectionIdForTab: (tabId: string) => string | undefined;
   disconnect: (connectionId: string) => void | Promise<void>;
   removeConnectionForTab: (tabId: string) => void;
+  /** True while the tab's connection is open or (re)connecting — used to confirm before closing the tab. */
+  isLive?: (tabId: string) => boolean;
+}
+
+/** Status values that mean a connection is open or actively (re)connecting. */
+const LIVE_STATUSES: ReadonlySet<string> = new Set(['connecting', 'connected', 'reconnecting']);
+
+/** Shared `isLive` predicate for status-string connection stores. */
+export function isLiveStatus(status: string | undefined): boolean {
+  return status !== undefined && LIVE_STATUSES.has(status);
 }
 
 /**

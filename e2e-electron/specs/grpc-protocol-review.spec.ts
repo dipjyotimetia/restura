@@ -68,14 +68,13 @@ async function prepareCall(
     .getByRole('textbox', { name: 'gRPC server URL' })
     .filter({ visible: true })
     .fill(call.url);
-  await page
-    .getByPlaceholder(/Service \(e\.g\./i)
-    .filter({ visible: true })
-    .fill(call.service);
-  await page
-    .getByPlaceholder(/Method \(e\.g\./i)
-    .filter({ visible: true })
-    .fill(call.method);
+  // The uploaded schema's services and methods are listed in the picker (no
+  // reflection needed): choose the service, then the method under test.
+  await page.getByRole('combobox', { name: 'gRPC service' }).filter({ visible: true }).click();
+  await page.getByRole('option', { name: call.service, exact: true }).click();
+  await page.getByRole('combobox', { name: 'gRPC method' }).filter({ visible: true }).click();
+  // Options may carry a streaming-type label after the method name.
+  await page.getByRole('option', { name: new RegExp(`^${call.method}(\\s|$)`) }).click();
   await setRequestMessage(page, call.body);
 }
 

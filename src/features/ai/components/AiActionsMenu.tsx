@@ -1,11 +1,13 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Sparkles } from 'lucide-react';
 import {
+  CONFIGURE_AI_HINT,
   dispatchInlineAiAction,
   INLINE_ACTION_LABELS,
   INLINE_ACTIONS,
-  useAiActionsAvailable,
+  useAiActionsState,
 } from '@/features/ai/lib/inlineActions';
+import { openAiSettings } from '@/features/ai/lib/providerReadiness';
 import { cn } from '@/lib/shared/utils';
 
 interface Props {
@@ -19,15 +21,20 @@ interface Props {
  * feature (which has a stricter tsconfig) never imports the AI store.
  */
 export function AiActionsMenu({ className }: Props) {
-  const available = useAiActionsAvailable();
-  if (!available) return null;
+  const state = useAiActionsState();
+  if (state === 'hidden') return null;
+  const unconfigured = state === 'unconfigured';
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
           aria-label="AI actions"
-          title="AI actions — propose a fix, tests, or docs you approve"
+          title={
+            unconfigured
+              ? `AI actions — ${CONFIGURE_AI_HINT}`
+              : 'AI actions — propose a fix, tests, or docs you approve'
+          }
           className={cn(
             'inline-flex items-center justify-center h-7 w-7 rounded-sp-btn text-sp-dim',
             'hover:text-sp-accent hover:bg-sp-hover transition-colors',
@@ -47,13 +54,25 @@ export function AiActionsMenu({ className }: Props) {
             'data-[state=open]:animate-sp-fade-in'
           )}
         >
+          {unconfigured && (
+            <DropdownMenu.Item
+              onSelect={openAiSettings}
+              className={cn(
+                'w-full px-2.5 py-1.5 rounded-sp-btn outline-none cursor-default text-sp-11 text-sp-muted',
+                'data-[highlighted]:bg-sp-hover transition-colors'
+              )}
+            >
+              Configure an AI provider…
+            </DropdownMenu.Item>
+          )}
           {INLINE_ACTIONS.map((action) => (
             <DropdownMenu.Item
               key={action}
+              disabled={unconfigured}
               onSelect={() => dispatchInlineAiAction(action)}
               className={cn(
                 'w-full px-2.5 py-1.5 rounded-sp-btn outline-none cursor-default text-sp-12',
-                'data-[highlighted]:bg-sp-hover transition-colors'
+                'data-[highlighted]:bg-sp-hover transition-colors data-[disabled]:opacity-50'
               )}
             >
               {INLINE_ACTION_LABELS[action]}

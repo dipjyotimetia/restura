@@ -133,6 +133,8 @@ describe('useSseStore branches', () => {
     get().setLastConnectedAt(id, 9);
     get().updateConnectionStatus(id, 'connected');
     const id2 = get().createConnection();
+    // Only tab-owned connections persist.
+    useSseStore.setState({ connectionByTabId: { t1: id, t2: id2 } });
 
     const options = useSseStore.persist.getOptions();
     const out = options.partialize?.(get()) as unknown as {
@@ -150,5 +152,16 @@ describe('useSseStore branches', () => {
     expect(out.connections[id]).not.toHaveProperty('lastEventId');
     expect(out.connections[id2]).not.toHaveProperty('lastEventId');
     expect(out.connections[id2]).not.toHaveProperty('lastConnectedAt');
+  });
+
+  it('sheds connections no tab owns (legacy single-connection rows)', () => {
+    const owned = get().createConnection();
+    const legacy = get().createConnection();
+    useSseStore.setState({ connectionByTabId: { t1: owned } });
+    const out = useSseStore.persist.getOptions().partialize?.(get()) as unknown as {
+      connections: Record<string, unknown>;
+    };
+    expect(Object.keys(out.connections)).toEqual([owned]);
+    expect(out.connections[legacy]).toBeUndefined();
   });
 });

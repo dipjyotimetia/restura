@@ -44,6 +44,8 @@ export interface WebSocketConnection {
   url: string;
   status: 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
   messages: WebSocketMessage[];
+  /** Runtime only: entries evicted by the 1,000-entry cap since the last clear. */
+  droppedCount?: number;
   headers: KeyValue[];
   protocols: string[];
   autoReconnect: boolean;
@@ -326,9 +328,11 @@ export const useWebSocketStore = create<WebSocketState>()(
           };
 
           let messages = [...connection.messages, newMessage];
+          let droppedCount = connection.droppedCount ?? 0;
 
           // Keep only the latest MAX_MESSAGES_PER_CONNECTION
           if (messages.length > MAX_MESSAGES_PER_CONNECTION) {
+            droppedCount += messages.length - MAX_MESSAGES_PER_CONNECTION;
             messages = messages.slice(-MAX_MESSAGES_PER_CONNECTION);
           }
 
@@ -356,7 +360,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           return {
             connections: {
               ...state.connections,
-              [connectionId]: { ...connection, messages },
+              [connectionId]: { ...connection, messages, droppedCount },
             },
           };
         }),
@@ -369,7 +373,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           return {
             connections: {
               ...state.connections,
-              [connectionId]: { ...connection, messages: [] },
+              [connectionId]: { ...connection, messages: [], droppedCount: 0 },
             },
           };
         }),
@@ -508,6 +512,7 @@ export const useWebSocketStore = create<WebSocketState>()(
               ...conn,
               status: 'disconnected' as const,
               messages: [], // Don't persist messages
+              droppedCount: undefined,
               reconnectAttempts: 0,
               negotiated: undefined, // runtime-only (#923)
               lastPingRttMs: undefined, // runtime-only (#919)
