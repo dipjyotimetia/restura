@@ -66,6 +66,7 @@ describe('SseClient behaviour', () => {
       connections: {},
       summaries: {},
       activeConnectionId: null,
+      connectionByTabId: {},
       searchQuery: '',
     });
   });
@@ -230,13 +231,29 @@ describe('SseClient behaviour', () => {
     expect(screen.getByRole('button', { name: 'Stop SSE stream' })).toBeInTheDocument();
   });
 
-  it('disconnects the stream on unmount', async () => {
+  it('keeps a background tab streaming and gives each SSE tab its own connection', async () => {
     openSse();
+    const firstTab = useRequestStore.getState().activeTabId!;
     const { unmount } = render(<SseClient />);
     await ready();
-    const id = activeId();
+    const first = activeId();
+    act(() => {
+      useRequestStore.getState().openTab({
+        id: 'sse-2',
+        name: 'Other',
+        type: 'sse',
+        url: 'https://other.example.com/events',
+        headers: [],
+        params: [],
+        auth: { type: 'none' },
+      } as SseRequest);
+    });
+    await screen.findByDisplayValue('https://other.example.com/events');
+    const second = activeId();
+    expect(second).not.toBe(first);
     unmount();
-    expect(manager.disconnect).toHaveBeenCalledWith(id);
+    expect(manager.disconnect).not.toHaveBeenCalled();
+    expect(useSseStore.getState().connectionByTabId[firstTab]).toBe(first);
   });
 
   it('clears the log and resets the event filter to all', async () => {

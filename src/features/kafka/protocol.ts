@@ -11,6 +11,7 @@
  * proper API (`KafkaClient` + `kafkaManager`). Mirrors the websocket stub.
  */
 import type { ProtocolModule } from '@/features/registry/types';
+import { isLiveStatus } from '@/lib/shared/connection-lifecycle';
 import { kafkaManager } from './lib/kafkaManager';
 import { useKafkaStore } from './store/useKafkaStore';
 
@@ -30,5 +31,10 @@ export const kafkaProtocol: ProtocolModule = {
     connectionIdForTab: (tabId) => useKafkaStore.getState().connectionByTabId[tabId],
     disconnect: (connectionId) => kafkaManager.disconnect(connectionId),
     removeConnectionForTab: (tabId) => useKafkaStore.getState().cleanupConnectionForTab(tabId),
+    isLive: (tabId) => {
+      const state = useKafkaStore.getState();
+      const id = state.connectionByTabId[tabId];
+      return isLiveStatus(id ? state.connections[id]?.status : undefined);
+    },
   },
 };

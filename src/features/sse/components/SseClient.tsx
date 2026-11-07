@@ -41,49 +41,43 @@ const EMPTY_SUMMARY = createSseStreamSummary();
  * runtime stream state (status, log, Last-Event-ID).
  */
 export default function SseClient() {
-  const activeConnectionId = useSseStore((s) => s.activeConnectionId);
+  const activeTabId = useActiveTabId();
+  const activeConnectionId = useSseStore((s) =>
+    activeTabId ? (s.connectionByTabId[activeTabId] ?? null) : null
+  );
   const active = useSseStore((s) =>
     activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
   );
   const summary = useSseStore((s) =>
     activeConnectionId ? (s.summaries[activeConnectionId] ?? EMPTY_SUMMARY) : EMPTY_SUMMARY
   );
-  const hasConnections = useSseStore((s) => Object.keys(s.connections).length > 0);
-  const { createConnection, clearLog, setSearchQuery, searchQuery, getFilteredLog } = useSseStore(
-    useShallow((s) => ({
-      createConnection: s.createConnection,
-      clearLog: s.clearLog,
-      setSearchQuery: s.setSearchQuery,
-      searchQuery: s.searchQuery,
-      getFilteredLog: s.getFilteredLog,
-    }))
-  );
+  const { ensureConnectionForTab, clearLog, setSearchQuery, searchQuery, getFilteredLog } =
+    useSseStore(
+      useShallow((s) => ({
+        ensureConnectionForTab: s.ensureConnectionForTab,
+        clearLog: s.clearLog,
+        setSearchQuery: s.setSearchQuery,
+        searchQuery: s.searchQuery,
+        getFilteredLog: s.getFilteredLog,
+      }))
+    );
   const request = useActiveRequest('sse');
-  const activeTabId = useActiveTabId();
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const update = (patch: Partial<SseRequest>) => updateRequest(patch);
   const eventNameFilter = request?.eventFilter?.[0] ?? 'all';
 
-  // Auto-create a default connection on first mount if none exist
+  // Each SSE tab owns its own stream connection (created on first view).
   useEffect(() => {
-    if (!hasConnections) {
-      createConnection();
-    }
-  }, [hasConnections, createConnection]);
+    if (activeTabId) ensureConnectionForTab(activeTabId);
+  }, [activeTabId, ensureConnectionForTab]);
 
   const filtered = useMemo(
     () => (active ? getFilteredLog(active.id, eventNameFilter) : []),
     [active, getFilteredLog, eventNameFilter]
   );
 
-  // Tear down any open stream when the component unmounts or the user moves
-  // to another SSE tab — the stream was opened with the previous tab's config.
-  const activeIdForCleanup = active?.id;
-  useEffect(() => {
-    return () => {
-      if (activeIdForCleanup) sseManager.disconnect(activeIdForCleanup);
-    };
-  }, [activeIdForCleanup, activeTabId]);
+  // Streams keep running while their tab is in the background; closing the
+  // tab stops them (sseProtocol.connectionLifecycle).
 
   const [headersOpen, setHeadersOpen] = useState(false);
 
