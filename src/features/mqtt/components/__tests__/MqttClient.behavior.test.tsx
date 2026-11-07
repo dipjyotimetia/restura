@@ -79,6 +79,10 @@ describe('MqttClient shell', () => {
   it('shows the desktop-only panel in the browser', () => {
     hoisted.isElectron.mockReturnValue(false);
     render(<MqttClient />);
+    expect(screen.getByRole('link', { name: /Download the desktop app/ })).toHaveAttribute(
+      'href',
+      'https://github.com/dipjyotimetia/restura/releases/latest'
+    );
     expect(screen.getByText('MQTT is a desktop-only feature')).toBeTruthy();
   });
 

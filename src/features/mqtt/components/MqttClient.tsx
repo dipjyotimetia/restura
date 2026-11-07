@@ -5,6 +5,7 @@ import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import {
   ConnectErrorBanner,
+  DesktopAppDownloadLink,
   FreezeToggle,
   useConnectAttemptError,
   useFrozenView,
@@ -65,6 +66,7 @@ function DesktopOnlyPanel() {
           The MQTT client opens raw TCP/TLS sockets to your broker, which the browser cannot do.
           Download the Restura desktop app to publish and subscribe over MQTT.
         </p>
+        <DesktopAppDownloadLink />
       </Floater>
     </div>
   );

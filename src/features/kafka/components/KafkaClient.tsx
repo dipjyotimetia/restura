@@ -4,6 +4,7 @@ import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import {
   ConnectErrorBanner,
+  DesktopAppDownloadLink,
   useConnectAttemptError,
 } from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
@@ -39,6 +40,7 @@ function DesktopOnlyPanel() {
           The Kafka client opens raw TCP sockets to your brokers, which the browser cannot do.
           Download the Restura desktop app to publish and consume from Kafka.
         </p>
+        <DesktopAppDownloadLink />
       </Floater>
     </div>
   );

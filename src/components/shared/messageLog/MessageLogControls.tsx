@@ -292,3 +292,21 @@ export function ConnectErrorBanner({ error }: { error: string | null }) {
     </div>
   );
 }
+
+/** Same destination as WebNativeDownloadBanner's "Download native app" menu. */
+export const DESKTOP_APP_DOWNLOAD_URL = 'https://github.com/dipjyotimetia/restura/releases/latest';
+
+/** Link to the desktop app for the desktop-only streaming protocols (Kafka, MQTT). */
+export function DesktopAppDownloadLink() {
+  return (
+    <a
+      href={DESKTOP_APP_DOWNLOAD_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 rounded-sp-btn border border-sp-line px-3 py-1.5 text-sp-12 font-medium text-sp-text hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+    >
+      <Download className="h-3.5 w-3.5" aria-hidden="true" />
+      Download the desktop app
+    </a>
+  );
+}
