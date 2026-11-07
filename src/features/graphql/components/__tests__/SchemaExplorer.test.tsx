@@ -214,3 +214,34 @@ describe('SchemaExplorer extended introspection metadata', () => {
     expect(spec.getAttribute('title')).toBe('https://scalars.graphql.org/andimarek/date-time');
   });
 });
+
+describe('SchemaExplorer — introspection errors + a11y', () => {
+  it('shows the introspection error with Retry / Load file actions', () => {
+    const onRefresh = vi.fn();
+    const onImport = vi.fn();
+    render(
+      <SchemaExplorer
+        schema={null}
+        error="HTTP 401 Unauthorized"
+        onRefresh={onRefresh}
+        onImport={onImport}
+      />
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('Introspection failed');
+    expect(alert.textContent).toContain('HTTP 401 Unauthorized');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRefresh).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Load file' }));
+    expect(onImport).toHaveBeenCalled();
+  });
+
+  it('labels the filter and exposes expanded state on type rows', () => {
+    render(<SchemaExplorer schema={schema} />);
+    expect(screen.getByRole('textbox', { name: 'Filter schema types' })).toBeTruthy();
+    const row = screen.getByRole('button', { name: /Query/ });
+    expect(row.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(row);
+    expect(row.getAttribute('aria-expanded')).toBe('true');
+  });
+});

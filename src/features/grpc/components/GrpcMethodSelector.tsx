@@ -87,6 +87,7 @@ export function GrpcMethodSelector({
             }}
           >
             <SelectTrigger
+              aria-label="gRPC service"
               className={cn(
                 'h-8 font-mono text-sp-12 bg-sp-surface-lo border-sp-line text-sp-text',
                 !serviceValidation.valid && 'border-red-500'
@@ -113,11 +114,14 @@ export function GrpcMethodSelector({
             value={serviceValue}
             onChange={(e) => onServiceTextChange(e.target.value)}
             placeholder="Service (e.g., greet.v1.GreetService)"
+            aria-label="gRPC service"
+            aria-invalid={!serviceValidation.valid || undefined}
             className={cn('w-full', !serviceValidation.valid && 'border-red-500')}
           />
         )}
         {!serviceValidation.valid && serviceValidation.error && (
           <div
+            role="alert"
             className="text-sp-11 mt-1 flex items-center gap-1 font-mono"
             style={{ color: 'var(--color-danger)' }}
           >
@@ -137,6 +141,7 @@ export function GrpcMethodSelector({
             }}
           >
             <SelectTrigger
+              aria-label="gRPC method"
               className={cn(
                 'h-8 font-mono text-sp-12 bg-sp-surface-lo border-sp-line text-sp-text',
                 !methodValidation.valid && 'border-red-500'
@@ -177,11 +182,14 @@ export function GrpcMethodSelector({
             value={methodValue}
             onChange={(e) => onMethodTextChange(e.target.value)}
             placeholder="Method (e.g., Greet)"
+            aria-label="gRPC method"
+            aria-invalid={!methodValidation.valid || undefined}
             className={cn('w-full', !methodValidation.valid && 'border-red-500')}
           />
         )}
         {!methodValidation.valid && methodValidation.error && (
           <div
+            role="alert"
             className="text-sp-11 mt-1 flex items-center gap-1 font-mono"
             style={{ color: 'var(--color-danger)' }}
           >
