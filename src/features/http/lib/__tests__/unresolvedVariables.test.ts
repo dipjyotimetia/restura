@@ -91,4 +91,57 @@ describe('findUnresolvedVariables', () => {
       )
     ).toEqual([]);
   });
+
+  it('skips disabled path variables and headers', () => {
+    expect(
+      findUnresolvedVariables(
+        {
+          ...base,
+          pathVariables: [{ id: 'pv', key: 'id', value: '{{offPath}}', enabled: false }],
+          headers: [{ id: 'h', key: '{{offKey}}', value: '{{offHeader}}', enabled: false }],
+        },
+        getStatus
+      )
+    ).toEqual([]);
+  });
+
+  it('tolerates bodies with missing text or fields', () => {
+    for (const body of [
+      { type: 'json' },
+      { type: 'graphql' },
+      { type: 'form-data' },
+      { type: 'x-www-form-urlencoded' },
+    ] as const) {
+      expect(findUnresolvedVariables({ ...base, body }, getStatus)).toEqual([]);
+    }
+  });
+
+  it('walks nested auth arrays and objects, skipping nulls and over-deep values', () => {
+    const tooDeep = { a: { b: { c: { d: { e: { f: { g: '{{tooDeep}}' } } } } } } };
+    const request = {
+      ...base,
+      auth: {
+        type: 'oauth2',
+        oauth2: {
+          clientId: '{{inClient}}',
+          scopes: ['{{inScope}}', null, 3],
+          extra: { nested: '{{inNested}}', missing: undefined },
+          tooDeep,
+        },
+      },
+    } as unknown as HttpRequest;
+    expect(findUnresolvedVariables(request, getStatus)).toEqual([
+      'inClient',
+      'inScope',
+      'inNested',
+    ]);
+  });
+
+  it('ignores auth types without config fields and stale configs of other types', () => {
+    const request = {
+      ...base,
+      auth: { type: 'none', bearer: { token: '{{staleBearer}}' } },
+    } as unknown as HttpRequest;
+    expect(findUnresolvedVariables(request, getStatus)).toEqual([]);
+  });
 });
