@@ -6,7 +6,7 @@ import {
   isKnownHttpMethod,
   KNOWN_HTTP_METHODS,
 } from '@shared/protocol/http-method';
-import { Code2, Link2, Loader2, Send } from 'lucide-react';
+import { AlertTriangle, Code2, Link2, Loader2, Send } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
@@ -47,6 +47,11 @@ interface UrlBarProps {
   onSend: () => void;
   onCancel: () => void;
   onOpenCodeGen: () => void;
+  /**
+   * `{{vars}}` the request references (URL, params, headers, body, auth) that
+   * won't resolve when sent. Shown as a warning chip by Send; never blocks it.
+   */
+  unresolvedVariables?: ReadonlyArray<string>;
 }
 
 /**
@@ -64,6 +69,7 @@ export function UrlBar({
   onSend,
   onCancel,
   onOpenCodeGen,
+  unresolvedVariables = [],
 }: UrlBarProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   // While focused, show exactly what the user typed: the store copy is
@@ -212,6 +218,19 @@ export function UrlBar({
             </button>
           </div>
         </Floater>
+
+        {unresolvedVariables.length > 0 && (
+          <span
+            data-testid="unresolved-vars"
+            role="img"
+            aria-label={`Unresolved variables: ${unresolvedVariables.map((v) => `{{${v}}}`).join(', ')}`}
+            title={`These variables won't resolve with the active environment and will be sent as-is:\n${unresolvedVariables.map((v) => `{{${v}}}`).join('\n')}`}
+            className="inline-flex shrink-0 items-center gap-1 h-7 px-2 rounded-sp-chip border border-amber-500/30 bg-amber-500/10 text-sp-11 font-mono text-amber-500"
+          >
+            <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+            <span aria-hidden="true">{unresolvedVariables.length} unresolved</span>
+          </span>
+        )}
 
         {/* Send button */}
         <Button

@@ -50,6 +50,19 @@ describe('UrlBar feedback', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/space/i);
   });
 
+  it('warns about unresolved variables next to Send without blocking it (H5)', () => {
+    const { props, rerender } = renderUrlBar('https://example.com');
+    expect(screen.queryByTestId('unresolved-vars')).not.toBeInTheDocument();
+    rerender(<UrlBar {...props} unresolvedVariables={['host', 'token']} />);
+    const chip = screen.getByTestId('unresolved-vars');
+    expect(chip).toHaveTextContent('2 unresolved');
+    expect(chip).toHaveAccessibleName(/Unresolved variables: \{\{host\}\}, \{\{token\}\}/);
+    const send = screen.getByRole('button', { name: /send request/i });
+    expect(send).toBeEnabled();
+    fireEvent.click(send);
+    expect(props.onSend).toHaveBeenCalled();
+  });
+
   it('confirms Copy URL with a toast (H9)', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

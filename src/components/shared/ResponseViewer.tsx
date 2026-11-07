@@ -221,9 +221,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
     setTreeFocus(undefined);
   }, [currentResponse?.id]);
 
-  // A transport failure only renders its error card in the Body tab, so bring
-  // it into view rather than leaving the user on Headers / Cookies. `errorInfo`
-  // is derived per response, so this fires once per new failed response.
+  // A failure's error card only renders in Body: bring it into view (once per response).
   useEffect(() => {
     if (errorInfo) setActiveTab('body');
   }, [errorInfo]);
@@ -306,8 +304,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
     !forceFormat &&
     (currentResponse?.body.length ?? 0) > PRETTY_PRINT_MAX_BYTES;
 
-  // Any other large text view (Raw, XML, HTML, plain text…) still goes to
-  // Monaco, but without tokenization, which is what stalls on huge bodies.
+  // Other large text views (Raw, XML, text…) render untokenized — tokenizing is what stalls.
   const largeTextBody =
     !isBase64 && !formattingSkipped && (currentResponse?.body.length ?? 0) > PRETTY_PRINT_MAX_BYTES;
   const editorLanguage = largeTextBody ? 'plaintext' : language;
@@ -361,13 +358,9 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
   }, [currentResponse, activeTab]);
 
   const handleCopyBody = async () => {
-    // Tree / Table views render their own components (no formatted text), so
-    // copy the raw body there.
+    // Tree / Table views have no formatted text: copy the raw body there.
     const text = formattedBody || currentResponse?.body || '';
-    if (!text) {
-      toast.info('The response body is empty');
-      return;
-    }
+    if (!text) return void toast.info('The response body is empty');
     try {
       await navigator.clipboard.writeText(text);
       setCopiedBody(true);
