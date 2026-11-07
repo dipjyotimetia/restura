@@ -100,4 +100,15 @@ describe('grpcCodeGenerators — target parsing edge cases', () => {
     expect(out).toContain("'[::1]:9443'");
     expect(out).toContain("-d '{}'");
   });
+
+  it('falls back to localhost when the URL has a port but no host', () => {
+    const out = grpcCodeGenerators.grpcurl.generate({
+      url: 'grpc://:50051',
+      service: 'demo.v1.Greeter',
+      method: 'SayHello',
+      message: '{}',
+    });
+    expect(out).toContain('localhost:50051');
+    expect(out).not.toContain(':50051:50051');
+  });
 });

@@ -27,7 +27,8 @@ function parseTarget(url: string, override?: boolean): Target {
   const plaintext = override ?? (scheme === 'http' || scheme === 'grpc');
   // [v6]:port | host:port | host
   const m = /^(\[[^\]]*\]|[^:]*)(?::(\d+))?$/.exec(authority);
-  const host = m?.[1] || authority || 'localhost';
+  // No match (malformed) keeps the raw authority; an empty host means localhost.
+  const host = m ? m[1] || 'localhost' : authority || 'localhost';
   const port = m?.[2] ?? (plaintext ? '80' : '443');
   return { host, port, plaintext };
 }
