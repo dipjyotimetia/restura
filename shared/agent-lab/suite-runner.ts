@@ -1,4 +1,4 @@
-import Ajv from 'ajv';
+import { checkJsonSchema, schemaErrorsText } from '../protocol/json-schema-check';
 import type { JudgeVote } from './evaluation';
 import { passAtK, passToK, scoreTrajectory, wilsonInterval } from './evaluation';
 import type { ModelCapabilities } from './provider';
@@ -190,9 +190,11 @@ async function grade(
       try {
         const json = result.output.find((block) => block.type === 'json');
         value = json?.type === 'json' ? json.value : JSON.parse(text);
-        const validate = new Ajv({ allErrors: true, strict: false }).compile(grader.schema);
-        const passed = validate(value);
-        return score(grader, passed, passed ? undefined : new Ajv().errorsText(validate.errors));
+        // Eval-free (renderer CSP forbids Ajv's `new Function`). An
+        // inconclusive (`skipped`) check fails the grader: never a false pass.
+        const check = checkJsonSchema(grader.schema, value);
+        const passed = check.valid && !check.skipped;
+        return score(grader, passed, passed ? undefined : schemaErrorsText(check.errors));
       } catch (cause) {
         return score(
           grader,
@@ -208,10 +210,13 @@ async function grade(
         : calls;
       if (matching.length === 0) return score(grader, false, 'expected tool was not called');
       if (!grader.argumentsSchema) return score(grader, true);
-      const validate = new Ajv({ allErrors: true, strict: false }).compile(grader.argumentsSchema);
+      const schema = grader.argumentsSchema;
       return score(
         grader,
-        matching.some((call) => validate(call.arguments))
+        matching.some((call) => {
+          const check = checkJsonSchema(schema, call.arguments);
+          return check.valid && !check.skipped;
+        })
       );
     }
     case 'trajectory': {

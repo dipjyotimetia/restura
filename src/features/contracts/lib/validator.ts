@@ -3,8 +3,12 @@
  * operation's declared response schema.
  *
  * Strategy:
- *  - Compile the response schema with Ajv. Use Draft-07 for OpenAPI 3.0,
- *    2020-12 for OpenAPI 3.1.
+ *  - Validate the body with the eval-free JSON Schema checker
+ *    (`shared/protocol/json-schema-check.ts`) — not Ajv, whose `new Function`
+ *    codegen the Electron renderer CSP blocks. Its keyword subset is shared by
+ *    draft-07 (OpenAPI 3.0) and 2020-12 (OpenAPI 3.1); unsupported keywords
+ *    (e.g. `format`) are not enforced; OpenAPI 3.0 `nullable` and boolean
+ *    `exclusiveMinimum`/`exclusiveMaximum` are normalised first.
  *  - Validate the response body shape.
  *  - Verify the status code matches one of the declared response codes
  *    (exact, or by class like `2XX`).
@@ -14,16 +18,12 @@
  * errors with JSON Pointer paths.
  *
  * Implementation notes:
- *  - Ajv is loaded lazily — keeps the ~80KB out of the main bundle until a
- *    user actually attaches a spec to a collection.
- *  - The validator caches compiled schemas by a content key so re-validating
- *    against the same operation is fast.
  *  - We don't attempt response transformation (XML→JSON, etc). If the
  *    response body is a string that looks like JSON, we parse it; otherwise
  *    validation runs against the raw value.
  */
 
-import type { ErrorObject, ValidateFunction } from 'ajv';
+import { checkJsonSchema } from '@shared/protocol/json-schema-check';
 import type { OperationMatch } from './operationMatcher';
 
 export interface ContractValidationError {
@@ -31,9 +31,9 @@ export interface ContractValidationError {
   path: string;
   /** Human-readable message. */
   message: string;
-  /** Ajv error keyword (e.g. 'required', 'type', 'enum'). */
+  /** JSON Schema keyword that failed (e.g. 'required', 'type', 'enum'). */
   keyword?: string;
-  /** Ajv parameters object — useful for rendering "expected X, got Y" details. */
+  /** Extra keyword parameters (not populated by the eval-free checker). */
   params?: Record<string, unknown>;
 }
 
@@ -49,13 +49,13 @@ export interface ContractValidationResult {
 export interface ValidateResponseArgs {
   match: OperationMatch;
   /**
-   * Schema dialect for Ajv. OpenAPI 3.0 → 'draft-07'; 3.1 → '2020-12'.
+   * Schema dialect. OpenAPI 3.0 → 'draft-07'; 3.1 → '2020-12'.
    * `specLoader.ts` derives this from the parsed spec version.
    *
    * Note: the parsed spec itself is intentionally not passed — `specLoader`
    * dereferences `$ref`s in-place (with `external: false`), so every schema
    * we read from `match.operation.responses[*].content[*].schema` is already
-   * a self-contained object Ajv can compile directly. If we add external-$ref
+   * a self-contained object the validator can check directly. If we add external-$ref
    * support later, thread the spec back through here.
    */
   schemaDialect: 'draft-07' | '2020-12';
@@ -67,56 +67,66 @@ export interface ValidateResponseArgs {
 }
 
 // ---------------------------------------------------------------------------
-// Ajv singleton (lazy)
+// OpenAPI 3.0 → JSON Schema keyword normalisation
 // ---------------------------------------------------------------------------
 
-type AjvInstance = {
-  compile: (schema: object) => ValidateFunction;
-  errorsText: (errors?: ErrorObject[] | null) => string;
-};
+/**
+ * Rewrite the OpenAPI 3.0 Schema Object dialect into plain JSON Schema the
+ * eval-free checker understands: `nullable: true` admits `null`, and boolean
+ * `exclusiveMinimum` / `exclusiveMaximum` become the numeric form. Without
+ * this, a `null` in a `nullable` field would be reported as a type error.
+ * Copies (never mutates the dereferenced spec) and tolerates cyclic schemas.
+ */
+export function normalizeOpenApi30Schema(schema: unknown): unknown {
+  const seen = new WeakMap<object, unknown>();
+  const walk = (node: unknown): unknown => {
+    if (node === null || typeof node !== 'object') return node;
+    const cached = seen.get(node);
+    if (cached !== undefined) return cached;
+    if (Array.isArray(node)) {
+      const out: unknown[] = [];
+      seen.set(node, out);
+      for (const item of node) out.push(walk(item));
+      return out;
+    }
+    const src = node as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    seen.set(node, out);
+    for (const [key, value] of Object.entries(src)) out[key] = walk(value);
 
-let draft07Ajv: AjvInstance | null = null;
-let draft2020Ajv: AjvInstance | null = null;
-
-async function getAjv(dialect: 'draft-07' | '2020-12'): Promise<AjvInstance> {
-  if (dialect === '2020-12') {
-    if (draft2020Ajv) return draft2020Ajv;
-    // Ajv 2020 module has a slightly different default-export shape
-    // depending on bundler interop — accept either.
-    const mod = (await import('ajv/dist/2020.js')) as unknown as {
-      default?: new (opts?: object) => AjvInstance;
-    } & { Ajv2020?: new (opts?: object) => AjvInstance };
-    const Ctor = mod.default ?? mod.Ajv2020;
-    if (!Ctor) throw new Error('Unable to load Ajv 2020 instance');
-    draft2020Ajv = new Ctor({ allErrors: true, strict: false });
-    return draft2020Ajv;
-  }
-  if (draft07Ajv) return draft07Ajv;
-  const mod = (await import('ajv')) as unknown as {
-    default?: new (opts?: object) => AjvInstance;
-  } & { Ajv?: new (opts?: object) => AjvInstance };
-  const Ctor = mod.default ?? mod.Ajv;
-  if (!Ctor) throw new Error('Unable to load Ajv (draft-07) instance');
-  draft07Ajv = new Ctor({ allErrors: true, strict: false });
-  return draft07Ajv;
-}
-
-// Compiled-schema cache: keyed by `${dialect}\n${stringified schema}`.
-// In practice the renderer holds a small number of specs so the size is
-// negligible; we don't bother with LRU eviction.
-const compileCache = new Map<string, ValidateFunction>();
-
-async function compileSchema(
-  dialect: 'draft-07' | '2020-12',
-  schema: object
-): Promise<ValidateFunction> {
-  const key = `${dialect}\n${JSON.stringify(schema)}`;
-  const cached = compileCache.get(key);
-  if (cached) return cached;
-  const ajv = await getAjv(dialect);
-  const compiled = ajv.compile(schema);
-  compileCache.set(key, compiled);
-  return compiled;
+    if (src.nullable === true) {
+      delete out.nullable;
+      if (typeof src.type === 'string') {
+        out.type = [src.type, 'null'];
+      } else if (Array.isArray(src.type)) {
+        if (!src.type.includes('null')) out.type = [...src.type, 'null'];
+      } else {
+        // No `type`: the constraints still apply to non-null values.
+        const { ...rest } = out;
+        for (const key of Object.keys(out)) delete out[key];
+        out.anyOf = [{ type: 'null' }, rest];
+      }
+      if (Array.isArray(out.enum) && !out.enum.includes(null)) out.enum = [...out.enum, null];
+    }
+    if (typeof src.exclusiveMinimum === 'boolean') {
+      if (src.exclusiveMinimum && typeof src.minimum === 'number') {
+        out.exclusiveMinimum = src.minimum;
+        delete out.minimum;
+      } else {
+        delete out.exclusiveMinimum;
+      }
+    }
+    if (typeof src.exclusiveMaximum === 'boolean') {
+      if (src.exclusiveMaximum && typeof src.maximum === 'number') {
+        out.exclusiveMaximum = src.maximum;
+        delete out.maximum;
+      } else {
+        delete out.exclusiveMaximum;
+      }
+    }
+    return out;
+  };
+  return walk(schema);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,17 +197,11 @@ export async function validateResponse(
     }
   }
 
-  const validate = await compileSchema(args.schemaDialect, schema as object);
-  const ok = validate(bodyToValidate);
-  if (!ok && validate.errors) {
-    for (const err of validate.errors) {
-      errors.push({
-        path: err.instancePath || '',
-        message: err.message ?? 'validation failed',
-        keyword: err.keyword,
-        params: err.params as Record<string, unknown>,
-      });
-    }
+  // Eval-free (the Electron renderer CSP forbids Ajv's `new Function`). An
+  // inconclusive check is reported as an error, never as a silent pass.
+  const check = checkJsonSchema(normalizeOpenApi30Schema(schema), bodyToValidate);
+  for (const err of check.errors) {
+    errors.push({ path: err.pointer, message: err.message, keyword: err.keyword });
   }
 
   // Required-headers check.

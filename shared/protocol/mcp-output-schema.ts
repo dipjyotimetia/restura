@@ -152,9 +152,33 @@ function branchesOf(ctx: Ctx, list: unknown): unknown[] {
   return list;
 }
 
-function subMatches(ctx: Ctx, sub: unknown, value: unknown, path: string, depth: number): boolean {
-  const local: McpOutputSchemaIssue[] = [];
-  check(ctx, sub, value, path, local, depth + 1);
+/**
+ * An issue with the failing JSON Schema keyword and an RFC 6901 JSON Pointer
+ * to the offending value (`''` for the root) — the shape Ajv-style callers
+ * (agent-lab graders, AI Lab scorers, contract validation) report.
+ */
+export interface SchemaIssueDetail extends McpOutputSchemaIssue {
+  keyword: string;
+  pointer: string;
+}
+
+/** Where the walk is in the value: display path (`$.a[0]`) and JSON Pointer (`/a/0`). */
+interface At {
+  path: string;
+  pointer: string;
+}
+
+function escapePointer(key: string): string {
+  return key.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+function child(at: At, key: string): At {
+  return { path: `${at.path}.${key}`, pointer: `${at.pointer}/${escapePointer(key)}` };
+}
+
+function subMatches(ctx: Ctx, sub: unknown, value: unknown, at: At, depth: number): boolean {
+  const local: SchemaIssueDetail[] = [];
+  check(ctx, sub, value, at, local, depth + 1);
   return local.length === 0;
 }
 
@@ -162,8 +186,8 @@ function check(
   ctx: Ctx,
   schema: unknown,
   value: unknown,
-  path: string,
-  issues: McpOutputSchemaIssue[],
+  at: At,
+  issues: SchemaIssueDetail[],
   depth: number
 ): void {
   if (depth > MAX_DEPTH) {
@@ -175,11 +199,13 @@ function check(
     ctx.aborted = true;
     return;
   }
-  const add = (message: string, at = path) => {
-    if (issues.length < MAX_ISSUES) issues.push({ path: at, message });
+  const add = (keyword: string, message: string, where: At = at) => {
+    if (issues.length < MAX_ISSUES) {
+      issues.push({ path: where.path, message, keyword, pointer: where.pointer });
+    }
   };
   if (schema === false) {
-    add('schema rejects every value');
+    add('false schema', 'schema rejects every value');
     return;
   }
   if (!isRecord(schema)) return;
@@ -192,7 +218,7 @@ function check(
       const active = ctx.refStack.get(schema.$ref) ?? new Set<unknown>();
       ctx.refStack.set(schema.$ref, active);
       active.add(value);
-      check(ctx, target, value, path, issues, depth + 1);
+      check(ctx, target, value, at, issues, depth + 1);
       active.delete(value);
     }
   }
@@ -201,25 +227,27 @@ function check(
   if (typeof t === 'string' || Array.isArray(t)) {
     const types = (Array.isArray(t) ? t : [t]).filter((x): x is string => typeof x === 'string');
     if (types.length > 0 && !types.some((x) => matchesType(value, x))) {
-      add(`expected ${types.join(' | ')}, got ${typeOf(value)}`);
+      add('type', `expected ${types.join(' | ')}, got ${typeOf(value)}`);
       return; // further keyword checks would only add noise
     }
   }
 
   if (Array.isArray(schema.enum) && !schema.enum.some((e) => deepEqual(e, value))) {
-    add('value is not one of the allowed enum values');
+    add('enum', 'value is not one of the allowed enum values');
   }
-  if ('const' in schema && !deepEqual(schema.const, value)) add('value does not equal const');
+  if ('const' in schema && !deepEqual(schema.const, value)) {
+    add('const', 'value does not equal const');
+  }
 
   if (typeof value === 'number') {
     if (typeof schema.minimum === 'number' && value < schema.minimum)
-      add(`must be >= ${schema.minimum}`);
+      add('minimum', `must be >= ${schema.minimum}`);
     if (typeof schema.maximum === 'number' && value > schema.maximum)
-      add(`must be <= ${schema.maximum}`);
+      add('maximum', `must be <= ${schema.maximum}`);
     if (typeof schema.exclusiveMinimum === 'number' && value <= schema.exclusiveMinimum)
-      add(`must be > ${schema.exclusiveMinimum}`);
+      add('exclusiveMinimum', `must be > ${schema.exclusiveMinimum}`);
     if (typeof schema.exclusiveMaximum === 'number' && value >= schema.exclusiveMaximum)
-      add(`must be < ${schema.exclusiveMaximum}`);
+      add('exclusiveMaximum', `must be < ${schema.exclusiveMaximum}`);
   }
 
   if (typeof value === 'string') {
@@ -228,27 +256,28 @@ function check(
         ? codePointLength(value)
         : 0;
     if (typeof schema.minLength === 'number' && length < schema.minLength)
-      add(`length must be >= ${schema.minLength}`);
+      add('minLength', `length must be >= ${schema.minLength}`);
     if (typeof schema.maxLength === 'number' && length > schema.maxLength)
-      add(`length must be <= ${schema.maxLength}`);
+      add('maxLength', `length must be <= ${schema.maxLength}`);
     if (
       typeof schema.pattern === 'string' &&
       matchesPattern(ctx, schema.pattern, value) === false
     ) {
-      add(`does not match pattern ${schema.pattern}`);
+      add('pattern', `does not match pattern ${schema.pattern}`);
     }
   }
 
   if (Array.isArray(value)) {
     if (typeof schema.minItems === 'number' && value.length < schema.minItems)
-      add(`must have >= ${schema.minItems} items`);
+      add('minItems', `must have >= ${schema.minItems} items`);
     if (typeof schema.maxItems === 'number' && value.length > schema.maxItems)
-      add(`must have <= ${schema.maxItems} items`);
+      add('maxItems', `must have <= ${schema.maxItems} items`);
     // With `prefixItems`, `items` only covers the tail; we cannot split it, so skip.
     if (isRecord(schema.items) && !Array.isArray(schema.prefixItems)) {
-      value.forEach((item, i) =>
-        check(ctx, schema.items, item, `${path}[${i}]`, issues, depth + 1)
-      );
+      value.forEach((item, i) => {
+        const itemAt = { path: `${at.path}[${i}]`, pointer: `${at.pointer}/${i}` };
+        check(ctx, schema.items, item, itemAt, issues, depth + 1);
+      });
     }
   }
 
@@ -257,13 +286,12 @@ function check(
     if (Array.isArray(schema.required)) {
       for (const key of schema.required) {
         if (typeof key === 'string' && !Object.hasOwn(value, key)) {
-          add('required property is missing', `${path}.${key}`);
+          add('required', 'required property is missing', child(at, key));
         }
       }
     }
     for (const [key, sub] of Object.entries(props)) {
-      if (Object.hasOwn(value, key))
-        check(ctx, sub, value[key], `${path}.${key}`, issues, depth + 1);
+      if (Object.hasOwn(value, key)) check(ctx, sub, value[key], child(at, key), issues, depth + 1);
     }
     // `patternProperties` decides which extra keys are covered; we do not
     // evaluate patterns here, so never report extras when it is present.
@@ -271,26 +299,30 @@ function check(
       // not evaluated
     } else if (schema.additionalProperties === false) {
       for (const key of Object.keys(value)) {
-        if (!Object.hasOwn(props, key)) add('additional property is not allowed', `${path}.${key}`);
+        if (!Object.hasOwn(props, key)) {
+          add('additionalProperties', 'additional property is not allowed', child(at, key));
+        }
       }
     } else if (isRecord(schema.additionalProperties)) {
       for (const [key, v] of Object.entries(value)) {
         if (!Object.hasOwn(props, key)) {
-          check(ctx, schema.additionalProperties, v, `${path}.${key}`, issues, depth + 1);
+          check(ctx, schema.additionalProperties, v, child(at, key), issues, depth + 1);
         }
       }
     }
   }
 
-  for (const sub of branchesOf(ctx, schema.allOf)) check(ctx, sub, value, path, issues, depth + 1);
+  for (const sub of branchesOf(ctx, schema.allOf)) check(ctx, sub, value, at, issues, depth + 1);
   const anyOf = branchesOf(ctx, schema.anyOf);
-  if (anyOf.length > 0 && !anyOf.some((sub) => subMatches(ctx, sub, value, path, depth))) {
-    add('value does not match any of the anyOf schemas');
+  if (anyOf.length > 0 && !anyOf.some((sub) => subMatches(ctx, sub, value, at, depth))) {
+    add('anyOf', 'value does not match any of the anyOf schemas');
   }
   const oneOf = branchesOf(ctx, schema.oneOf);
   if (oneOf.length > 0) {
-    const matches = oneOf.filter((sub) => subMatches(ctx, sub, value, path, depth)).length;
-    if (matches !== 1) add(`value must match exactly one oneOf schema (matched ${matches})`);
+    const matches = oneOf.filter((sub) => subMatches(ctx, sub, value, at, depth)).length;
+    if (matches !== 1) {
+      add('oneOf', `value must match exactly one oneOf schema (matched ${matches})`);
+    }
   }
 }
 
@@ -302,11 +334,24 @@ export interface McpSchemaCheck {
   tooComplex: boolean;
 }
 
-/** Validate `value` against `schema` with full detail and hostile-input bounds. */
-export function checkAgainstSchema(schema: unknown, value: unknown): McpSchemaCheck {
+export interface SchemaCheckDetail {
+  issues: SchemaIssueDetail[];
+  notes: string[];
+  tooComplex: boolean;
+}
+
+/**
+ * Validate `value` against `schema`, with the failing keyword and a JSON
+ * Pointer per issue, under the same hostile-input bounds. When `tooComplex` is
+ * true nothing was concluded and `issues` is a single `MCP_SCHEMA_TOO_COMPLEX`
+ * marker (keyword `complexity`).
+ */
+export function checkAgainstSchemaDetailed(schema: unknown, value: unknown): SchemaCheckDetail {
   if (schema === false) {
     return {
-      issues: [{ path: '$', message: 'schema rejects every value' }],
+      issues: [
+        { path: '$', message: 'schema rejects every value', keyword: 'false schema', pointer: '' },
+      ],
       notes: [],
       tooComplex: false,
     };
@@ -320,16 +365,22 @@ export function checkAgainstSchema(schema: unknown, value: unknown): McpSchemaCh
     regexes: new Map(),
     notes: [],
   };
-  const issues: McpOutputSchemaIssue[] = [];
-  check(ctx, schema, value, '$', issues, 0);
+  const issues: SchemaIssueDetail[] = [];
+  check(ctx, schema, value, { path: '$', pointer: '' }, issues, 0);
   if (ctx.aborted) {
     return {
-      issues: [{ path: '$', message: MCP_SCHEMA_TOO_COMPLEX }],
+      issues: [{ path: '$', message: MCP_SCHEMA_TOO_COMPLEX, keyword: 'complexity', pointer: '' }],
       notes: ctx.notes,
       tooComplex: true,
     };
   }
   return { issues, notes: ctx.notes, tooComplex: false };
+}
+
+/** Validate `value` against `schema` with full detail and hostile-input bounds. */
+export function checkAgainstSchema(schema: unknown, value: unknown): McpSchemaCheck {
+  const { issues, notes, tooComplex } = checkAgainstSchemaDetailed(schema, value);
+  return { issues: issues.map(({ path, message }) => ({ path, message })), notes, tooComplex };
 }
 
 /** Validate `value` against `schema`; returns every provable mismatch (capped). */
