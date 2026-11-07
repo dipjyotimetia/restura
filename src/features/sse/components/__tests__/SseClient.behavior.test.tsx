@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthConfig, KeyValue, SseRequest } from '@/types';
@@ -292,11 +292,41 @@ describe('SseClient behaviour', () => {
     fireEvent.change(screen.getByLabelText('Search events'), { target: { value: 'abc' } });
     expect(useSseStore.getState().searchQuery).toBe('abc');
 
-    await user.click(screen.getByRole('button', { name: /Headers/ }));
+    await user.click(screen.getByRole('button', { name: /Options/ }));
     expect(screen.getByText('table:header')).toBeInTheDocument();
     await user.click(screen.getByRole('switch', { name: /Auto-reconnect/ }));
     expect(useRequestStore.getState().tabs[0]?.request).toMatchObject({ autoReconnect: false });
-    await user.click(screen.getByRole('button', { name: /Headers/ }));
+    await user.click(screen.getByRole('button', { name: /Options/ }));
     expect(screen.queryByText('table:header')).not.toBeInTheDocument();
+  });
+
+  it('counts every configured option on the Options toggle (S12)', async () => {
+    openSse({ auth: { type: 'bearer', bearer: { token: 't' } }, autoReconnect: false });
+    render(<SseClient />);
+    await ready();
+    // 1 enabled header + 1 keyed param + auth + auto-reconnect off
+    expect(screen.getByRole('button', { name: 'Options (4)' })).toBeInTheDocument();
+  });
+
+  it('confirms before sending credentials over http:// (S12)', async () => {
+    const user = userEvent.setup();
+    openSse({
+      url: 'http://stream.example.com/events',
+      auth: { type: 'bearer', bearer: { token: 'tok' } },
+    });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    const dialog = await screen.findByRole('alertdialog');
+    expect(manager.connect).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }));
+    expect(manager.connect).not.toHaveBeenCalled();
+  });
+
+  it('does not ask for http:// without credentials (S12)', async () => {
+    const user = userEvent.setup();
+    openSse({ url: 'http://stream.example.com/events', headers: [], params: [] });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    expect(manager.connect).toHaveBeenCalled();
   });
 });

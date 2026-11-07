@@ -9,6 +9,7 @@ import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
+import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { resolveSseConnect } from '@/lib/shared/connectSpec';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
@@ -21,6 +22,19 @@ import SseStatsRow from './SseStatsRow';
 import SseUrlBar from './SseUrlBar';
 
 const EMPTY_SUMMARY = createSseStreamSummary();
+
+/** What the Options panel holds that differs from a fresh request (headers, params, auth, reconnect). */
+export function countSseOptions(request: SseRequest): number {
+  const keyed = (rows: SseRequest['headers']) =>
+    rows.filter((r) => r.enabled !== false && r.key.trim()).length;
+  return (
+    keyed(request.headers) +
+    keyed(request.params) +
+    (request.auth.type !== 'none' ? 1 : 0) +
+    (request.reconnectOnResume === false ? 1 : 0) +
+    (request.autoReconnect === false ? 1 : 0)
+  );
+}
 
 /**
  * SSE view — Spatial Depth redesign.
@@ -80,16 +94,28 @@ export default function SseClient() {
   // tab stops them (sseProtocol.connectionLifecycle).
 
   const [headersOpen, setHeadersOpen] = useState(false);
+  const cleartextGuard = useCleartextCredentialsGuard();
 
   const isConnected = active?.status === 'connected';
   const isConnecting = active?.status === 'connecting' || active?.status === 'reconnecting';
   const isStreaming = isConnected || isConnecting;
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!active || !request) return;
     const spec = resolveSseConnect(request);
     if (!spec.ok) {
       useSseStore.getState().appendSystem(active.id, `Connection failed: ${spec.error}`);
+      return;
+    }
+    // http:// would carry the auth header / token in cleartext (#898), as for WS/SIO.
+    if (
+      cleartextGuard.needsConfirm(spec.url, {
+        url: spec.url,
+        headers: spec.headers,
+        force: request.auth.type !== 'none',
+      }) &&
+      !(await cleartextGuard.confirm())
+    ) {
       return;
     }
 
@@ -216,14 +242,15 @@ export default function SseClient() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
+      <cleartextGuard.Dialog />
       <SseUrlBar
         url={request.url}
         onUrlChange={(url) => update({ url })}
         isStreaming={isConnected}
         isConnecting={isConnecting}
-        onStream={handleConnect}
+        onStream={() => void handleConnect()}
         onStop={handleDisconnect}
-        headerCount={request.headers.length}
+        optionCount={countSseOptions(request)}
         headersOpen={headersOpen}
         onToggleHeaders={() => setHeadersOpen((s) => !s)}
       />
