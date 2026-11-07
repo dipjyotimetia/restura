@@ -87,4 +87,57 @@ describe('ImportDialog review', () => {
     expect(collections.map((c) => c.id)).toEqual(['old']);
     useCollectionStore.setState({ prepareCollection: original });
   });
+
+  it("does not reuse a previous import's name for a later HAR import", async () => {
+    const user = userEvent.setup();
+    await stagePaste(user);
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+    expect(await screen.findByText('Imported "Preview API"')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /^HAR/ }));
+    fireEvent.change(document.querySelector('#file-upload-har') as Element, {
+      target: { files: [{ name: 'capture.har', text: async () => harCapture }] },
+    });
+    await screen.findByRole('region', { name: 'HAR review' });
+    await user.click(screen.getByRole('button', { name: /import selected requests/i }));
+    await waitFor(() => expect(useCollectionStore.getState().collections).toHaveLength(2));
+    expect(screen.queryByText('Imported "Preview API"')).toBeNull();
+    const harName = useCollectionStore.getState().collections[1]?.name ?? '';
+    expect(screen.getByText(`Imported "${harName}"`)).toBeInTheDocument();
+  });
+});
+
+const harCapture = JSON.stringify({
+  log: {
+    version: '1.2',
+    entries: [
+      {
+        startedDateTime: '2026-08-02T00:00:00.000Z',
+        time: 1,
+        request: {
+          method: 'GET',
+          url: 'https://api.example.com/users',
+          httpVersion: 'HTTP/1.1',
+          headers: [],
+          queryString: [],
+          cookies: [],
+          headersSize: -1,
+          bodySize: 0,
+        },
+        response: {
+          status: 200,
+          statusText: 'OK',
+          httpVersion: 'HTTP/1.1',
+          headers: [],
+          cookies: [],
+          content: { size: 0, mimeType: 'application/json' },
+          redirectURL: '',
+          headersSize: -1,
+          bodySize: 0,
+        },
+        cache: {},
+        timings: { send: 0, wait: 1, receive: 0 },
+      },
+    ],
+  },
 });

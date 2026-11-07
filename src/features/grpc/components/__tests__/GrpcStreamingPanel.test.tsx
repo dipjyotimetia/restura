@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { GrpcRequest } from '@/types';
@@ -173,6 +174,26 @@ describe('GrpcStreamingPanel', () => {
       done: Promise.resolve({ headers: {}, trailers: {}, status: 0 }),
     } as never);
     render(<GrpcStreamingPanel request={mockRequest} />);
+    fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
+    expect(await screen.findByText(/3 messages dropped/)).toBeInTheDocument();
+  });
+
+  it('counts dropped frames exactly once under StrictMode (pure state updater)', async () => {
+    async function* many() {
+      for (let i = 0; i < 503; i++) yield { i };
+    }
+    vi.mocked(streamingModule.startGrpcStream).mockResolvedValue({
+      messages: many(),
+      send: vi.fn(),
+      closeSend: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({ headers: {}, trailers: {}, status: 0 }),
+    } as never);
+    render(
+      <StrictMode>
+        <GrpcStreamingPanel request={mockRequest} />
+      </StrictMode>
+    );
     fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
     expect(await screen.findByText(/3 messages dropped/)).toBeInTheDocument();
   });

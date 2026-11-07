@@ -196,6 +196,7 @@ export default function ImportDialog({
     sourceFormat: ParsedImportType | 'har' | null = null
   ) => {
     if ('kind' in outcome && outcome.kind === 'har-preview') {
+      setImportedCollectionName(null);
       setHarPreview(outcome.preview);
       setSelectedHarEntries(
         new Set(
@@ -314,6 +315,7 @@ export default function ImportDialog({
         selectedHarEnvironments
       );
       if (results.length === 0) throw new Error('Select at least one HAR entry to import');
+      const importedNames: string[] = [];
       for (const result of results) {
         const validation = validateImportedCollection(result.collection);
         if (!validation.ok) {
@@ -325,12 +327,13 @@ export default function ImportDialog({
         const existingNames = useCollectionStore
           .getState()
           .collections.map((existing) => existing.name);
-        addCollection({
-          ...result.collection,
-          name: uniqueName(result.collection.name, existingNames),
-        });
+        const name = uniqueName(result.collection.name, existingNames);
+        addCollection({ ...result.collection, name });
+        importedNames.push(name);
         for (const environment of result.environments ?? []) addEnvironment(environment);
       }
+      // Name the result only when it is a single collection; never a stale one.
+      setImportedCollectionName(importedNames.length === 1 ? (importedNames[0] ?? null) : null);
       setWarnings(harPreview.warnings);
       setHarPreview(null);
       setImportStatus('success');

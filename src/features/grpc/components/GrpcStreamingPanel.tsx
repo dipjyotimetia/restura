@@ -40,6 +40,7 @@ interface FrameEntry extends LogEntry {
 }
 
 const MAX_MESSAGES = 500;
+const EMPTY_LOG: { frames: FrameEntry[]; dropped: number } = { frames: [], dropped: 0 };
 
 const isInteractive = (methodType: GrpcRequest['methodType']) =>
   methodType === 'client-streaming' || methodType === 'bidirectional-streaming';
@@ -60,14 +61,16 @@ export function GrpcStreamingPanel({
   protoFileName,
   descriptors,
 }: GrpcStreamingPanelProps) {
-  const [frames, setFrames] = useState<FrameEntry[]>([]);
+  // Frames and the cap's dropped count live in one state so the updater stays
+  // pure (React may call it twice in StrictMode / concurrent renders).
+  const [log, setLog] = useState<{ frames: FrameEntry[]; dropped: number }>(EMPTY_LOG);
+  const { frames, dropped } = log;
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
   const [outboundDraft, setOutboundDraft] = useState('{}');
   const [draftError, setDraftError] = useState<string | null>(null);
   const [sendEnded, setSendEnded] = useState(false);
   /** Frames evicted by the MAX_MESSAGES cap since Start. */
-  const [dropped, setDropped] = useState(0);
   const handleRef = useRef<GrpcStreamingHandle | null>(null);
   // Stream connection id for the unified console — one per Start so a single
   // invocation's frames group together in the Frames tab. Lives in a ref
@@ -79,19 +82,24 @@ export function GrpcStreamingPanel({
   const interactive = isInteractive(request.methodType);
 
   const pushFrame = (direction: FrameEntry['direction'], payload: unknown) => {
-    setFrames((prev) => {
+    const id = uuidv4();
+    const timestamp = Date.now();
+    const body = JSON.stringify(payload, null, 2);
+    setLog((prev) => {
       const frame: FrameEntry = {
-        id: uuidv4(),
+        id,
         direction,
         payload,
-        body: JSON.stringify(payload, null, 2),
-        timestamp: Date.now(),
-        seq: (prev[prev.length - 1]?.seq ?? 0) + 1,
+        body,
+        timestamp,
+        seq: (prev.frames[prev.frames.length - 1]?.seq ?? 0) + 1,
       };
-      const next = [...prev, frame];
-      if (next.length <= MAX_MESSAGES) return next;
-      setDropped((d) => d + next.length - MAX_MESSAGES);
-      return next.slice(-MAX_MESSAGES);
+      const next = [...prev.frames, frame];
+      if (next.length <= MAX_MESSAGES) return { frames: next, dropped: prev.dropped };
+      return {
+        frames: next.slice(-MAX_MESSAGES),
+        dropped: prev.dropped + next.length - MAX_MESSAGES,
+      };
     });
   };
   const [query, setQuery] = useState('');
@@ -120,8 +128,7 @@ export function GrpcStreamingPanel({
     });
 
   const start = async () => {
-    setFrames([]);
-    setDropped(0);
+    setLog(EMPTY_LOG);
     setError(null);
     setDraftError(null);
     setSendEnded(false);
@@ -357,8 +364,7 @@ export function GrpcStreamingPanel({
         exportName={`${request.service}-${request.method}-stream`}
         exportMeta={{ protocol: 'grpc', method: `${request.service}/${request.method}` }}
         onClear={() => {
-          setFrames([]);
-          setDropped(0);
+          setLog(EMPTY_LOG);
         }}
         hasEntries={frames.length > 0}
       />
