@@ -39,6 +39,7 @@ import {
   isConnectionPresetTab,
   saveTabBackToCollection,
 } from '@/features/collections/lib/saveBack';
+import { liveTabIds, useLiveTabIds } from '@/features/registry/liveConnections';
 import { MODE_DESCRIPTORS, MODES_IN_MENU_ORDER } from '@/features/registry/modes';
 import { CAPABILITIES } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
@@ -51,9 +52,10 @@ import {
 } from '@/store/useRequestStore';
 import type { RequestMode, RequestTab, TabModeOverride } from '@/types';
 import { isConnectionMode } from '@/types';
-import { DesktopOnlyBadge } from './DesktopOnlyBadge';
+import { ARIA_DISABLED_CLASSES, DesktopOnlyBadge, desktopOnlyGateProps } from './DesktopOnlyBadge';
 import { carriesUrl, seedUrl, sourceUrlOf, tabMode } from './lib/openAs';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
+import { TabBarOverflowMenu, useOverflowing } from './TabBarOverflowMenu';
 
 type NewRequestMode = RequestMode;
 
@@ -174,7 +176,10 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const renameInputRef = useRef<HTMLInputElement>(null);
   const activeTabRef = useRef<HTMLButtonElement>(null);
   const focusActiveOnSwitch = useRef(false);
-  const stripFadeRef = useOverflowFade<HTMLDivElement>();
+  const fadeRef = useOverflowFade<HTMLDivElement>();
+  // Track overflow so the "all tabs" dropdown only appears when tabs are cropped.
+  const [isOverflowing, stripRef] = useOverflowing(fadeRef);
+  const liveIds = useLiveTabIds(tabs.map((t) => t.id));
 
   const openSaveDialog = onSaveToCollection ?? setLocalSaveDialogTabId;
 
@@ -211,13 +216,16 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
 
   const cancelRename = () => setRenamingTabId(null);
 
-  // Closing a tab with unsaved edits asks first; clean tabs close immediately.
+  // Closing a tab with unsaved edits or a live connection asks first; clean,
+  // idle tabs close immediately.
   const requestClose = (tabId: string) => {
-    if (tabs.find((t) => t.id === tabId)?.isDirty) setPendingCloseId(tabId);
+    const dirty = tabs.find((t) => t.id === tabId)?.isDirty;
+    if (dirty || liveTabIds([tabId]).length > 0) setPendingCloseId(tabId);
     else closeTab(tabId);
   };
 
   const pendingTab = tabs.find((t) => t.id === pendingCloseId);
+  const pendingIsLive = pendingTab ? liveTabIds([pendingTab.id]).length > 0 : false;
 
   const runBulkClose = (bulk: BulkClose) => {
     if (bulk.kind === 'others') closeOtherTabs(bulk.id);
@@ -226,8 +234,10 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   };
 
   const requestBulkClose = (bulk: BulkClose) => {
-    if (tabsClosedBy(tabs, bulk).some((t) => t.isDirty)) setPendingBulkClose(bulk);
-    else runBulkClose(bulk);
+    const closing = tabsClosedBy(tabs, bulk);
+    if (closing.some((t) => t.isDirty) || liveTabIds(closing.map((t) => t.id)).length > 0) {
+      setPendingBulkClose(bulk);
+    } else runBulkClose(bulk);
   };
 
   // Keyboard/menu "close tab" goes through the same unsaved-changes prompt.
@@ -239,9 +249,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
     return () => window.removeEventListener(CLOSE_ACTIVE_TAB_EVENT, onCloseActive);
   });
 
-  const bulkDirtyTabs = pendingBulkClose
-    ? tabsClosedBy(tabs, pendingBulkClose).filter((t) => t.isDirty)
-    : [];
+  const bulkClosing = pendingBulkClose ? tabsClosedBy(tabs, pendingBulkClose) : [];
+  const bulkDirtyTabs = bulkClosing.filter((t) => t.isDirty);
+  const bulkLiveCount = pendingBulkClose ? liveTabIds(bulkClosing.map((t) => t.id)).length : 0;
 
   const handleSaveBack = (tabId: string, savedRequestId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
@@ -253,13 +263,13 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
 
   return (
     <>
-      <div className="shrink-0">
+      <div className="shrink-0 flex items-center gap-1">
         <Floater
-          ref={stripFadeRef}
+          ref={stripRef}
           radius="panel"
           elevation="float"
           className={cn(
-            'sp-chrome flex items-center gap-0.5 p-1',
+            'sp-chrome flex min-w-0 flex-1 items-center gap-0.5 p-1',
             // Horizontal scroll fallback when many tabs are open. We
             // intentionally hide the scrollbar — overflow is signalled by
             // the sp-scroll-fade edge masks on the cropped side.
@@ -267,6 +277,14 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
           )}
           role="tablist"
           aria-label="Request tabs"
+          // Mouse wheels only scroll vertically; map that onto the strip's
+          // horizontal overflow so cropped tabs are reachable without a trackpad.
+          onWheel={(e) => {
+            const el = e.currentTarget;
+            if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+            if (el.scrollWidth <= el.clientWidth) return;
+            el.scrollLeft += e.deltaY;
+          }}
           onKeyDown={(e) => {
             const idx = tabs.findIndex((t) => t.id === activeTabId);
             if (e.key === 'ArrowRight') {
@@ -294,6 +312,15 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             const isRenaming = tab.id === renamingTabId;
             const displayName = tabDisplayName(tab);
             const saveBlockedReason = saveToCollectionBlockedReason(tab);
+            const isLive = liveIds.includes(tab.id);
+            // The visible dots are aria-hidden; their meaning rides the tab's name.
+            const accessibleName = [
+              displayName,
+              tab.isDirty ? 'unsaved changes' : null,
+              isLive ? 'live connection' : null,
+            ]
+              .filter(Boolean)
+              .join(', ');
 
             return (
               <ContextMenu key={tab.id}>
@@ -340,7 +367,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                         type="button"
                         role="tab"
                         aria-selected={isActive}
-                        aria-label={displayName}
+                        aria-label={accessibleName}
                         tabIndex={isActive ? 0 : -1}
                         onClick={() => switchTab(tab.id)}
                         onKeyDown={(e) => {
@@ -387,9 +414,18 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                         {/* Dirty dot — only when truly unsaved (no bound saved
                             request). When there is a bound request, the adjacent
                             save button exposes that action independently. */}
+                        {isLive && (
+                          <span
+                            aria-hidden="true"
+                            title="Live connection"
+                            data-testid="tab-live-dot"
+                            className="block size-[6px] rounded-full bg-success shrink-0"
+                          />
+                        )}
+
                         {tab.isDirty && !tab.savedRequestId && (
                           <span
-                            aria-label="unsaved changes"
+                            aria-hidden="true"
                             className="block size-[5px] rounded-full sp-accent-glow shrink-0"
                             style={{ background: 'var(--sp-accent)' }}
                           />
@@ -417,6 +453,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                     <button
                       type="button"
                       aria-label={`close ${displayName}`}
+                      // Out of the tab order: Delete closes the focused tab, and a
+                      // close stop per tab makes the strip slow to tab through.
+                      tabIndex={-1}
                       onClick={() => requestClose(tab.id)}
                       className={cn(
                         'inline-flex items-center justify-center size-4 rounded-[5px]',
@@ -539,26 +578,49 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             <DropdownMenuContent align="start" sideOffset={10}>
               {/* Desktop-only (raw-TCP) modes are shown on web too (disabled + badge)
                   so users can discover them instead of wondering where they went. */}
-              {OPEN_AS.map((t) => (
-                <DropdownMenuItem
-                  key={t.mode}
-                  className="gap-2"
-                  disabled={t.desktopOnly && !isElectron()}
-                  onClick={() => handleNewTab(t.mode)}
-                >
-                  <ProtoChip protocol={t.chip} className="w-12 justify-center" />
-                  {t.menuLabel}
-                  {t.capability && (
-                    <DesktopOnlyBadge
-                      title={CAPABILITIES[t.capability].notes}
-                      className="ml-auto"
-                    />
-                  )}
-                </DropdownMenuItem>
-              ))}
+              {OPEN_AS.map((t) => {
+                const gated = t.desktopOnly === true && !isElectron();
+                return (
+                  <DropdownMenuItem
+                    key={t.mode}
+                    className={cn('gap-2', ARIA_DISABLED_CLASSES)}
+                    // aria-disabled (not Radix `disabled`, which sets
+                    // pointer-events: none) keeps the item hoverable so the
+                    // Desktop-only tooltip shows; selecting it is a no-op.
+                    {...desktopOnlyGateProps(
+                      gated,
+                      t.capability ? CAPABILITIES[t.capability].notes : undefined
+                    )}
+                    onSelect={(e) => {
+                      if (gated) e.preventDefault();
+                    }}
+                    onClick={() => {
+                      if (!gated) handleNewTab(t.mode);
+                    }}
+                  >
+                    <ProtoChip protocol={t.chip} className="w-12 justify-center" />
+                    {t.menuLabel}
+                    {t.capability && (
+                      <DesktopOnlyBadge
+                        title={CAPABILITIES[t.capability].notes}
+                        className="ml-auto"
+                      />
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuContent>
           </DropdownMenu>
         </Floater>
+
+        {isOverflowing && tabs.length > 1 && (
+          <TabBarOverflowMenu
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelect={switchTab}
+            nameOf={tabDisplayName}
+          />
+        )}
       </div>
 
       <AlertDialog
@@ -572,13 +634,20 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             <AlertDialogTitle>
               Close “{pendingTab ? tabDisplayName(pendingTab) : ''}”?
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              This request has unsaved changes that will be lost if you close it.
+            <AlertDialogDescription asChild>
+              <div>
+                {pendingTab?.isDirty && (
+                  <p>This request has unsaved changes that will be lost if you close it.</p>
+                )}
+                {pendingIsLive && (
+                  <p>This tab has a live connection — closing it will disconnect.</p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep open</AlertDialogCancel>
-            {pendingTab &&
+            {pendingTab?.isDirty &&
               (pendingTab.savedRequestId || !saveToCollectionBlockedReason(pendingTab)) && (
                 <AlertDialogAction
                   onClick={(e) => {
@@ -610,7 +679,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               onClick={() => pendingTab && closeTab(pendingTab.id)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Discard
+              {pendingTab?.isDirty ? 'Discard' : 'Disconnect & close'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -625,17 +694,28 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Discard unsaved changes in {bulkDirtyTabs.length}{' '}
-              {bulkDirtyTabs.length === 1 ? 'tab' : 'tabs'}?
+              {bulkDirtyTabs.length > 0
+                ? `Discard unsaved changes in ${bulkDirtyTabs.length} ${bulkDirtyTabs.length === 1 ? 'tab' : 'tabs'}?`
+                : `Close ${bulkClosing.length} ${bulkClosing.length === 1 ? 'tab' : 'tabs'}?`}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div>
-                <p>These requests have unsaved changes that will be lost if you close them:</p>
-                <ul className="mt-2 list-disc pl-5">
-                  {bulkDirtyTabs.map((t) => (
-                    <li key={t.id}>{tabDisplayName(t)}</li>
-                  ))}
-                </ul>
+                {bulkDirtyTabs.length > 0 && (
+                  <>
+                    <p>These requests have unsaved changes that will be lost if you close them:</p>
+                    <ul className="mt-2 list-disc pl-5">
+                      {bulkDirtyTabs.map((t) => (
+                        <li key={t.id}>{tabDisplayName(t)}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+                {bulkLiveCount > 0 && (
+                  <p className={cn(bulkDirtyTabs.length > 0 && 'mt-2')}>
+                    {bulkLiveCount} live {bulkLiveCount === 1 ? 'connection' : 'connections'} will
+                    be disconnected.
+                  </p>
+                )}
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -645,7 +725,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               onClick={() => pendingBulkClose && runBulkClose(pendingBulkClose)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Discard & close
+              {bulkDirtyTabs.length > 0 ? 'Discard & close' : 'Disconnect & close'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

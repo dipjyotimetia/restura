@@ -4,6 +4,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Columns,
   Copy,
+  Download,
   FileCode2,
   FolderOpen,
   Gauge,
@@ -35,15 +36,17 @@ import {
 } from '@/components/shared/CommandPaletteParts';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { CLOSE_ACTIVE_TAB_EVENT } from '@/components/shared/TabBar';
+import { DESKTOP_RELEASES_URL } from '@/components/shared/WebNativeDownloadBanner';
 import { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
 import { Kbd } from '@/components/ui/spatial';
 import { openCollectionItem } from '@/features/collections/lib/openCollectionItem';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { generateRequestCode } from '@/features/http/lib/requestCode';
 import { MODE_DESCRIPTORS, MODES_IN_COMMAND_ORDER } from '@/features/registry/modes';
+import { NARROW_LAYOUT_REASON, useNarrowWorkspace } from '@/hooks/useNarrowWorkspace';
 import { useVariableDetails } from '@/hooks/useVariableStatus';
 import { fuzzyScore } from '@/lib/shared/fuzzy';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, openExternalUrl } from '@/lib/shared/platform';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
@@ -162,6 +165,9 @@ export default function CommandPalette({
   // load-test dialogs) isn't mounted, so gate on the effective mode.
   const activeIsHttp = !activeTab?.modeOverride && activeTab?.request?.type === 'http';
   const variables = useVariableDetails();
+  // Below 1280px the workspace forces a stacked layout; toggling the setting
+  // there would write silently with no visible effect.
+  const isNarrowWorkspace = useNarrowWorkspace();
 
   // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {
@@ -190,6 +196,8 @@ export default function CommandPalette({
   const close = useCallback(() => setOpen(false), [setOpen]);
   const run = useCallback(
     (item: PaletteItem) => {
+      // Disabled rows stay listed (with their reason) but do nothing.
+      if (item.disabledReason) return;
       if (!item.keepOpen) close();
       item.onSelect();
     },
@@ -375,6 +383,7 @@ export default function CommandPalette({
       group: 'Actions',
       name: 'Toggle side-by-side / stacked layout',
       icon: Columns,
+      ...(isNarrowWorkspace && { disabledReason: NARROW_LAYOUT_REASON }),
       onSelect: () => {
         const settings = useSettingsStore.getState();
         settings.updateSettings({
@@ -395,6 +404,17 @@ export default function CommandPalette({
         consoleState.setExpanded(!consoleState.isExpanded);
       },
     });
+    if (!isElectron()) {
+      // Permanent route to the download once the web banner is dismissed.
+      items.push({
+        id: 'get-desktop-app',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Get the desktop app',
+        icon: Download,
+        onSelect: () => void openExternalUrl(DESKTOP_RELEASES_URL),
+      });
+    }
     items.push({
       id: 'clear-history',
       kind: 'action',
@@ -406,13 +426,13 @@ export default function CommandPalette({
     });
 
     // New group — desktop-only modes (Kafka, MQTT: the worker can't open raw
-    // TCP) are omitted on web rather than shown disabled.
-    const newProtos = MODES_IN_COMMAND_ORDER.filter(
-      (mode) => !MODE_DESCRIPTORS[mode].desktopOnly || isElectron()
-    ).map((type) => ({
+    // TCP) are listed disabled on web, matching the tab strip's new-tab menu,
+    // so users can discover them instead of wondering where they went.
+    const newProtos = MODES_IN_COMMAND_ORDER.map((type) => ({
       proto: MODE_DESCRIPTORS[type].chip,
       type,
       label: MODE_DESCRIPTORS[type].commandLabel,
+      desktopOnly: MODE_DESCRIPTORS[type].desktopOnly === true && !isElectron(),
     }));
     for (const p of newProtos) {
       items.push({
@@ -421,6 +441,7 @@ export default function CommandPalette({
         group: 'New',
         name: p.label,
         proto: p.proto,
+        ...(p.desktopOnly && { disabledReason: 'Desktop only' }),
         onSelect: () => {
           if (isConnectionMode(p.type)) {
             onChangeMode?.(p.type);
@@ -536,6 +557,7 @@ export default function CommandPalette({
     resolvedTheme,
     setTheme,
     updateThemeSetting,
+    isNarrowWorkspace,
   ]);
 
   // Filter

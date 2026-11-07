@@ -54,7 +54,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
     label: 'Toggle network console',
     group: 'General',
     desktop: 'mod+shift+c',
-    web: 'mod+shift+c',
+    // Ctrl/Cmd+Shift+C is the browser's DevTools element picker.
+    web: 'alt+shift+keyc',
   },
   {
     id: 'import',

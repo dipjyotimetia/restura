@@ -13,6 +13,7 @@ import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
 import { RouteErrorBoundary } from '@/components/shared/RouteErrorBoundary';
 import { StorageKeyUnavailableNotice } from '@/components/shared/StorageKeyUnavailableNotice';
 import { UpdateNotification } from '@/components/shared/UpdateNotification';
+import { AppFrame } from '@/components/ui/app-frame';
 import { MotionProvider } from '@/components/ui/motion';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import Home from '@/routes/index';
@@ -129,13 +130,22 @@ export default function App() {
           <AccentProvider>
             <AriaLiveAnnouncerProvider>
               <PlatformProvider>
-                <UpdateNotification />
-                <KeychainStatusBanner />
                 <StorageKeyUnavailableNotice />
                 <CaptureImportListener />
                 {isElectronEnvironment() && <McpControlBridge />}
                 <DeepLinkCoordinator />
-                <RouterProvider router={router} />
+                {/* Banners share one viewport-height column with the app so
+                    they take layout space instead of overflowing the page. */}
+                <AppFrame
+                  banners={
+                    <>
+                      <UpdateNotification />
+                      <KeychainStatusBanner />
+                    </>
+                  }
+                >
+                  <RouterProvider router={router} />
+                </AppFrame>
               </PlatformProvider>
             </AriaLiveAnnouncerProvider>
           </AccentProvider>

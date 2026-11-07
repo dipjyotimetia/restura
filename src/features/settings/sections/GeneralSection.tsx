@@ -1,6 +1,7 @@
 import { Sliders } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Segmented, ToggleField } from '@/components/ui/spatial';
+import { NARROW_LAYOUT_REASON, useNarrowWorkspace } from '@/hooks/useNarrowWorkspace';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { FieldGroup, FieldRow, SectionHeader } from '../components/SettingsSectionPrimitives';
@@ -10,6 +11,7 @@ export function GeneralSection() {
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const { theme, setTheme } = useTheme();
   const currentTheme = (theme ?? settings.theme ?? 'system') as 'light' | 'dark' | 'system';
+  const isNarrowWorkspace = useNarrowWorkspace();
 
   return (
     <>
@@ -41,7 +43,18 @@ export function GeneralSection() {
         />
         <FieldRow
           label="Layout orientation"
-          hint="Side-by-side or stacked request/response."
+          hint={
+            isNarrowWorkspace ? (
+              <>
+                Side-by-side or stacked request/response.{' '}
+                <span role="note" className="text-warning">
+                  {NARROW_LAYOUT_REASON} — stacked is used until the window is at least 1280px wide.
+                </span>
+              </>
+            ) : (
+              'Side-by-side or stacked request/response.'
+            )
+          }
           control={
             <Segmented<'vertical' | 'horizontal'>
               value={settings.layoutOrientation ?? 'horizontal'}

@@ -133,3 +133,41 @@ describe('ErrorBoundary', () => {
     expect(SentryRenderer.captureException).not.toHaveBeenCalled();
   });
 });
+
+describe('ErrorBoundary — tab recovery', () => {
+  it('offers "Close this tab" when given onCloseTab', async () => {
+    const user = userEvent.setup();
+    const onCloseTab = vi.fn();
+    render(
+      <ErrorBoundary onCloseTab={onCloseTab}>
+        <Bomb shouldThrow />
+      </ErrorBoundary>
+    );
+    await user.click(screen.getByRole('button', { name: /close this tab/i }));
+    expect(onCloseTab).toHaveBeenCalledOnce();
+  });
+
+  it('does not offer "Close this tab" without onCloseTab', () => {
+    render(
+      <ErrorBoundary>
+        <Bomb shouldThrow />
+      </ErrorBoundary>
+    );
+    expect(screen.queryByRole('button', { name: /close this tab/i })).toBeNull();
+  });
+
+  it('clears the error when resetKey changes (e.g. switching tabs)', () => {
+    const { rerender } = render(
+      <ErrorBoundary resetKey="a">
+        <Bomb shouldThrow />
+      </ErrorBoundary>
+    );
+    expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
+    rerender(
+      <ErrorBoundary resetKey="b">
+        <Bomb shouldThrow={false} />
+      </ErrorBoundary>
+    );
+    expect(screen.getByText('ok')).toBeInTheDocument();
+  });
+});

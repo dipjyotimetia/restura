@@ -11,11 +11,8 @@ import StatusBar from '@/components/shared/StatusBar';
 import { CLOSE_ACTIVE_TAB_EVENT, TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
 import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBanner';
-import WelcomeOnboarding, {
-  hasCompletedOnboarding,
-  markOnboardingComplete,
-  REPLAY_ONBOARDING_EVENT,
-} from '@/components/shared/WelcomeOnboarding';
+import WelcomeOnboarding, { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
+import { MAIN_CONTENT_ID } from '@/components/ui/app-frame';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
@@ -26,6 +23,7 @@ import {
 import { queueAutoSend } from '@/features/http/lib/autoSend';
 import { type Keybinding, useKeybindings } from '@/hooks/useKeybindings';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useNarrowWorkspace } from '@/hooks/useNarrowWorkspace';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import {
   type BugReportDiagnostics,
@@ -38,7 +36,7 @@ import {
   copyBugReportScreenshot,
 } from '@/lib/shared/bug-report-client';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { LazyDialogFallback, lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, onMenuEvent, openExternalUrl } from '@/lib/shared/platform';
 import { shortcutCombo } from '@/lib/shared/shortcuts';
 import { useActiveTab } from '@/store/selectors';
@@ -50,11 +48,17 @@ import { DEMO_REQUEST_URL, FirstRunWelcome } from './components/FirstRunWelcome'
 import { NoOpenTabs } from './components/NoOpenTabs';
 import { RequestWorkspace } from './components/RequestWorkspace';
 import { WindowFileDrop } from './components/WindowFileDrop';
-import { useWelcomeAutoDismiss } from './useWelcomeAutoDismiss';
+import { useFirstRunWelcome } from './useFirstRunWelcome';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
-const CommandPalette = lazyComponent(() => import('@/components/shared/CommandPalette'));
-const SettingsDrawer = lazyComponent(() => import('@/components/shared/SettingsDrawer'));
+const CommandPalette = lazyComponent(
+  () => import('@/components/shared/CommandPalette'),
+  <LazyDialogFallback label="Loading command palette…" />
+);
+const SettingsDrawer = lazyComponent(
+  () => import('@/components/shared/SettingsDrawer'),
+  <LazyDialogFallback label="Loading settings…" />
+);
 const EnvironmentManager = lazyComponent(
   () => import('@/features/environments/components/EnvironmentManager')
 );
@@ -84,10 +88,10 @@ export default function Home() {
   const [bugReportDiagnostics, setBugReportDiagnostics] = useState<BugReportDiagnostics>();
   const [bugReportCaptureError, setBugReportCaptureError] = useState<string>();
   const [bugReportDiagnosticsError, setBugReportDiagnosticsError] = useState<string>();
-  const isNarrowWorkspace = useMediaQuery('(max-width: 1279px)');
-  // Web first run shows the FirstRunWelcome screen in place of the blank tab
-  // and the modal tour; desktop keeps the tour (isElectron() is constant).
-  const [showWelcome, setShowWelcome] = useState(() => !isElectron() && !hasCompletedOnboarding());
+  const isNarrowWorkspace = useNarrowWorkspace();
+  // First run (web and desktop) shows the FirstRunWelcome screen in place of
+  // the blank tab; the tour is opt-in from there, Help or the palette.
+  const { showWelcome, finishWelcome } = useFirstRunWelcome();
 
   useStoreHydration();
   const activeTab = useActiveTab();
@@ -223,15 +227,8 @@ export default function Home() {
         }
       },
     },
-    {
-      combo: 'mod+n',
-      allowInInput: true,
-      // Desktop: File > New Request (CmdOrCtrl+N) arrives as 'menu:new-request'.
-      enabled: !isElectron(),
-      handler: () => {
-        createNewRequest('http');
-      },
-    },
+    // New request: desktop via File > New Request ('menu:new-request'); web via
+    // the registry's alt+keyn in tabShortcuts (mod+n is the browser's new window).
     {
       combo: 'mod+b',
       allowInInput: true,
@@ -357,12 +354,6 @@ export default function Home() {
     setBugReportOpen(false);
   }, []);
 
-  const finishWelcome = useCallback(() => {
-    markOnboardingComplete();
-    setShowWelcome(false);
-  }, []);
-  useWelcomeAutoDismiss(showWelcome, finishWelcome);
-
   // Live demo: load the echo request into a tab (reusing the untouched
   // starter tab when there is one) and let the HTTP builder send it through
   // the real executor once it mounts.
@@ -410,7 +401,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 flex-1 overflow-hidden">
       {/* WindowChrome — fixed 44px top bar. The Sidebar lives below it so
           the chrome spans the full window width per design §3. */}
       <TopBar
@@ -448,7 +439,12 @@ export default function Home() {
 
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           {showWelcome ? (
-            <main aria-label="Welcome" className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <main
+              id={MAIN_CONTENT_ID}
+              tabIndex={-1}
+              aria-label="Welcome"
+              className="flex flex-1 flex-col min-h-0 overflow-hidden focus:outline-none"
+            >
               <FirstRunWelcome
                 onRunDemo={handleRunDemo}
                 onNewRequest={handleWelcomeNewRequest}
@@ -459,8 +455,10 @@ export default function Home() {
             </main>
           ) : (
             <main
+              id={MAIN_CONTENT_ID}
+              tabIndex={-1}
               aria-label="Request workspace"
-              className="flex flex-1 flex-col min-h-0 overflow-hidden"
+              className="flex flex-1 flex-col min-h-0 overflow-hidden focus:outline-none"
             >
               <TabBar
                 onSaveToCollection={setSaveDialogTabId}
@@ -513,7 +511,8 @@ export default function Home() {
           initialSection={settingsInitialSection}
         />
       )}
-      <WelcomeOnboarding autoOpen={isElectron()} />
+      {/* Tour never auto-opens: FirstRunWelcome greets first runs on both targets. */}
+      <WelcomeOnboarding autoOpen={false} />
 
       {/* Dialogs */}
       {envManagerLoaded && (

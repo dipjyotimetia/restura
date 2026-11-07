@@ -127,7 +127,7 @@ export function UpdateNotification(): ReactElement | null {
     <div
       role={visibleError ? 'alert' : 'status'}
       aria-live="polite"
-      className={`sticky top-0 z-50 border-b py-2 text-sm ${isMacDesktop ? 'pl-20 pr-4' : 'px-4'} ${
+      className={`border-b py-2 text-sm ${isMacDesktop ? 'pl-20 pr-4' : 'px-4'} ${
         visibleError
           ? 'border-red-500/40 bg-red-500/10 text-red-800 dark:bg-red-950/40 dark:text-red-100'
           : isDownloaded
