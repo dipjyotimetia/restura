@@ -18,6 +18,7 @@ export class DeepLinkController {
   private pending: DeepLinkPayload[] = [];
   private fingerprints = new Set<string>();
   private readySender: WebContents | null = null;
+  private boundSenderIds = new Set<number>();
   private nextId = 1;
 
   receive(url: string): void {
@@ -33,9 +34,15 @@ export class DeepLinkController {
 
   ready(sender: WebContents): void {
     this.readySender = sender;
-    sender.once('destroyed', () => {
-      if (this.readySender?.id === sender.id) this.readySender = null;
-    });
+    // `ready` fires on every renderer reload of the same webContents; bind the
+    // destroyed listener once per webContents so listeners do not pile up.
+    if (!this.boundSenderIds.has(sender.id)) {
+      this.boundSenderIds.add(sender.id);
+      sender.once('destroyed', () => {
+        this.boundSenderIds.delete(sender.id);
+        if (this.readySender?.id === sender.id) this.readySender = null;
+      });
+    }
     this.flush();
   }
 
