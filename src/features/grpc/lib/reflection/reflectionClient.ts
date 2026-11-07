@@ -144,10 +144,11 @@ export class GrpcReflectionClient {
       );
     }
 
-    // Retain the raw base64 descriptors (and resolve transitive imports) so the
-    // Electron call can load the complete FileDescriptorSet directly — lossless,
-    // unlike text reconstruction. Parsing also populates the schema caches the
-    // request-template UI reads.
+    // Retain the raw base64 descriptors (and resolve transitive imports) so every
+    // consumer — the Electron proto-loader, web Connect/gRPC-Web registries and
+    // the saved snapshot the CLI replays — gets the complete FileDescriptorSet,
+    // losslessly. Parsing also populates the schema caches the request-template
+    // UI reads.
     const { descriptors, parsed } = await this.fetchDescriptorClosure(
       response.fileDescriptorResponse.fileDescriptorProto,
       reflectionServiceName
@@ -173,12 +174,12 @@ export class GrpcReflectionClient {
   }
 
   /**
-   * Parse + cache the symbol's file descriptors, then (Electron only) walk
-   * `dependency[]` via `fileByFilename` until the import graph is closed, so the
-   * resulting FileDescriptorSet has every type the proto-loader needs. Most
-   * spec-compliant servers already bundle transitive deps in the first response,
-   * so the loop is usually a no-op. Web skips it — descriptors are unused there
-   * (the Connect path is schema-less) and the extra round-trips would be waste.
+   * Parse + cache the symbol's file descriptors, then walk `dependency[]` via
+   * `fileByFilename` until the import graph is closed, so the resulting
+   * FileDescriptorSet has every type its consumers need — on every platform:
+   * web builds registries from these descriptors too (`registryFromDescriptors`
+   * throws on a missing non-WKT import). Most spec-compliant servers already
+   * bundle transitive deps in the first response, so the loop is usually a no-op.
    */
   private async fetchDescriptorClosure(
     initialEncoded: string[],
@@ -203,25 +204,23 @@ export class GrpcReflectionClient {
 
     initialEncoded.forEach(ingest);
 
-    if (isElectron()) {
-      let guard = 0;
-      while (needed.size > 0 && guard++ < 500) {
-        const filename = needed.values().next().value as string;
-        needed.delete(filename);
-        if (have.has(filename)) continue;
-        try {
-          const depResponse = await this.sendReflectionRequest(reflectionServiceName, {
-            fileByFilename: filename,
-          });
-          if (depResponse.fileDescriptorResponse) {
-            depResponse.fileDescriptorResponse.fileDescriptorProto.forEach(ingest);
-          }
-        } catch {
-          // Best-effort: a missing dep may still be a protobufjs-bundled
-          // well-known type. Mark resolved so the loop terminates.
+    let guard = 0;
+    while (needed.size > 0 && guard++ < 500) {
+      const filename = needed.values().next().value as string;
+      needed.delete(filename);
+      if (have.has(filename)) continue;
+      try {
+        const depResponse = await this.sendReflectionRequest(reflectionServiceName, {
+          fileByFilename: filename,
+        });
+        if (depResponse.fileDescriptorResponse) {
+          depResponse.fileDescriptorResponse.fileDescriptorProto.forEach(ingest);
         }
-        have.add(filename);
+      } catch {
+        // Best-effort: a missing dep may still be a bundled well-known type
+        // (protobufjs / the registry back-fill). Mark resolved so the loop ends.
       }
+      have.add(filename);
     }
 
     return { descriptors: Array.from(rawByName.values()), parsed };
