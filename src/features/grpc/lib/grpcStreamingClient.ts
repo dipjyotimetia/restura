@@ -27,6 +27,7 @@ import {
 import { normalizeBinaryMetadata } from '@shared/protocol/grpc-request-policy';
 import { toGrpcStatusCode } from '@shared/protocol/grpc-status';
 import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
+import { grpcBaseUrl } from '@shared/protocol/grpc-url';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthForSend } from '@/features/auth/lib/resolveInheritedAuthFor';
@@ -231,7 +232,9 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
   // browser-direct socket (#898) before opening.
   assertBrowserGrpcStreamTarget(prepared.url);
 
-  const baseUrl = prepared.url.endsWith('/') ? prepared.url.slice(0, -1) : prepared.url;
+  // Connect appends `/<service>/<method>` to baseUrl, so a query/fragment in
+  // the request URL must go (as the Worker/IPC call paths drop it).
+  const baseUrl = grpcBaseUrl(prepared.url);
   // Connect JSON needs the schema's registry to (de)serialise
   // google.protobuf.Any payloads (`@type`), on the request and the replies.
   const transport =

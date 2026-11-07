@@ -122,7 +122,13 @@ function generateFieldValue(
 
     case 'TYPE_MESSAGE': {
       if (field.typeName) {
-        const shortName = field.typeName.split('.').pop();
+        // Match the full name: a user type like `acme.v1.Duration` shares the
+        // short name but not the JSON mapping, so a WKT placeholder would fail
+        // to decode against it.
+        const wktName = field.typeName.replace(/^\./, '');
+        const shortName = wktName.startsWith('google.protobuf.')
+          ? wktName.slice('google.protobuf.'.length)
+          : undefined;
         switch (shortName) {
           case 'Timestamp':
             return new Date().toISOString();
