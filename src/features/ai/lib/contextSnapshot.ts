@@ -77,15 +77,17 @@ function bodyToText(body: RequestBodyLike | null | undefined): string {
 }
 
 /**
- * Snapshot the active tab's request + its last response + the active
+ * Snapshot the active tab's (or the given tab's) request + its last response + the active
  * environment at the moment of capture. Returns plain objects (no store
  * references), safe to pass through promptBuilder -> redaction -> IPC.
  */
-export function captureActive(): RawSnapshot {
+export function captureActive(tabId?: string): RawSnapshot {
   const reqState = useRequestStore.getState();
   const envState = useEnvironmentStore.getState();
 
-  const activeTabId = reqState.activeTabId;
+  // `tabId` re-captures a specific (still open) tab — a Retry rebuilds the
+  // original turn's context, not whichever request is active now.
+  const activeTabId = tabId ?? reqState.activeTabId;
   if (!activeTabId) {
     return { contextRef: { kind: 'none', capturedAt: Date.now() } };
   }

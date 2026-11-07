@@ -17,7 +17,7 @@ import { captureActive } from '@/features/ai/lib/contextSnapshot';
 import { buildMessages, SYSTEM_AGENT_PROMPT } from '@/features/ai/lib/promptBuilder';
 import { providerReadiness } from '@/features/ai/lib/providerReadiness';
 import { consumeStream } from '@/features/ai/lib/streamConsumer';
-import { type ChatMessage, useAiChatStore } from '@/features/ai/store';
+import { type ChatMessage, type ContextRef, useAiChatStore } from '@/features/ai/store';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { useRequestStore } from '@/store/useRequestStore';
 import { Composer } from './Composer';
@@ -43,6 +43,11 @@ const ACTIVE_TAB_TOOLS = new Set(['update_http_request', 'set_test_script', 'enr
 // Stable empty reference so the messages selector doesn't return a fresh array
 // (which would re-render every store change under Object.is equality).
 const EMPTY_MESSAGES: ChatMessage[] = [];
+
+interface SendOptions {
+  forceTools?: boolean;
+  agentMode?: boolean;
+}
 
 function uuid(): string {
   // streamId must satisfy z.uuid() at the IPC boundary. Electron's
@@ -95,6 +100,9 @@ export function ChatPanel({ onClose }: Props) {
   // until a re-render — a second ⌘+Enter fired during the ai.chat() round-trip
   // would otherwise start a competing stream that clobbers the shared refs.
   const sendingRef = useRef(false);
+  // Send options per user message id (ephemeral), so Retry re-sends a turn
+  // exactly as it was sent (agent system prompt, forced tools).
+  const sendOptsRef = useRef<Map<string, SendOptions>>(new Map());
 
   useEffect(() => {
     if (!activeId) newConversation();
@@ -130,15 +138,31 @@ export function ChatPanel({ onClose }: Props) {
 
   const handleSend = async (
     text: string,
-    rawMode: boolean,
-    opts?: { forceTools?: boolean; agentMode?: boolean }
+    requestedRawMode: boolean,
+    opts?: SendOptions & {
+      /**
+       * Retry: the original turn's context. Its tab is re-captured when still
+       * open, and raw (unredacted) mode is honoured only if the snapshot is of
+       * that same tab — never another tab's credentials.
+       */
+      retryContext?: ContextRef;
+    }
   ): Promise<{ ok: boolean; sawToolCall: boolean }> => {
     if (!providerConfig || sendingRef.current) return { ok: false, sawToolCall: false };
     sendingRef.current = true;
     setToolCalls([]);
     appliedIdsRef.current.clear();
     let sawToolCall = false;
-    const snapshot = captureActive();
+    const retryContext = opts?.retryContext;
+    const retryTabId = retryContext?.tabId;
+    const retryTabOpen =
+      !!retryTabId && useRequestStore.getState().tabs.some((t) => t.id === retryTabId);
+    const snapshot = captureActive(retryTabOpen ? retryTabId : undefined);
+    const rawMode =
+      requestedRawMode &&
+      (!retryContext ||
+        (!!retryTabId && snapshot.contextRef.tabId === retryTabId) ||
+        (!retryTabId && snapshot.contextRef.kind === 'none'));
 
     // Read prior turns from the live store at call time — NOT the render-time
     // `activeConv` closure — so rapid successive sends don't build context from
@@ -151,7 +175,14 @@ export function ChatPanel({ onClose }: Props) {
       .slice(-20)
       .map((m) => ({ role: m.role, content: m.text }));
 
-    useAiChatStore.getState().appendUserMessage(text, snapshot.contextRef, rawMode);
+    const userMsgId = useAiChatStore
+      .getState()
+      .appendUserMessage(text, snapshot.contextRef, rawMode);
+    const sendOpts: SendOptions = {
+      ...(opts?.forceTools ? { forceTools: true } : {}),
+      ...(opts?.agentMode ? { agentMode: true } : {}),
+    };
+    sendOptsRef.current.set(userMsgId, sendOpts);
     const assistantMsgId = useAiChatStore.getState().appendAssistantPlaceholder();
 
     const messages = buildMessages({
@@ -402,16 +433,25 @@ export function ChatPanel({ onClose }: Props) {
 
   const agentBusy = isAgentActive(agentSession);
 
-  // Regenerate the latest reply: drop the last user turn and its reply, then
-  // re-send that turn with the same raw-mode choice the user made for it.
+  // Regenerate the latest reply: drop the last user turn and its reply (and
+  // any proposals it made), then re-send that turn against its ORIGINAL
+  // context with its original send options. Raw mode carries over only when
+  // that same tab is re-captured (handleSend enforces it); otherwise redacted.
   const retryLast = () => {
     if (sendingRef.current) return;
     const st = useAiChatStore.getState();
     const conv = st.activeConversationId ? st.conversations[st.activeConversationId] : undefined;
     const lastUser = conv?.messages.findLast((m) => m.role === 'user');
     if (!lastUser) return;
+    const opts = sendOptsRef.current.get(lastUser.id) ?? {};
+    sendOptsRef.current.delete(lastUser.id);
+    setToolCalls([]);
+    appliedIdsRef.current.clear();
     st.truncateMessagesFrom(lastUser.id);
-    void handleSendRef.current(lastUser.text, lastUser.rawMode ?? false);
+    void handleSendRef.current(lastUser.text, lastUser.rawMode ?? false, {
+      ...opts,
+      retryContext: lastUser.contextRef ?? { kind: 'none', capturedAt: lastUser.createdAt },
+    });
   };
   const activeHttpRequest = useRequestStore((s) => {
     const req = s.tabs.find((t) => t.id === s.activeTabId)?.request;
@@ -517,7 +557,14 @@ export function ChatPanel({ onClose }: Props) {
                     ))}
                   </ul>
                 )}
-                <details className="mt-1 text-sp-11 text-muted-foreground">
+                {/* Expanded when the summary shows nothing or hid a placeholder
+                    value: the raw input is then the only full account of what
+                    Apply will do, so it must not sit behind a click. */}
+                <details
+                  className="mt-1 text-sp-11 text-muted-foreground"
+                  open={preview.changes.length === 0 || preview.suppressed}
+                  data-testid="ai-proposal-details"
+                >
                   <summary className="cursor-pointer select-none">Details ({tc.name})</summary>
                   <pre className="mt-1 whitespace-pre-wrap break-words max-h-24 overflow-auto">
                     {prettyInput(tc.input)}
