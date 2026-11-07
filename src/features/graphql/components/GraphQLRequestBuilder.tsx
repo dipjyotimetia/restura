@@ -1,28 +1,12 @@
 'use client';
 
-import {
-  CheckCircle,
-  Code2,
-  Download,
-  FileUp,
-  Loader2,
-  PanelLeft,
-  Plug,
-  PlugZap,
-  Send,
-  Wand2,
-} from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle, Loader2, PanelLeft, Plug, PlugZap, Send } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
-import {
-  MessageLogToolbar,
-  useFrozenView,
-} from '@/components/shared/messageLog/MessageLogControls';
-import { ProtocolCodeDialog } from '@/components/shared/ProtocolCodeDialog';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
@@ -60,6 +44,7 @@ import {
   emptySubscriptionLog,
   type SubscriptionLogState,
 } from '@/features/graphql/lib/subscriptionLog';
+import { useAutoIntrospect } from '@/features/graphql/lib/useAutoIntrospect';
 import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
 import {
   useGraphQLErrorStore,
@@ -69,10 +54,8 @@ import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
-import { graphqlCodeGenerators } from '@/lib/shared/codeGenerators/graphql';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { filteredEmptyText, filterLog, type LogDirection } from '@/lib/shared/messageLog';
 import { cn } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
@@ -80,8 +63,12 @@ import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useUiStore } from '@/store/useUiStore';
 import type { AuthConfig as AuthConfigType, GraphQLImportedSchema, HttpRequest } from '@/types';
+import { GraphQLCodeDialog } from './GraphQLCodeDialog';
 import { GraphQLMethodToggle } from './GraphQLMethodToggle';
+import { GraphQLQueryToolbar } from './GraphQLQueryToolbar';
+import { GraphQLSchemaHint } from './GraphQLSchemaHint';
 import { GraphQLSubscriptionErrors } from './GraphQLSubscriptionErrors';
+import { GraphQLSubscriptionLog } from './GraphQLSubscriptionLog';
 import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
 import { SubscriptionAuthNotice } from './SubscriptionAuthNotice';
@@ -104,26 +91,6 @@ const CodeEditor = lazyComponent(
 );
 
 type TabValue = 'query' | 'variables' | 'headers' | 'auth' | 'scripts' | 'subscription';
-
-/** Wait this long after the URL settles before auto-introspecting it. */
-const AUTO_INTROSPECT_DELAY_MS = 800;
-const SUBSCRIPTION_LOG_DIRECTIONS: ReadonlyArray<LogDirection> = ['in', 'error', 'system'];
-
-/** An endpoint worth introspecting unprompted: an absolute http(s) URL or a `{{var}}` one. */
-const isIntrospectableUrl = (url: string) =>
-  /^https?:\/\/[^\s/]+/i.test(url.trim()) || /^\{\{[^}]+\}\}\S*$/.test(url.trim());
-
-/** Variables as an object for code generation; invalid JSON → `{}`. */
-function parseVariablesOrEmpty(text: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(text || '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
 
 const errorDetail = (err: unknown): string | undefined =>
   err instanceof Error ? err.message : typeof err === 'string' ? err : undefined;
@@ -163,47 +130,7 @@ function GraphQLRequestBuilder() {
     useConfirmDialog(REPLACE_IMPORTED_CONFIRM);
   const cleartextGuard = useCleartextCredentialsGuard();
   const [codeOpen, setCodeOpen] = useState(false);
-  const [logQuery, setLogQuery] = useState('');
-  const [logDirection, setLogDirection] = useState<LogDirection | 'all'>('all');
-  const [logFrozen, setLogFrozen] = useState(false);
-  const logEntries = useMemo(
-    () =>
-      subscriptionLog.messages.map((msg) => {
-        const direction: LogDirection =
-          msg.type === 'data' ? 'in' : msg.type === 'error' ? 'error' : 'system';
-        return {
-          ...msg,
-          direction,
-          label: msg.protocol ? `${msg.type} · ${msg.protocol}` : msg.type,
-          body: msg.payloadText ?? msg.error ?? '',
-        };
-      }),
-    [subscriptionLog.messages]
-  );
-  const filteredLog = useMemo(
-    () => filterLog(logEntries, { query: logQuery, direction: logDirection }),
-    [logEntries, logQuery, logDirection]
-  );
-  const { visible: visibleLog, newCount: logNewCount } = useFrozenView(filteredLog, logFrozen);
-
-  // Auto-introspect (debounced) once a usable URL is set and nothing is known
-  // about it yet — so autocomplete works without hunting for the explorer's
-  // Refresh. Imported schemas and cached results (success or failure) win.
-  const hasSchemaEntry = useGraphQLSchemaStore((s) => (url ? s.schemas[url] !== undefined : false));
-  const autoAttempted = useRef(new Set<string>());
-  const autoRequestRef = useRef(currentRequest);
-  autoRequestRef.current = currentRequest;
-  useEffect(() => {
-    if (!url || importedSchema || hasSchemaEntry || schemaLoading) return;
-    if (!isIntrospectableUrl(url) || autoAttempted.current.has(url)) return;
-    const timer = setTimeout(() => {
-      const request = autoRequestRef.current;
-      if (!request || request.url !== url) return;
-      autoAttempted.current.add(url);
-      void fetchSchema(url, { request });
-    }, AUTO_INTROSPECT_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [url, importedSchema, hasSchemaEntry, schemaLoading, fetchSchema]);
+  useAutoIntrospect(currentRequest, Boolean(importedSchema));
 
   const sendShortcut = useSendShortcut();
   // An errors panel asked to reveal a query location — show the editor.
@@ -699,49 +626,15 @@ function GraphQLRequestBuilder() {
             onChange={setActiveTab}
             right={
               activeTab === 'query' ? (
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePrettify}
-                    disabled={!query.trim()}
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Wand2 className="h-3 w-3" />
-                    Prettify
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLoadSchemaOpen(true)}
-                    aria-label="Load schema"
-                    title="Load schema from an SDL file, pasted SDL or introspection JSON"
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors"
-                  >
-                    <FileUp className="h-3 w-3" />
-                    Load
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCodeOpen(true)}
-                    aria-label="Generate code"
-                    title="Export this operation as cURL / JavaScript / Python"
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors"
-                  >
-                    <Code2 className="h-3 w-3" />
-                    Code
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownloadSDL}
-                    disabled={!executableSchema}
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Download className="h-3 w-3" />
-                    SDL
-                  </button>
-                  <span className="font-mono text-sp-10 text-sp-dim tabular-nums">
-                    {queryBytes} B
-                  </span>
-                </div>
+                <GraphQLQueryToolbar
+                  queryBytes={queryBytes}
+                  canPrettify={Boolean(query.trim())}
+                  canDownloadSDL={Boolean(executableSchema)}
+                  onPrettify={handlePrettify}
+                  onLoadSchema={() => setLoadSchemaOpen(true)}
+                  onGenerateCode={() => setCodeOpen(true)}
+                  onDownloadSDL={handleDownloadSDL}
+                />
               ) : activeTab === 'auth' && httpRequest.auth.type !== 'none' ? (
                 <CheckCircle className="h-3 w-3 text-emerald-400" />
               ) : activeTab === 'scripts' &&
@@ -754,42 +647,13 @@ function GraphQLRequestBuilder() {
           {/* Tab content */}
           <SubTabPanel tabKey={activeTab} className="flex-1 min-h-0 overflow-hidden">
             {activeTab === 'query' && !executableSchema && !schemaLoading && (
-              <div
-                role="status"
-                className="flex items-center gap-2 px-3 h-7 border-b border-sp-line text-sp-11 text-sp-muted"
-              >
-                <span className="truncate">
-                  {schemaResult && !schemaResult.success
-                    ? 'Introspection failed — autocomplete off'
-                    : 'No schema — autocomplete off'}
-                </span>
-                {schemaResult && !schemaResult.success && (
-                  <button
-                    type="button"
-                    onClick={() => setShowSchema(true)}
-                    className="underline hover:text-sp-text"
-                  >
-                    Details
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void handleRefreshSchema()}
-                  disabled={!httpRequest.url}
-                  aria-label="Introspect schema"
-                  className="ml-auto underline hover:text-sp-text disabled:opacity-50 disabled:no-underline"
-                >
-                  Introspect
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLoadSchemaOpen(true)}
-                  aria-label="Load schema file"
-                  className="underline hover:text-sp-text"
-                >
-                  Load file
-                </button>
-              </div>
+              <GraphQLSchemaHint
+                failed={Boolean(schemaResult && !schemaResult.success)}
+                canIntrospect={Boolean(httpRequest.url)}
+                onShowDetails={() => setShowSchema(true)}
+                onIntrospect={() => void handleRefreshSchema()}
+                onLoadFile={() => setLoadSchemaOpen(true)}
+              />
             )}
             {activeTab === 'query' && (
               <GraphQLBodyEditor
@@ -875,62 +739,13 @@ function GraphQLRequestBuilder() {
                   messages={subscriptionLog.messages}
                   tabId={activeTabId}
                 />
-                <div className="-mx-3 mb-2">
-                  <MessageLogToolbar
-                    query={logQuery}
-                    onQueryChange={setLogQuery}
-                    direction={logDirection}
-                    onDirectionChange={setLogDirection}
-                    directions={SUBSCRIPTION_LOG_DIRECTIONS}
-                    frozen={logFrozen}
-                    newCount={logNewCount}
-                    onFrozenChange={setLogFrozen}
-                    exportEntries={() => filteredLog}
-                    exportName={`${operationState.operationName ?? 'graphql'}-subscription`}
-                    exportMeta={{ protocol: 'graphql', url: httpRequest.url }}
-                    onClear={() => setSubscriptionLog(emptySubscriptionLog)}
-                    hasEntries={subscriptionLog.messages.length > 0}
-                  />
-                </div>
-                {subscriptionLog.messages.length > 0 && visibleLog.length === 0 ? (
-                  <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
-                    {filteredEmptyText('message', logNewCount)}
-                  </div>
-                ) : subscriptionLog.messages.length === 0 ? (
-                  <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
-                    {isSubscribed
-                      ? 'Waiting for messages...'
-                      : 'Click Subscribe to start receiving events.'}
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {visibleLog.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={cn(
-                          'p-2 rounded-sp-btn border text-sp-11 font-mono',
-                          msg.type === 'data'
-                            ? 'bg-emerald-500/5 border-emerald-500/20'
-                            : msg.type === 'error'
-                              ? 'bg-destructive/5 border-destructive/20'
-                              : msg.type === 'connected'
-                                ? 'bg-blue-500/5 border-blue-500/20'
-                                : 'bg-sp-surface-lo border-sp-line'
-                        )}
-                      >
-                        <div className="flex items-center gap-2 mb-1 sp-label">
-                          <span>{msg.type}</span>
-                          {msg.protocol && <span>{msg.protocol}</span>}
-                          <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
-                        </div>
-                        {msg.payload !== undefined && (
-                          <pre className="whitespace-pre-wrap break-all">{msg.payloadText}</pre>
-                        )}
-                        {msg.error && <span className="text-destructive">{msg.error}</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <GraphQLSubscriptionLog
+                  messages={subscriptionLog.messages}
+                  isSubscribed={isSubscribed}
+                  exportName={`${operationState.operationName ?? 'graphql'}-subscription`}
+                  exportMeta={{ protocol: 'graphql', url: httpRequest.url }}
+                  onClear={() => setSubscriptionLog(emptySubscriptionLog)}
+                />
               </div>
             )}
           </SubTabPanel>
@@ -941,21 +756,13 @@ function GraphQLRequestBuilder() {
         onOpenChange={setLoadSchemaOpen}
         onLoad={handleSchemaLoaded}
       />
-      <ProtocolCodeDialog
+      <GraphQLCodeDialog
         open={codeOpen}
         onOpenChange={setCodeOpen}
-        title="Generate GraphQL code"
-        description="Uses the Headers tab entries as typed: {{variables}} stay unresolved and Auth-tab credentials are not included."
-        generators={graphqlCodeGenerators}
-        options={{
-          url: httpRequest.url,
-          query,
-          variables: parseVariablesOrEmpty(graphqlVariables),
-          headers: Object.fromEntries(
-            httpRequest.headers.filter((h) => h.enabled && h.key).map((h) => [h.key, h.value])
-          ),
-          ...(operationType ? { operationType } : {}),
-        }}
+        request={httpRequest}
+        query={query}
+        variables={graphqlVariables}
+        operationType={operationType}
       />
       <ReplaceImportedDialog />
       <cleartextGuard.Dialog />

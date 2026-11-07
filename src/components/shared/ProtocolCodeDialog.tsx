@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Segmented } from '@/components/ui/spatial';
 
 export interface ProtocolCodeGenerator<T> {
   name: string;
@@ -79,24 +80,15 @@ export function ProtocolCodeDialog<T>({
         </DialogHeader>
 
         <div className="flex items-center gap-2">
-          <div role="radiogroup" aria-label="Code language" className="flex flex-wrap gap-1">
-            {keys.map((key) => (
-              <button
-                key={key}
-                type="button"
-                role="radio"
-                aria-checked={key === language}
-                onClick={() => setPicked(key)}
-                className={
-                  key === language
-                    ? 'h-7 px-2.5 rounded-sp-btn text-sp-12 font-medium bg-sp-active text-sp-text'
-                    : 'h-7 px-2.5 rounded-sp-btn text-sp-12 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover'
-                }
-              >
-                {generators[key]?.name ?? key}
-              </button>
-            ))}
-          </div>
+          {language && (
+            <Segmented<string>
+              options={keys.map((key) => ({ value: key, label: generators[key]?.name ?? key }))}
+              value={language}
+              onChange={setPicked}
+              size="sm"
+              ariaLabel="Code language"
+            />
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -114,12 +106,14 @@ export function ProtocolCodeDialog<T>({
             Could not generate code: {error}
           </p>
         ) : (
-          <pre
+          <figure
             aria-label={`Generated ${generator?.name ?? ''} code`}
-            className="flex-1 overflow-auto p-4 bg-muted rounded-lg font-mono text-sm whitespace-pre"
+            className="flex-1 min-h-0 m-0 flex"
           >
-            <code>{code}</code>
-          </pre>
+            <pre className="flex-1 overflow-auto p-4 bg-muted rounded-lg font-mono text-sm whitespace-pre">
+              <code>{code}</code>
+            </pre>
+          </figure>
         )}
       </DialogContent>
     </Dialog>
