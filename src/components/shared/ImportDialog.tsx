@@ -273,8 +273,7 @@ export default function ImportDialog({
       .collections.find((existing) => existing.name === converted.name);
     let collection = converted;
     if (clash && clashChoice === 'replace') {
-      // Validate before deleting: a collection the store would reject must not
-      // cost the user the one it was meant to replace (throws → import error).
+      // Validate first: an invalid import must not cost the collection it replaces.
       useCollectionStore.getState().prepareCollection(converted);
       const removed = await deleteCollectionWithCleanup(clash.id);
       if (!removed.success) {
@@ -332,7 +331,6 @@ export default function ImportDialog({
         importedNames.push(name);
         for (const environment of result.environments ?? []) addEnvironment(environment);
       }
-      // Name the result only when it is a single collection; never a stale one.
       setImportedCollectionName(importedNames.length === 1 ? (importedNames[0] ?? null) : null);
       setWarnings(harPreview.warnings);
       setHarPreview(null);
