@@ -372,10 +372,10 @@ function InvokeToolForm({
           <McpToolHintBadges tool={tool} />
           {tool.description && <p className="text-sp-12 text-sp-muted">{tool.description}</p>}
           {!forceRaw && fields.length > 0 && (
-            <label className="flex items-center gap-2 text-sp-11-5 text-sp-muted">
+            <div className="flex items-center gap-2 text-sp-11-5 text-sp-muted">
               <Switch aria-label="Raw JSON" checked={rawMode} onCheckedChange={toggleRawMode} />
-              Raw JSON
-            </label>
+              <span aria-hidden="true">Raw JSON</span>
+            </div>
           )}
           {useRaw ? (
             <div className="space-y-1.5">

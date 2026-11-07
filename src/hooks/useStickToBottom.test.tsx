@@ -13,8 +13,8 @@ function List({ count }: { count: number }) {
   return (
     <div>
       <div data-testid="list" ref={ref} onScroll={onScroll}>
-        {Array.from({ length: count }, (_, i) => (
-          <div key={i}>row {i}</div>
+        {Array.from({ length: count }, (_, i) => `row ${i}`).map((row) => (
+          <div key={row}>{row}</div>
         ))}
       </div>
       <JumpToLatestPill visible={showJump} onClick={jumpToLatest} />

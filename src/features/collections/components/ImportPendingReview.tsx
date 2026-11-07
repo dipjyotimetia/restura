@@ -110,12 +110,14 @@ export function ImportPendingReview({
             import review.
           </p>
           <ul className="mt-1 max-h-32 overflow-y-auto space-y-0.5 pr-1">
-            {warnings.slice(0, REVIEW_WARNING_PREVIEW).map((warning, index) => (
-              <li key={index} className="flex gap-2">
-                <span className="text-amber-400/70 shrink-0">›</span>
-                <span>{describeWarning(warning)}</span>
-              </li>
-            ))}
+            {withStableKeys(warnings.slice(0, REVIEW_WARNING_PREVIEW).map(describeWarning)).map(
+              ({ key, text }) => (
+                <li key={key} className="flex gap-2">
+                  <span className="text-amber-400/70 shrink-0">›</span>
+                  <span>{text}</span>
+                </li>
+              )
+            )}
             {warnings.length > REVIEW_WARNING_PREVIEW && (
               <li className="italic">
                 … and {warnings.length - REVIEW_WARNING_PREVIEW} more, listed after import
@@ -143,4 +145,14 @@ export function ImportPendingReview({
       </div>
     </section>
   );
+}
+
+/** Keys from the text itself; repeats get an occurrence suffix so keys stay unique. */
+function withStableKeys(texts: readonly string[]): Array<{ key: string; text: string }> {
+  const seen = new Map<string, number>();
+  return texts.map((text) => {
+    const n = (seen.get(text) ?? 0) + 1;
+    seen.set(text, n);
+    return { key: n === 1 ? text : `${text}#${n}`, text };
+  });
 }

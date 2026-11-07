@@ -72,7 +72,7 @@ function sentTexts(request: HttpRequest): string[] {
 export function findUnresolvedVariables(request: HttpRequest, getStatus: GetStatus): string[] {
   const names = new Set<string>();
   for (const text of sentTexts(request)) {
-    if (!text || !text.includes('{{')) continue;
+    if (!text?.includes('{{')) continue;
     for (const token of findVariableTokens(text)) {
       if (tokenDisplayStatus(token.name, getStatus) === 'unresolved') names.add(token.name);
     }

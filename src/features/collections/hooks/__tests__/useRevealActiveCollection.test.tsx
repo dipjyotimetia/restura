@@ -9,10 +9,16 @@ function Tree({ makeTabStop }: { makeTabStop: (row: HTMLElement) => void }) {
   useRevealActiveCollection(ref, makeTabStop);
   return (
     <div ref={ref} role="tree">
-      <div data-tree-row data-item-type="collection" data-item-id="c1" tabIndex={0}>
+      <div role="treeitem" data-tree-row data-item-type="collection" data-item-id="c1" tabIndex={0}>
         First
       </div>
-      <div data-tree-row data-item-type="collection" data-item-id="c2" tabIndex={-1}>
+      <div
+        role="treeitem"
+        data-tree-row
+        data-item-type="collection"
+        data-item-id="c2"
+        tabIndex={-1}
+      >
         Imported
       </div>
     </div>
