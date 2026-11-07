@@ -142,7 +142,7 @@ function readConnectResponse(
 /**
  * Read a full HTTP/1.1 response over the socket — same rule as the Cloudflare
  * twin (framing helpers shared in `http-framing`):
- *   - interim 1xx heads are skipped; 204 / 304 stop at the final head.
+ *   - interim 1xx heads are skipped; 204 / 304 and HEAD stop at the final head.
  *   - Content-Length present: read exactly N body bytes.
  *   - otherwise: read until the server closes the connection ('end').
  *   - Transfer-Encoding: chunked is NOT decoded here — caller receives the
@@ -151,7 +151,8 @@ function readConnectResponse(
  */
 function readHttpResponseBody(
   socket: net.Socket | tls.TLSSocket,
-  signal: AbortSignal
+  signal: AbortSignal,
+  requestMethod: string
 ): Promise<ParsedHttpResponse> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -199,7 +200,7 @@ function readHttpResponseBody(
           const all = collect();
           chunks.length = 0;
           chunks.push(all);
-          head = findFinalHead(all);
+          head = findFinalHead(all, requestMethod);
         }
         if (head && isBodyComplete(head, total))
           finish({ ...head, body: sliceBody(collect(), head) });
@@ -350,8 +351,9 @@ export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
     try {
       tlsSocket.write(await buildTunneledRequest(targetUrl, requestInit));
 
-      const response = await readHttpResponseBody(tlsSocket, signal);
-      return toResponse(response.statusLine, response.headerList, response.body);
+      const method = requestInit.method ?? 'GET';
+      const response = await readHttpResponseBody(tlsSocket, signal, method);
+      return toResponse(response.statusLine, response.headerList, response.body, method);
     } finally {
       tlsSocket.destroy();
     }
@@ -385,8 +387,8 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
       const wire = encodeRequest(method, targetUrl.toString(), targetUrl.host, headers, bodyBytes);
       socket.write(asBuffer(wire));
 
-      const response = await readHttpResponseBody(socket, signal);
-      return toResponse(response.statusLine, response.headerList, response.body);
+      const response = await readHttpResponseBody(socket, signal, method);
+      return toResponse(response.statusLine, response.headerList, response.body, method);
     } finally {
       socket.destroy();
     }

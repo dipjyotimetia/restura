@@ -218,6 +218,34 @@ describe('response head on raw bytes (both twins)', () => {
     expect(bodyless && isBodyComplete(bodyless, 0)).toBe(true);
   });
 
+  it('treats a HEAD response as bodyless whatever its Content-Length (RFC 9112 §6.3)', () => {
+    const all = bytes('HTTP/1.1 200 OK\r\nContent-Length: 1234\r\n\r\n');
+    const head = findFinalHead(all, 'HEAD');
+    if (!head) throw new Error('head expected');
+    expect(head.bodyless).toBe(true);
+    // Complete at the head — never waits for 1234 body bytes that will not come.
+    expect(isBodyComplete(head, all.byteLength)).toBe(true);
+    expect(() =>
+      assertCompleteAtEof(head, all.byteLength, new AbortController().signal)
+    ).not.toThrow();
+    expect(sliceBody(all, head).byteLength).toBe(0);
+    // A GET with the same head still expects the body.
+    const get = findFinalHead(all, 'GET');
+    expect(get && isBodyComplete(get, all.byteLength)).toBe(false);
+  });
+
+  it('toResponse gives a HEAD response a null body, like fetch', () => {
+    const res = toResponse(
+      'HTTP/1.1 200 OK',
+      [['content-length', '1234']],
+      new Uint8Array(0),
+      'HEAD'
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toBeNull();
+    expect(res.headers.get('content-length')).toBe('1234');
+  });
+
   it('fails at EOF on abort, a missing head or a short Content-Length body', () => {
     const live = new AbortController().signal;
     const all = bytes('HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nab');
