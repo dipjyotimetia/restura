@@ -15,6 +15,13 @@ export class LiveReporter implements Reporter {
 
   onRequestComplete(result: RequestRunResult): void {
     console.log(formatRequestLine(result));
+    // Script `console.*` output goes to stderr (stdout stays the result list),
+    // stripped of control characters so a script cannot drive the terminal.
+    for (const line of result.consoleLogs ?? []) {
+      for (const text of line.message.split(/\r?\n/)) {
+        process.stderr.write(`    [${line.phase} ${line.type}] ${stripControl(text)}\n`);
+      }
+    }
   }
 
   onEnd(result: RunResult): void {

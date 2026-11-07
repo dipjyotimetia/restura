@@ -10,7 +10,13 @@ import {
 import { foldScriptPhases, settleVerdict, skipVerdict } from '@shared/collection-run/verdict';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { HttpRequest } from '@shared/types';
-import type { Reporter, RequestRunResult, RunMeta, RunResult } from '../reporters/types.js';
+import type {
+  Reporter,
+  RequestRunResult,
+  RunMeta,
+  RunResult,
+  ScriptConsoleLine,
+} from '../reporters/types.js';
 import { type LoadedRequest, loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
@@ -122,6 +128,46 @@ export interface RunOptions {
    * still reported (with `interrupted: true`).
    */
   signal?: AbortSignal;
+}
+
+/**
+ * A phase's own `console.*` lines. The executor also logs one `✓ name` /
+ * `✗ name: error` line per `pm.test` (the app console shows them); those are
+ * already reported as assertions, so one such line per assertion is dropped.
+ */
+function scriptConsoleLines(
+  phase: ScriptConsoleLine['phase'],
+  result: RunScriptResult | undefined
+): ScriptConsoleLine[] {
+  if (!result) return [];
+  const recorded = new Map<string, number>();
+  for (const a of result.assertions) {
+    const key = a.passed ? `info\0✓ ${a.name}` : `error\0✗ ${a.name}: ${a.error}`;
+    recorded.set(key, (recorded.get(key) ?? 0) + 1);
+  }
+  const lines: ScriptConsoleLine[] = [];
+  for (const l of result.logs) {
+    const key = `${l.type}\0${l.message}`;
+    const left = recorded.get(key) ?? 0;
+    if (left > 0) {
+      recorded.set(key, left - 1);
+      continue;
+    }
+    lines.push({ phase, type: l.type, message: l.message });
+  }
+  return lines;
+}
+
+/**
+ * The scripts' `console.*` lines for a request's result (pre-request first),
+ * or nothing when the scripts logged none.
+ */
+function consoleLogsField(
+  pre: RunScriptResult | undefined,
+  test: RunScriptResult | undefined
+): { consoleLogs?: ScriptConsoleLine[] } {
+  const lines = [...scriptConsoleLines('pre-request', pre), ...scriptConsoleLines('test', test)];
+  return lines.length > 0 ? { consoleLogs: lines } : {};
 }
 
 /**
@@ -315,6 +361,7 @@ async function runCollectionWithSessions(
           durationMs: 0,
           bodyBytes: 0,
           skipped: true,
+          ...consoleLogsField(preResult, undefined),
           ...(fold.errorText !== undefined ? { errorMessage: fold.errorText } : {}),
           ...(fold.assertions.length > 0 ? { assertions: fold.assertions } : {}),
           ...(isDataDriven ? { iteration: iter } : {}),
@@ -432,6 +479,7 @@ async function runCollectionWithSessions(
         ...(outcome.grpcStatus ? { grpcStatus: outcome.grpcStatus } : {}),
         ...(outcome.streamEvents ? { streamEvents: outcome.streamEvents } : {}),
         ...(allAssertions.length > 0 ? { assertions: allAssertions } : {}),
+        ...consoleLogsField(preResult, testResult),
         ...(isDataDriven ? { iteration: iter } : {}),
       };
 
