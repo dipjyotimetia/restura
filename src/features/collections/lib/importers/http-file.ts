@@ -45,14 +45,14 @@ export function importHttpFile(source: string, options: ImportHttpFileOptions = 
   const offset = implicitStart === -1 ? 0 : 1;
   if (implicitStart !== -1) {
     const blockLines = ['###', ...lines.slice(implicitStart, prefixEnd)];
-    const item = parseBlock(blockLines, 1, warnings, dynamicVarCounts);
+    const item = parseBlock(blockLines, 1, warnings, dynamicVarCounts, fileVariables);
     if (item) items.push(item);
   }
 
   blockStarts.forEach((startIdx, i) => {
     const endIdx = blockStarts[i + 1] ?? lines.length;
     const blockLines = lines.slice(startIdx, endIdx);
-    const item = parseBlock(blockLines, i + 1 + offset, warnings, dynamicVarCounts);
+    const item = parseBlock(blockLines, i + 1 + offset, warnings, dynamicVarCounts, fileVariables);
     if (item) items.push(item);
   });
 
@@ -111,7 +111,8 @@ function parseBlock(
   blockLines: string[],
   index: number,
   warnings: ImportWarning[],
-  dynamicVarCounts: Map<string, number>
+  dynamicVarCounts: Map<string, number>,
+  fileVariables: KeyValue[]
 ): CollectionItem | null {
   const headerMatch = /^###\s?(.*)$/.exec(blockLines[0] ?? '');
   const headerName = headerMatch?.[1]?.trim() || undefined;
@@ -138,6 +139,21 @@ function parseBlock(
       const block = collectScriptBlock(blockLines, cursor);
       preRequestScript = block.content;
       cursor = block.nextIndex;
+      continue;
+    }
+    // `@name = value` inside a block's prelude is still a file variable
+    // (REST Client / JetBrains allow it anywhere); collect it into the same
+    // environment as the top-level ones rather than treating it as the
+    // request line.
+    const varMatch = FILE_VAR.exec(trimmed);
+    if (varMatch?.[1]) {
+      fileVariables.push({
+        id: uuid(),
+        key: varMatch[1],
+        value: varMatch[2] ?? '',
+        enabled: true,
+      });
+      cursor++;
       continue;
     }
     if (trimmed.startsWith('//') || trimmed.startsWith('#')) {
