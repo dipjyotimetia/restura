@@ -16,7 +16,8 @@ interface EnvironmentState {
   // Actions
   addEnvironment: (environment: Environment) => void;
   updateEnvironment: (id: string, updates: Partial<Environment>) => void;
-  removeEnvironment: (id: string) => void;
+  /** Returns `false` (and removes nothing) while the environment still owns sub-environments. */
+  removeEnvironment: (id: string) => boolean;
   setActiveEnvironment: (id: string | null) => void;
   addVariable: (environmentId: string, variable: KeyValue) => void;
   updateVariable: (environmentId: string, variableId: string, updates: Partial<KeyValue>) => void;
@@ -78,10 +79,11 @@ export const useEnvironmentStore = create<EnvironmentState>()(
 
       removeEnvironment: (id) => {
         if (get().environments.some((environment) => environment.parentId === id)) return false;
-        return set((state) => ({
+        set((state) => ({
           environments: state.environments.filter((env) => env.id !== id),
           activeEnvironmentId: state.activeEnvironmentId === id ? null : state.activeEnvironmentId,
         }));
+        return true;
       },
 
       setActiveEnvironment: (id) => set({ activeEnvironmentId: id }),

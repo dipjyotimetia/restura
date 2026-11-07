@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useShallow } from 'zustand/react/shallow';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -506,18 +507,37 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
     setSelectedEnvId(clone.id);
   };
 
+  const subEnvironmentRefusal = (id: string): string | null => {
+    const env = environments.find((environment) => environment.id === id);
+    const subCount = environments.filter((environment) => environment.parentId === id).length;
+    if (subCount === 0) return null;
+    return `Can't delete "${env?.name ?? 'environment'}". Remove its ${subCount} sub-environment${
+      subCount === 1 ? '' : 's'
+    } first.`;
+  };
+
   const handleDeleteEnvironment = (id: string) => {
+    const refusal = subEnvironmentRefusal(id);
+    if (refusal) {
+      toast.error(refusal);
+      return;
+    }
     setEnvToDelete(id);
     setDeleteDialogOpen(true);
   };
 
   const confirmDeleteEnvironment = () => {
     if (envToDelete) {
-      removeEnvironment(envToDelete);
+      const refusal = subEnvironmentRefusal(envToDelete);
+      if (!removeEnvironment(envToDelete)) {
+        toast.error(refusal ?? "Couldn't delete the environment.");
+      }
       setEnvToDelete(null);
     }
     setDeleteDialogOpen(false);
   };
+
+  const envToDeleteName = environments.find((environment) => environment.id === envToDelete)?.name;
 
   const handleAddVariable = () => {
     if (!selectedEnvId) return;
@@ -782,7 +802,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
         open={deleteDialogOpen}
         onOpenChange={setDeleteDialogOpen}
         title="Delete environment"
-        description="Are you sure you want to delete this environment? This action cannot be undone and all variables in this environment will be lost."
+        description={`Delete "${envToDeleteName ?? 'this environment'}"? This action cannot be undone and all variables in this environment will be lost.`}
         confirmText="Delete"
         cancelText="Cancel"
         onConfirm={confirmDeleteEnvironment}

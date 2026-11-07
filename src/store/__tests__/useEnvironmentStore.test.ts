@@ -280,7 +280,7 @@ describe('useEnvironmentStore', () => {
       const env = createNewEnvironment('To Delete');
       addEnvironment(env);
 
-      removeEnvironment(env.id);
+      expect(removeEnvironment(env.id)).toBe(true);
 
       const state = useEnvironmentStore.getState();
       expect(state.environments).toHaveLength(0);
