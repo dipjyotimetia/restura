@@ -1,4 +1,6 @@
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { Floater } from '@/components/ui/spatial';
 import type { ImportWarning } from '@/features/collections/lib/importers';
 import { cn } from '@/lib/shared/utils';
@@ -7,6 +9,8 @@ interface ImportStatusBannerProps {
   status: 'idle' | 'success' | 'error';
   warnings: ImportWarning[];
   environmentOnlyName: string | null;
+  /** Name of the collection that was imported (shown in the success message). */
+  collectionName?: string | null;
   errorMessage: string;
   onDismiss: () => void;
 }
@@ -15,9 +19,11 @@ export function ImportStatusBanner({
   status,
   warnings,
   environmentOnlyName,
+  collectionName,
   errorMessage,
   onDismiss,
 }: ImportStatusBannerProps) {
+  const [showAll, setShowAll] = useState(false);
   if (status === 'idle') return null;
 
   if (status === 'success' && warnings.length === 0) {
@@ -32,7 +38,9 @@ export function ImportStatusBanner({
         <span className="text-sp-13 text-emerald-300 font-medium">
           {environmentOnlyName
             ? `Imported environment: ${environmentOnlyName}`
-            : 'Collection imported successfully'}
+            : collectionName
+              ? `Imported "${collectionName}"`
+              : 'Collection imported successfully'}
         </span>
       </Floater>
     );
@@ -50,30 +58,59 @@ export function ImportStatusBanner({
           <div className="flex items-center gap-2 text-amber-300 font-medium text-sp-13">
             <AlertCircle size={16} className="shrink-0" />
             <span>
-              Imported with {warnings.length} warning{warnings.length === 1 ? '' : 's'}
+              {collectionName ? `Imported "${collectionName}"` : 'Imported'} with {warnings.length}{' '}
+              warning{warnings.length === 1 ? '' : 's'}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className={cn(
-              'inline-flex items-center h-7 px-3 rounded-sp-btn',
-              'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
-              'hover:bg-sp-hover transition-colors'
-            )}
-          >
-            Dismiss
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                const text = warnings.map(describeWarning).join('\n');
+                navigator.clipboard
+                  ?.writeText(text)
+                  .then(() => toast.success('Warnings copied'))
+                  .catch(() => toast.error("Couldn't copy warnings"));
+              }}
+              className={cn(
+                'inline-flex items-center h-7 px-3 rounded-sp-btn',
+                'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
+                'hover:bg-sp-hover transition-colors'
+              )}
+            >
+              Copy warnings
+            </button>
+            <button
+              type="button"
+              onClick={onDismiss}
+              className={cn(
+                'inline-flex items-center h-7 px-3 rounded-sp-btn',
+                'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
+                'hover:bg-sp-hover transition-colors'
+              )}
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
         <ul className="space-y-1 text-sp-12 text-sp-muted max-h-40 overflow-y-auto pr-1">
-          {warnings.slice(0, 20).map((warning, index) => (
+          {(showAll ? warnings : warnings.slice(0, WARNING_CAP)).map((warning, index) => (
             <li key={index} className="flex gap-2">
               <span className="text-amber-400/70 shrink-0">›</span>
               <span>{describeWarning(warning)}</span>
             </li>
           ))}
-          {warnings.length > 20 && (
-            <li className="text-sp-muted italic">… and {warnings.length - 20} more</li>
+          {!showAll && warnings.length > WARNING_CAP && (
+            <li className="text-sp-muted italic">
+              … and {warnings.length - WARNING_CAP} more{' '}
+              <button
+                type="button"
+                onClick={() => setShowAll(true)}
+                className="not-italic underline text-sp-text hover:text-amber-300"
+              >
+                Show all {warnings.length}
+              </button>
+            </li>
           )}
         </ul>
       </Floater>
@@ -96,7 +133,9 @@ export function ImportStatusBanner({
   );
 }
 
-function describeWarning(warning: ImportWarning): string {
+const WARNING_CAP = 20;
+
+export function describeWarning(warning: ImportWarning): string {
   switch (warning.kind) {
     case 'unrecognized-body':
       return `Unknown body shape in "${warning.requestName}" — preserved on round-trip but not editable`;

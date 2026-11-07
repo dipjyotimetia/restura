@@ -3,8 +3,11 @@ import type { DeepLinkImportFormat } from '@shared/deep-link';
 import { load } from 'js-yaml';
 import { Check, Download, Link, Lock, Upload, X } from 'lucide-react';
 import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
+import { countFolders, countRequests } from '@/features/collections/lib/countRequests';
+import { deleteCollectionWithCleanup } from '@/features/collections/lib/deleteCollection';
 import {
   buildHarImportCollections,
   type EnvironmentImportResult,
@@ -21,6 +24,7 @@ import {
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
 import { importPostmanV3Files } from '@/features/collections/lib/importers/postman';
+import { uniqueName } from '@/features/collections/lib/names';
 import { useResettableTimeout } from '@/hooks/useResettableTimeout';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
@@ -31,7 +35,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { HarImportReview } from './HarImportReview';
 import { ImportFolderPicker } from './ImportFolderPicker';
 import { ImportDropZone, ImportFormatCard } from './ImportFormatPicker';
-import { ImportStatusBanner } from './ImportStatusBanner';
+import { describeWarning, ImportStatusBanner } from './ImportStatusBanner';
 import {
   DIRECTORY_DROP_MESSAGE,
   detectDroppedZip,
@@ -58,6 +62,17 @@ interface ImportDialogProps {
   droppedFile?: File | null;
 }
 
+const REVIEW_WARNING_PREVIEW = 5;
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+/** "12 requests in 3 folders" — the whole tree, not just the top level. */
+function describeImportSize(items: Parameters<typeof countRequests>[0]): string {
+  const requests = plural(countRequests(items), 'request');
+  const folders = countFolders(items);
+  return folders > 0 ? `${requests} in ${plural(folders, 'folder')}` : requests;
+}
+
 export default function ImportDialog({
   open,
   onOpenChange,
@@ -65,6 +80,12 @@ export default function ImportDialog({
   droppedFile,
 }: ImportDialogProps) {
   const addCollection = useCollectionStore((s) => s.addCollection);
+  const existingCollectionNames = useCollectionStore(
+    useShallow((s) => s.collections.map((collection) => collection.name))
+  );
+  // Name clash on import: keep both (auto-suffixed) or replace the existing one.
+  const [clashChoice, setClashChoice] = useState<'keep-both' | 'replace'>('keep-both');
+  const [importedCollectionName, setImportedCollectionName] = useState<string | null>(null);
   const addEnvironment = useEnvironmentStore((s) => s.addEnvironment);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
@@ -209,6 +230,8 @@ export default function ImportDialog({
       setWarnings(outcome.warnings);
     }
     setHarPreview(null);
+    setClashChoice('keep-both');
+    setImportedCollectionName(null);
     setPendingOutcome(outcome);
     setReviewFormat(sourceFormat === 'har' ? null : sourceFormat);
     setImportStatus('idle');
@@ -248,11 +271,31 @@ export default function ImportDialog({
       }
       return;
     }
-    const collection =
+    const converted =
       storeSecretsAsHandles && isElectron()
         ? await convertCollectionSecretsToHandles(outcome.collection)
         : outcome.collection;
+    const clash = useCollectionStore
+      .getState()
+      .collections.find((existing) => existing.name === converted.name);
+    let collection = converted;
+    if (clash && clashChoice === 'replace') {
+      const removed = await deleteCollectionWithCleanup(clash.id);
+      if (!removed.success) {
+        throw new Error(`Couldn't replace "${clash.name}": ${removed.error ?? 'unknown error'}`);
+      }
+    } else if (clash) {
+      collection = {
+        ...converted,
+        name: uniqueName(
+          converted.name,
+          useCollectionStore.getState().collections.map((existing) => existing.name)
+        ),
+      };
+    }
     addCollection(collection);
+    setImportedCollectionName(collection.name);
+    useCollectionStore.getState().setActiveCollection(collection.id);
     for (const environment of outcome.environments ?? []) addEnvironment(environment);
     setImportStatus('success');
     setWarnings(outcome.warnings);
@@ -284,7 +327,13 @@ export default function ImportDialog({
           );
         }
         assertValidEnvironments(result.environments);
-        addCollection(result.collection);
+        const existingNames = useCollectionStore
+          .getState()
+          .collections.map((existing) => existing.name);
+        addCollection({
+          ...result.collection,
+          name: uniqueName(result.collection.name, existingNames),
+        });
         for (const environment of result.environments ?? []) addEnvironment(environment);
       }
       setWarnings(harPreview.warnings);
@@ -510,6 +559,7 @@ export default function ImportDialog({
               status={importStatus}
               warnings={warnings}
               environmentOnlyName={environmentOnlyName}
+              collectionName={importedCollectionName}
               errorMessage={errorMessage}
               onDismiss={() => {
                 onOpenChange(false);
@@ -547,9 +597,34 @@ export default function ImportDialog({
                   <>
                     <p className="mt-1 text-sp-12 text-sp-text">
                       Collection: <strong>{pendingOutcome.collection.name}</strong> ·{' '}
-                      {pendingOutcome.collection.items.length} top-level item
-                      {pendingOutcome.collection.items.length === 1 ? '' : 's'}
+                      {describeImportSize(pendingOutcome.collection.items)}
                     </p>
+                    {existingCollectionNames.includes(pendingOutcome.collection.name) && (
+                      <fieldset className="mt-2 rounded-sp-btn border border-amber-500/40 p-2 text-sp-12">
+                        <legend className="px-1 text-amber-300">
+                          A collection named "{pendingOutcome.collection.name}" already exists
+                        </legend>
+                        <label className="flex items-center gap-2 text-sp-text">
+                          <input
+                            type="radio"
+                            name="import-name-clash"
+                            checked={clashChoice === 'keep-both'}
+                            onChange={() => setClashChoice('keep-both')}
+                          />
+                          Keep both (import as "
+                          {uniqueName(pendingOutcome.collection.name, existingCollectionNames)}")
+                        </label>
+                        <label className="mt-1 flex items-center gap-2 text-sp-text">
+                          <input
+                            type="radio"
+                            name="import-name-clash"
+                            checked={clashChoice === 'replace'}
+                            onChange={() => setClashChoice('replace')}
+                          />
+                          Replace the existing collection (its linked workflows are removed)
+                        </label>
+                      </fieldset>
+                    )}
                     <p className="mt-1 text-sp-12 text-sp-muted">
                       Imported scripts and requests are stored only; nothing is executed during
                       import.
@@ -557,10 +632,25 @@ export default function ImportDialog({
                   </>
                 )}
                 {warnings.length > 0 && (
-                  <p className="mt-2 text-sp-12 text-sp-muted">
-                    {warnings.length} warning{warnings.length === 1 ? '' : 's'} will be retained in
-                    the import review.
-                  </p>
+                  <div className="mt-2 text-sp-12 text-sp-muted">
+                    <p>
+                      {warnings.length} warning{warnings.length === 1 ? '' : 's'} will be retained
+                      in the import review.
+                    </p>
+                    <ul className="mt-1 max-h-32 overflow-y-auto space-y-0.5 pr-1">
+                      {warnings.slice(0, REVIEW_WARNING_PREVIEW).map((warning, index) => (
+                        <li key={index} className="flex gap-2">
+                          <span className="text-amber-400/70 shrink-0">›</span>
+                          <span>{describeWarning(warning)}</span>
+                        </li>
+                      ))}
+                      {warnings.length > REVIEW_WARNING_PREVIEW && (
+                        <li className="italic">
+                          … and {warnings.length - REVIEW_WARNING_PREVIEW} more, listed after import
+                        </li>
+                      )}
+                    </ul>
+                  </div>
                 )}
                 <div className="mt-3 flex gap-2">
                   <button
