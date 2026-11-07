@@ -15,6 +15,8 @@ The built-in AI assistant is a chat panel that can read the current request and 
 
 For each provider, paste your **own API key** (stored as a `SecretRef`, never plaintext in the renderer). You can also point any of them at a **custom base URL** for self-hosted gateways or local model servers.
 
+Until the selected provider is usable, the chat shows a setup card that says what's missing — an API key for a cloud provider, a base URL and model for a local one — with **Open AI settings**. In **Settings → AI**, **Test connection** checks a provider before you rely on it, and saving your first key switches the assistant to that provider when the current one isn't usable.
+
 ## What it can see
 
 When you invoke a chat that references the current request, Restura builds a **context snapshot**:
@@ -42,6 +44,8 @@ The composer's **Send raw (skip redaction)** switch sends one message with no re
 - **Debug** — paste in the response and ask why it's 4xx.
 - **Compose** a saved request or explain how to carry values through collection scripts. OWS workflows do not provide response extraction semantics.
 
+Replies render as markdown once they finish streaming, with **Copy** and **Retry** under each one.
+
 ## Inline actions <Badge text="desktop" variant="success" />
 
 You don't have to open the chat to use the assistant on the request you're editing. The URL bar's **AI menu** (the sparkle icon) and the **test script** tab expose one-click actions:
@@ -50,7 +54,7 @@ You don't have to open the chat to use the assistant on the request you're editi
 - **Generate tests** — writes assertions for the response (status, fields, edge cases) into the test script.
 - **Enrich docs** — writes markdown documentation for the request (it shows under the URL bar and in generated collection docs).
 
-Each action opens the assistant and proposes a change as a card. **Nothing is applied until you click Apply** — the same propose-&-apply consent model as the chat. The buttons only appear once a provider is configured.
+Each action opens the assistant and proposes a change as a card. The card shows each change as a before → after preview, with the raw tool input under **Details**. **Nothing is applied until you click Apply** — the same propose-&-apply consent model as the chat — and the toast after applying offers **Undo**. Without a configured provider the buttons are shown disabled with a hint to configure one; clicking opens **Settings → AI**.
 
 ## Agent Mode <Badge text="desktop" variant="success" />
 
