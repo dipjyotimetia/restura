@@ -35,6 +35,7 @@ interface ExecutionPolicy {
 }
 
 const RETRY_DELAY_MS = 250;
+const MAX_RETRY_DELAY_MS = 5_000;
 const defaultProxy: ExecutionPolicy['proxy'] = {
   enabled: false,
   type: 'http',
@@ -48,6 +49,7 @@ let initialization: Promise<void> | undefined;
 let pendingPolicy: ExecutionPolicy | undefined;
 let deliveryInFlight = false;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let consecutiveFailures = 0;
 
 export function getExecutionPolicySyncState(): ExecutionPolicySyncState {
   return syncState;
@@ -107,14 +109,19 @@ async function flushPendingPolicy(): Promise<void> {
       throw new Error('Electron execution-policy IPC is unavailable');
     }
     await setExecutionPolicy(policy);
-    syncState = 'acknowledged';
+    consecutiveFailures = 0;
+    syncState = pendingPolicy ? 'syncing' : 'acknowledged';
   } catch {
-    pendingPolicy = policy;
+    // A newer snapshot queued while this delivery was in flight supersedes
+    // the one that just failed — never resurrect the stale policy over it.
+    pendingPolicy = pendingPolicy ?? policy;
     syncState = 'retrying';
+    const delay = Math.min(RETRY_DELAY_MS * 2 ** consecutiveFailures, MAX_RETRY_DELAY_MS);
+    consecutiveFailures += 1;
     retryTimer = setTimeout(() => {
       retryTimer = undefined;
       void flushPendingPolicy();
-    }, RETRY_DELAY_MS);
+    }, delay);
   } finally {
     deliveryInFlight = false;
   }

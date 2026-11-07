@@ -180,6 +180,30 @@ describe('auto-updater configuration', () => {
     expect(updaterMock.autoUpdater.quitAndInstall).toHaveBeenCalledOnce();
   });
 
+  it('refuses a second download and a re-check while a download is in flight', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
+    setupAutoUpdater(() => null, false);
+    registerAutoUpdaterIPC(false);
+    updaterMock.listeners.get('update-available')?.({ version: '1.2.0' });
+    let finish: () => void = () => {};
+    updaterMock.autoUpdater.downloadUpdate.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (finish = resolve))
+    );
+    updaterMock.autoUpdater.checkForUpdates.mockClear();
+    const download = electronMock.ipcHandlers.get('updater:download');
+    const check = electronMock.ipcHandlers.get('updater:check');
+
+    const first = download?.();
+    await expect(download?.()).resolves.toEqual({
+      ok: false,
+      error: 'An update download is already in progress',
+    });
+    await expect(check?.()).resolves.toEqual({ updateAvailable: true, version: '1.2.0' });
+    expect(updaterMock.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
+    finish();
+    await expect(first).resolves.toEqual({ ok: true });
+  });
+
   it('uses electron-updater readiness directly on non-macOS platforms', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
     setupAutoUpdater(() => null, false);

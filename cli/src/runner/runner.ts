@@ -116,6 +116,12 @@ export interface RunOptions {
    * report has any entry — something was dropped, approximated or skipped.
    */
   strictImport?: boolean;
+  /**
+   * Cooperative cancel (Ctrl-C / SIGTERM from `restura run`): in-flight sends
+   * are aborted, no further item or retry starts, and the partial result is
+   * still reported (with `interrupted: true`).
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -366,8 +372,10 @@ async function runCollectionWithSessions(
             ...(options.externalSecretResolver
               ? { externalSecretResolver: options.externalSecretResolver }
               : {}),
+            ...(options.signal ? { signal: options.signal } : {}),
           }),
-        retry
+        retry,
+        options.signal
       ).catch(
         (err: unknown): ExecuteOutcome => ({
           status: 0,
@@ -470,9 +478,11 @@ async function runCollectionWithSessions(
       stopOnFailure: options.bail,
       delayMs: options.delayRequestMs,
       delayPlacement: 'before-step-once-sent',
+      signal: options.signal,
     },
     beginIteration
   );
+  const interrupted = options.signal?.aborted === true;
 
   const notSent = results.filter((r) => r.notSent).length;
   const skipped = results.filter((r) => r.skipped).length;
@@ -493,6 +503,7 @@ async function runCollectionWithSessions(
     durationMs: Date.now() - meta.startedAt,
     requests: results,
     summary,
+    ...(interrupted ? { interrupted: true } : {}),
     ...(loaded.importReport ? { importReport: loaded.importReport } : {}),
   };
   await reporter.onEnd(final);

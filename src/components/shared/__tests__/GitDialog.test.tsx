@@ -215,6 +215,19 @@ describe('GitDialog', () => {
     );
   });
 
+  it('releases the busy lock when a git call rejects instead of returning an error', async () => {
+    git.fetch.mockRejectedValueOnce(new Error('IPC handler missing'));
+    render(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith('fetch failed: IPC handler missing')
+    );
+    // The dialog is usable again rather than locked behind a stuck `busy`.
+    expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
+  });
+
   it('starts a merge from a pinned non-current branch', async () => {
     git.status = { branch: 'feature/collection', ahead: 0, behind: 0, clean: true, files: [] };
     render(

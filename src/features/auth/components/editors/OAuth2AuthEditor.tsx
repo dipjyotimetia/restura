@@ -1,5 +1,5 @@
 import { Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -83,6 +83,10 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
     userCode: string;
     verificationUri: string;
   } | null>(null);
+  // The device-code poll can run for minutes: unmounting the editor (switching
+  // tab / auth type) cancels it instead of leaving it polling the IdP.
+  const flowAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => flowAbortRef.current?.abort(), []);
   const oauth2 = auth.oauth2;
   const grantType = oauth2?.grantType ?? 'authorization_code';
   const authCodeUnavailable =
@@ -123,7 +127,13 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
     // IPC), not a direct renderer fetch: SSRF guard, no CORS, no renderer CSP.
     // On desktop they use the open request's TLS / certificate / proxy settings
     // (workspace defaults when editing folder or collection auth).
-    const transport = { fetch: createProxiedTokenFetch(activeRequestTransport) };
+    flowAbortRef.current?.abort();
+    const flow = new AbortController();
+    flowAbortRef.current = flow;
+    const transport = {
+      fetch: createProxiedTokenFetch(activeRequestTransport),
+      signal: flow.signal,
+    };
 
     try {
       const config = {
@@ -171,11 +181,18 @@ export function OAuth2AuthEditor({ auth, onChange }: AuthEditorProps) {
         return;
       }
 
+      if (flow.signal.aborted) return;
       onChange({ ...auth, oauth2: withIssuedToken(oauth, response, Date.now()) });
     } catch (error) {
+      if (flow.signal.aborted) return;
       setTokenError(error instanceof Error ? error.message : 'Failed to get token');
     } finally {
-      setTokenLoading(false);
+      if (flowAbortRef.current === flow) {
+        flowAbortRef.current = null;
+        // A failed or expired device flow must not leave its user code on screen.
+        setDeviceCodeInfo(null);
+        setTokenLoading(false);
+      }
     }
   };
 

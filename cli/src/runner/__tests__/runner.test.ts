@@ -189,6 +189,35 @@ describe('runCollection', () => {
     );
   });
 
+  it('a cancel stops before the next request and still reports an interrupted result', async () => {
+    const dir = makeCollection('Interrupt', [
+      { filename: 'a-one.http.yaml', body: `name: One\nmethod: GET\nurl: '{{BASE}}/ok'\n` },
+      { filename: 'b-two.http.yaml', body: `name: Two\nmethod: GET\nurl: '{{BASE}}/ok'\n` },
+    ]);
+    const controller = new AbortController();
+    const reporter = new RecordingReporter();
+    // Cancel as soon as the first request completes (as Ctrl-C would).
+    const onRequestComplete = reporter.onRequestComplete.bind(reporter);
+    reporter.onRequestComplete = (result) => {
+      onRequestComplete(result);
+      controller.abort();
+    };
+    const result = await runCollection(
+      dir,
+      {
+        envVars: {},
+        bail: false,
+        timeoutMs: 5000,
+        allowLocalhost: true,
+        signal: controller.signal,
+      },
+      reporter
+    );
+    expect(result.requests.map((r) => r.request.request.name)).toEqual(['One']);
+    expect(result.interrupted).toBe(true);
+    expect(reporter.events.at(-1)?.kind).toBe('end');
+  });
+
   it('captures network errors as errored results', async () => {
     // Closed port — undici should reject the connection.
     const dir = makeCollection('NetErr', [

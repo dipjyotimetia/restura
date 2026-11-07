@@ -365,13 +365,22 @@ export default function McpRequestBuilder() {
     clientRef.current = { connectionId: active.id, client };
     const isCurrent = () =>
       clientGenerationRef.current === generation && clientRef.current?.client === client;
+    // A failed step after the client was installed must not strand it: drop
+    // it from clientRef, detach its event listeners and close whatever main /
+    // the proxy already opened, so `error` never coexists with a live session.
+    const abandon = (message: string) => {
+      clientRef.current = null;
+      detachServerEvents();
+      void client.disconnect();
+      setStatus(active.id, 'error', message);
+    };
 
     // Roots must be in main before the server can ask for them.
     if (isElectron()) {
       const pushed = await pushMcpRoots(active.id, active.roots ?? NO_ROOTS);
       if (!isCurrent()) return;
       if (!pushed.ok) {
-        setStatus(active.id, 'error', pushed.error);
+        abandon(pushed.error);
         return;
       }
     }
@@ -383,14 +392,13 @@ export default function McpRequestBuilder() {
     const open = await client.connect();
     if (!isCurrent()) return;
     if (!open.ok) {
-      detachServerEvents();
-      setStatus(active.id, 'error', open.authRequired ? MCP_REAUTH_PROMPT : open.error);
+      abandon(open.authRequired ? MCP_REAUTH_PROMPT : open.error);
       return;
     }
     const capabilities = await client.discoverCapabilities();
     if (!isCurrent()) return;
     if ('error' in capabilities) {
-      setStatus(active.id, 'error', capabilities.error);
+      abandon(capabilities.error);
       return;
     }
     setCapabilities(active.id, capabilities);
@@ -422,6 +430,11 @@ export default function McpRequestBuilder() {
       return;
     }
     if ('error' in capabilities) {
+      // `getCurrentClient` refuses a non-connected session, so a session left
+      // behind here would be live but unusable: close it (Connect reopens).
+      clientRef.current = null;
+      detachServerEvents();
+      void session.client.disconnect();
       setStatus(active.id, 'error', capabilities.error);
       return;
     }

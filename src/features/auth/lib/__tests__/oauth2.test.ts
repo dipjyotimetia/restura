@@ -548,6 +548,62 @@ describe('pollForDeviceToken', () => {
   });
 });
 
+describe('pollForDeviceToken timing (RFC 8628 §3.5)', () => {
+  it('adds 5 seconds to the interval after slow_down, for every later poll', async () => {
+    vi.useFakeTimers();
+    try {
+      const replies = [{ error: 'slow_down' }, { error: 'authorization_pending' }];
+      const fetchMock = vi.fn(async () => {
+        const next = replies.shift();
+        return next
+          ? new Response(JSON.stringify(next), {
+              status: 400,
+              headers: { 'content-type': 'application/json' },
+            })
+          : new Response(JSON.stringify({ access_token: 'tok', token_type: 'Bearer' }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+      });
+      const { pollForDeviceToken } = await import('../oauth2');
+      const result = pollForDeviceToken(
+        { grantType: 'device_code', clientId: 'client', tokenUrl: 'https://auth.example/token' },
+        'device-code-abc',
+        1,
+        10,
+        { fetch: fetchMock as unknown as typeof fetch }
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(1); // -> slow_down
+      // The next poll waits 1 + 5 = 6s, not 1s.
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetchMock).toHaveBeenCalledTimes(2); // -> authorization_pending
+      await vi.advanceTimersByTimeAsync(6000);
+      await expect(result).resolves.toMatchObject({ access_token: 'tok' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops waiting as soon as the signal aborts', async () => {
+    const fetchMock = vi.fn();
+    const controller = new AbortController();
+    const { pollForDeviceToken } = await import('../oauth2');
+    const result = pollForDeviceToken(
+      { grantType: 'device_code', clientId: 'client', tokenUrl: 'https://auth.example/token' },
+      'device-code-abc',
+      60,
+      10,
+      { fetch: fetchMock as unknown as typeof fetch, signal: controller.signal }
+    );
+    controller.abort(new Error('cancelled by user'));
+    await expect(result).rejects.toThrow('cancelled by user');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('tokenExpiresAt', () => {
   it('computes expiry timestamp from now + seconds', () => {
     const now = 1_000_000;

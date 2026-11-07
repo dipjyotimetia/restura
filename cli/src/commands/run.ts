@@ -69,7 +69,8 @@ function buildTls(opts: RunOpts): RunOptions['tls'] | undefined {
  *
  * Exit codes:
  *   0 — every request passed AND at least one request was run
- *   1 — one or more requests failed or errored (or the collection was empty)
+ *   1 — one or more requests failed or errored (or the collection was empty, or the
+ *       run was interrupted by SIGINT / SIGTERM)
  *   2 — internal error (missing collection in CI, bad reporter name, IO failure, …)
  */
 export function registerRunCommand(program: Command): void {
@@ -185,6 +186,20 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
     const tls = buildTls(opts);
     const externalSecretResolver = await loadExternalSecretResolver(opts.externalSecretsConfig);
 
+    // First Ctrl-C / SIGTERM cancels cooperatively so reporters still write
+    // their (partial) output and the live dashboard restores the terminal; a
+    // second one force-exits.
+    const interrupt = new AbortController();
+    const onSignal = (): void => {
+      if (interrupt.signal.aborted) {
+        showCursor();
+        process.exit(130);
+      }
+      interrupt.abort();
+    };
+    process.on('SIGINT', onSignal);
+    process.on('SIGTERM', onSignal);
+
     const result = await runCollection(
       collectionPath,
       {
@@ -219,11 +234,15 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
         ...(opts.proxy ? { proxy: opts.proxy } : {}),
         ...(externalSecretResolver ? { externalSecretResolver } : {}),
         ...(opts.strictImport ? { strictImport: true } : {}),
+        signal: interrupt.signal,
       },
       reporter
     );
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
 
     const ok =
+      !result.interrupted &&
       result.summary.passed === result.summary.total &&
       result.summary.errored === 0 &&
       result.summary.total > 0;

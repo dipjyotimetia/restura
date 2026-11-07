@@ -246,7 +246,13 @@ export function registerSocketIoHandlerIPC(): void {
         socket.on('disconnect', (reason: string) => {
           if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           if (!entry.explicitlyClosed) {
-            emitTo(webContentsId, socketioChannels.close(connectionId), { reason });
+            // A transport drop / ping timeout keeps the socket active and the
+            // manager reconnects on its own: tell the renderer so it shows
+            // "reconnecting" instead of a transient, actionable "disconnected".
+            emitTo(webContentsId, socketioChannels.close(connectionId), {
+              reason,
+              willReconnect: socket.active && socket.io.reconnection(),
+            });
           }
         });
 

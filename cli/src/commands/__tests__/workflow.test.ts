@@ -31,7 +31,29 @@ describe('OWS workflow CLI command', () => {
       timeoutMs: 1500,
       allowLocalhost: false,
       allowMutations: false,
+      signal: expect.any(AbortSignal),
     });
+  });
+
+  it('stops the workflow cooperatively on SIGINT and removes its signal handlers', async () => {
+    const deps = dependencies();
+    let seen: AbortSignal | undefined;
+    vi.mocked(deps.runOwsWorkspaceWorkflow).mockImplementation(async (_root, _id, options) => {
+      seen = options.signal;
+      process.emit('SIGINT', 'SIGINT');
+      return { status: options.signal?.aborted ? 'stopped' : 'success', steps: [], variables: {} };
+    });
+    const before = process.listenerCount('SIGINT');
+    await expect(
+      executeOwsWorkflowCommand(
+        './workspace',
+        'billing',
+        { timeout: '1000', allowLocalhost: false },
+        deps
+      )
+    ).resolves.toBe(1);
+    expect(seen?.aborted).toBe(true);
+    expect(process.listenerCount('SIGINT')).toBe(before);
   });
 
   it('returns a failure exit code for a validated workflow that fails at runtime', async () => {

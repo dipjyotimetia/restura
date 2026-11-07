@@ -219,7 +219,7 @@ describe('AuthConfiguration — new auth variants', () => {
       await vi.waitFor(() => expect(onChange).toHaveBeenCalled());
       expect(oauth2.fetchClientCredentialsToken).toHaveBeenCalledWith(
         expect.objectContaining({ clientSecret: 'inline-secret' }),
-        { fetch: expect.any(Function) }
+        { fetch: expect.any(Function), signal: expect.any(AbortSignal) }
       );
       const [, transport] = vi.mocked(oauth2.fetchClientCredentialsToken).mock.calls[0] ?? [];
       expect(transport?.fetch).not.toBe(globalThis.fetch);

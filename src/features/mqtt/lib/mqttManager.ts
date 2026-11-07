@@ -504,10 +504,14 @@ class MqttManager {
   async disconnect(connectionId: string): Promise<void> {
     const api = getElectronAPI();
     if (!api) return;
-    await api.mqtt.disconnect({ connectionId });
-    this.channels.unbind(connectionId);
-    const store = useMqttStore.getState();
-    store.updateStatus(connectionId, 'disconnected');
+    try {
+      await api.mqtt.disconnect({ connectionId });
+    } finally {
+      // A rejected IPC must not leave listeners bound and the UI "connected":
+      // the user asked to disconnect, and main drops the entry with the window.
+      this.channels.unbind(connectionId);
+      useMqttStore.getState().updateStatus(connectionId, 'disconnected');
+    }
   }
 
   private bindListeners(connectionId: string): void {

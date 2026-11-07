@@ -55,13 +55,16 @@ export const MAX_RETRY_AFTER_MS = 60_000;
  */
 export async function withRetry(
   attempt: () => Promise<ExecuteOutcome>,
-  opts: RetryOptions
+  opts: RetryOptions,
+  signal?: AbortSignal
 ): Promise<ExecuteOutcome> {
   let lastOutcome: ExecuteOutcome = await attempt();
   let totalDuration = lastOutcome.durationMs;
   for (let i = 0; i < opts.retries; i++) {
-    if (!shouldRetry(lastOutcome, opts.retryOn)) break;
-    await sleep(retryDelayMs(lastOutcome, i, opts.baseDelayMs));
+    // A cancelled run neither waits out the backoff nor sends another attempt.
+    if (signal?.aborted || !shouldRetry(lastOutcome, opts.retryOn)) break;
+    await sleep(retryDelayMs(lastOutcome, i, opts.baseDelayMs), signal);
+    if (signal?.aborted) break;
     lastOutcome = await attempt();
     totalDuration += lastOutcome.durationMs;
   }
@@ -118,8 +121,19 @@ function shouldRetry(outcome: ExecuteOutcome, rules: RetryOptions['retryOn']): b
   return false;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 /** Parse a `--retry-on` value like `"network,5xx,418"` into RetryOptions['retryOn']. */

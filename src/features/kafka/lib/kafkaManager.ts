@@ -537,10 +537,17 @@ class KafkaManager {
   async unsubscribe(connectionId: string): Promise<void> {
     const api = getElectronAPI();
     if (!api) return;
-    await api.kafka.unsubscribe({ connectionId });
+    const result = await api.kafka.unsubscribe({ connectionId });
+    const store = useKafkaStore.getState();
+    if (result && !result.success) {
+      // Main still holds the consumer (or the connection is gone): don't show
+      // an idle consumer that a re-subscribe would then be refused against.
+      const msg = result.error ?? 'Unsubscribe failed';
+      store.addMessage(connectionId, { direction: 'system', topic: '', value: msg, error: msg });
+      if (result.error !== 'Not connected') return;
+    }
     this.subscribed.delete(connectionId);
     this.unbindMessageListener(connectionId);
-    const store = useKafkaStore.getState();
     store.updateConsumer(connectionId, { status: 'idle' });
     store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Unsubscribed' });
   }
@@ -692,8 +699,11 @@ class KafkaManager {
     this.lifecycle.bind(connectionId, {
       close: () => {
         this.inbound.flush(connectionId);
+        this.subscribed.delete(connectionId);
         const store = useKafkaStore.getState();
         store.updateStatus(connectionId, 'disconnected');
+        // A closed connection has no consumer: never leave (disconnected, subscribed).
+        store.updateConsumer(connectionId, { status: 'idle' });
         store.addMessage(connectionId, {
           direction: 'system',
           topic: '',
@@ -714,6 +724,10 @@ class KafkaManager {
       consumerClosed: () => {
         this.inbound.flush(connectionId);
         const store = useKafkaStore.getState();
+        // A late close for a consumer already replaced by a new subscribe in
+        // flight must not reset or unbind the new one.
+        if (store.connections[connectionId]?.consumer.status === 'subscribing') return;
+        this.subscribed.delete(connectionId);
         store.updateConsumer(connectionId, { status: 'idle' });
         store.addMessage(connectionId, {
           direction: 'system',

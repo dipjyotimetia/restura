@@ -5,7 +5,7 @@ import type {
   GitMergeState,
 } from '@shared/git-types';
 import { serializeOpenCollectionMergeFile } from '@shared/opencollection/merge-file';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/shared/utils';
 
@@ -35,10 +35,21 @@ export function GitMergeResolver({
     }
   }, [detail, state.conflicts]);
 
+  // Only the latest selection may publish its detail: a slower response for a
+  // conflict the user already clicked away from must not overwrite the new one.
+  const selectionRef = useRef(0);
   const selectConflict = async (conflictId: string) => {
+    const selection = ++selectionRef.current;
     setLoadingId(conflictId);
-    const result = await getConflict(conflictId);
-    setLoadingId(null);
+    let result: Awaited<ReturnType<typeof getConflict>>;
+    try {
+      result = await getConflict(conflictId);
+    } catch (error) {
+      result = error instanceof Error ? error.message : String(error);
+    } finally {
+      if (selection === selectionRef.current) setLoadingId(null);
+    }
+    if (selection !== selectionRef.current) return;
     if (typeof result === 'string') {
       toast.error(`Unable to read conflict: ${result}`);
       return;
@@ -48,8 +59,14 @@ export function GitMergeResolver({
 
   const submit = async (resolution: GitConflictResolution) => {
     onBusyChange(true);
-    const error = await resolveConflict(resolution);
-    onBusyChange(false);
+    let error: string | null;
+    try {
+      error = await resolveConflict(resolution);
+    } catch (thrown) {
+      error = thrown instanceof Error ? thrown.message : String(thrown);
+    } finally {
+      onBusyChange(false);
+    }
     if (error) toast.error(`Resolve failed: ${error}`);
     else {
       toast.success('Conflict resolved');

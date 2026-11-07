@@ -277,6 +277,9 @@ export function ChatPanel({ onClose }: Props) {
     const current = useAiChatStore.getState().agentSession;
     if (!isAgentActive(current)) return; // stopped/closed mid-flight
     if (!res.ok) {
+      // A proposal streamed before the turn failed belongs to a dead run:
+      // left on screen, applying it would run the tool outside any session.
+      setToolCalls([]);
       setAgentSession(onAgentError(current));
       return;
     }
@@ -285,6 +288,8 @@ export function ChatPanel({ onClose }: Props) {
 
   const startAgent = (goal: string) => {
     if (!goal.trim() || sendingRef.current) return;
+    // One run at a time: a session awaiting an apply still owns its proposals.
+    if (isAgentActive(useAiChatStore.getState().agentSession)) return;
     setAgentSession(startAgentSession(goal.trim()));
     void runAgentTurn(goal.trim());
   };

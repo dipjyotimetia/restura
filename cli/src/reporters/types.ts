@@ -66,6 +66,8 @@ export interface RunResult {
   };
   /** Postman inputs only: the shared import report (warnings, skipped symlinks). */
   importReport?: CliPostmanImportReport;
+  /** The run was cancelled (SIGINT / SIGTERM) before every planned request ran. */
+  interrupted?: boolean;
 }
 
 export interface Reporter {

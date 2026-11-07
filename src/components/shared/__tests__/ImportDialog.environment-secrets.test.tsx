@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -59,6 +59,21 @@ describe('ImportDialog environment secrets (#1231)', () => {
     expect(screen.getByText(/re-enter it: apiKey/)).toBeInTheDocument();
     expect(importedVar('apiKey')).toMatchObject({ value: '', secret: true });
     expect(importedVar('apiBase')?.value).toBe('https://api.example.com');
+  });
+
+  it('a double-clicked confirm imports once', async () => {
+    platform.isElectron.mockReturnValue(false);
+    await previewPostmanEnv();
+    const confirm = await screen.findByRole('button', { name: /confirm import/i });
+    // Both clicks land before React re-renders with the cleared pending outcome.
+    act(() => {
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+    });
+    expect(await screen.findByText(/Imported with 1 warning/i)).toBeInTheDocument();
+    expect(
+      useEnvironmentStore.getState().environments.filter((e) => e.name === 'Prod env')
+    ).toHaveLength(1);
   });
 
   it('drops when window.electron is absent (real platform detection)', async () => {

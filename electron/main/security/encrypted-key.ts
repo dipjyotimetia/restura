@@ -66,11 +66,9 @@ export function getKeyStoreStatus(): KeyStoreStatus {
   };
 }
 
-function emitFallbackWarning(storeLabel: string, reason: 'no-keyring' | 'decrypt-failed'): void {
+function emitFallbackWarning(storeLabel: string, reason: 'no-keyring'): void {
   const detail =
-    reason === 'no-keyring'
-      ? 'Electron safeStorage reports no OS keychain backend (libsecret on Linux, Keychain on macOS, DPAPI on Windows).'
-      : 'Existing safeStorage-encrypted key failed to decrypt; rotating to a plaintext fallback.';
+    'Electron safeStorage reports no OS keychain backend (libsecret on Linux, Keychain on macOS, DPAPI on Windows).';
   log.warn('SECURITY WARNING: store key is unprotected (stored plaintext in userData)', {
     storeLabel,
     reason,
@@ -131,7 +129,15 @@ export async function deriveEncryptedKey(opts: EncryptedKeyOptions): Promise<str
         recordKeyStoreState(opts.storeLabel, 'safeStorage');
         return result;
       } catch {
-        emitFallbackWarning(opts.storeLabel, 'decrypt-failed');
+        // Not a plaintext fallback: the keychain works, so the fresh key below
+        // is safeStorage-protected again. What is lost is data encrypted with
+        // the old key — say so, rather than the "unprotected" warning.
+        log.warn('SECURITY WARNING: existing store key failed to decrypt; generating a new key', {
+          storeLabel: opts.storeLabel,
+          reason: 'decrypt-failed',
+          detail:
+            'Data encrypted with the previous key can no longer be read; the store will be backed up as corrupt and reset.',
+        });
         recordKeyStoreState(opts.storeLabel, 'plaintext', 'decrypt-failed');
       }
     } else {

@@ -87,6 +87,17 @@ describe('websocketManager on Electron', () => {
       expect(status(id)).toBe('disconnected');
     });
 
+    it('cleanup() tears down IPC-managed connections too, not only browser sockets', () => {
+      websocketManager.connect(id, 'ws://example.com');
+      api.emit(`ws:open:${id}`, { protocol: '' });
+      expect(status(id)).toBe('connected');
+
+      websocketManager.cleanup();
+
+      expect(api.disconnect).toHaveBeenCalledWith({ connectionId: id });
+      expect(status(id)).toBe('disconnected');
+    });
+
     it('ignores a late ws:open after a disconnect during the handshake', () => {
       websocketManager.connect(id, 'ws://example.com');
       const lateOpen = api.capture(`ws:open:${id}`);

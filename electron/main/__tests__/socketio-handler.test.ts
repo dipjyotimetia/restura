@@ -273,9 +273,18 @@ describe('socketio-handler', () => {
     });
 
     // Unexpected disconnect (not explicitly requested) is forwarded as close.
+    // With reconnection off (set above) no retry follows.
     socket.fire('disconnect', 'transport close');
     expect(mockEmitTo).toHaveBeenCalledWith(senderId, socketioChannels.close('c1'), {
       reason: 'transport close',
+      willReconnect: false,
+    });
+    // A recoverable drop on an active socket with reconnection on is retried.
+    socket.io.reconnecting = true;
+    socket.fire('disconnect', 'ping timeout');
+    expect(mockEmitTo).toHaveBeenLastCalledWith(senderId, socketioChannels.close('c1'), {
+      reason: 'ping timeout',
+      willReconnect: true,
     });
   });
 

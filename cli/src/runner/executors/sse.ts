@@ -61,6 +61,10 @@ export async function executeSse(
   const eventFilter = req.eventFilter ? new Set(req.eventFilter) : null;
 
   const controller = new AbortController();
+  // A run-level cancel (Ctrl-C) ends the stream like the duration timer does.
+  const onRunAbort = () => controller.abort();
+  if (opts.signal?.aborted) controller.abort();
+  else opts.signal?.addEventListener('abort', onRunAbort, { once: true });
   const start = Date.now();
   const events: StreamEvent[] = [];
   let bodyBytes = 0;
@@ -195,6 +199,7 @@ export async function executeSse(
     }
   } finally {
     clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onRunAbort);
   }
 
   const outcome: ExecuteOutcome = {

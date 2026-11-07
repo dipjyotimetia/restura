@@ -1103,6 +1103,31 @@ describe('kafka-handler', () => {
       return { event, consumer, stream, delivered, call };
     }
 
+    it('frees the consumer slot when the stream closes on its own, then reports it', async () => {
+      const { consumer, stream, call } = await live('self-close');
+      stream.emit('close');
+      await vi.waitFor(() =>
+        expect(mockEmitTo).toHaveBeenCalledWith(
+          expect.any(Number),
+          'kafka:consumer-closed:self-close',
+          expect.anything()
+        )
+      );
+      expect(consumer.close).toHaveBeenCalled();
+      // A re-subscribe is accepted instead of "Already subscribed — unsubscribe first".
+      await expect(
+        call(IPC.kafka.subscribe, {
+          groupId: 'g',
+          topics: ['orders'],
+          mode: 'committed',
+          fallbackMode: 'latest',
+          commitPolicy: 'auto',
+          isolation: 'read-uncommitted',
+          groupProtocol: 'classic',
+        })
+      ).resolves.toEqual({ success: true });
+    });
+
     it('runs the library without autocommit and commits only delivered positions', async () => {
       const { event, consumer, stream, delivered, call } = await live('ac', 'auto', {
         autoCommitIntervalMs: 50,
