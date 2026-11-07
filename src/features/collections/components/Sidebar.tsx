@@ -19,11 +19,9 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
 import type { ActivePanel, CollectionItem } from '@/types';
 import { useCollectionSidebarCommands } from '../hooks/useCollectionSidebarCommands';
-import {
-  copyBrokerPresetSecrets,
-  DUPLICATE_CREDENTIALS_FAILED,
-  reapBrokerPresetSecretsForItem,
-} from '../lib/brokerPresets';
+import { copyBrokerPresetSecrets, DUPLICATE_CREDENTIALS_FAILED } from '../lib/brokerPresets';
+import { describeCollectionDeletion } from '../lib/deleteCollection';
+import { deleteCollectionItems, describeItemDeletion } from '../lib/deleteItems';
 import { duplicateRequestItem, makeFolderItem, makeRequestItem } from '../lib/itemFactory';
 import {
   folderPathTo,
@@ -87,15 +85,13 @@ const SEARCH_SCOPE_LABEL: Record<string, string> = {
   workflows: 'workflows',
 };
 function Sidebar({ activePanel }: SidebarProps) {
-  const { collections, addItemToCollection, removeCollectionItem, moveCollectionItem } =
-    useCollectionStore(
-      useShallow((s) => ({
-        collections: s.collections,
-        addItemToCollection: s.addItemToCollection,
-        removeCollectionItem: s.removeCollectionItem,
-        moveCollectionItem: s.moveCollectionItem,
-      }))
-    );
+  const { collections, addItemToCollection, moveCollectionItem } = useCollectionStore(
+    useShallow((s) => ({
+      collections: s.collections,
+      addItemToCollection: s.addItemToCollection,
+      moveCollectionItem: s.moveCollectionItem,
+    }))
+  );
 
   // Use granular selectors for history to minimize re-renders
   const toggleFavorite = useHistoryStore((state) => state.toggleFavorite);
@@ -316,16 +312,17 @@ function Sidebar({ activePanel }: SidebarProps) {
 
   const handleConfirmItemDelete = useCallback(() => {
     if (itemToDelete) {
-      const items = getCollectionById(itemToDelete.collectionId)?.items ?? [];
-      for (const itemId of itemToDelete.itemIds) {
-        // Kafka / MQTT presets: drop their stored credentials too (#984).
-        reapBrokerPresetSecretsForItem(items, itemId);
-        removeCollectionItem(itemToDelete.collectionId, itemId);
-      }
+      // Also reaps preset credentials and detaches tabs saved from the removed items.
+      deleteCollectionItems(itemToDelete.collectionId, itemToDelete.itemIds);
       setSelectedKeys((prev) => (prev.size === 0 ? prev : new Set()));
       setItemToDelete(null);
     }
-  }, [itemToDelete, removeCollectionItem]);
+  }, [itemToDelete]);
+
+  // Cheap tree walk, only while the confirm is open — read fresh every render.
+  const itemDeletionCopy = itemToDelete
+    ? describeItemDeletion(itemToDelete.collectionId, itemToDelete.itemIds)
+    : null;
 
   // --- Tree state: collapse + multi-select -----------------------------------
   const toggleCollapse = useCallback((folderId: string) => {
@@ -626,7 +623,11 @@ function Sidebar({ activePanel }: SidebarProps) {
             open={commands.deleteDialogOpen}
             onOpenChange={commands.setDeleteDialogOpen}
             title="Delete Collection"
-            description="Are you sure you want to delete this collection? This action cannot be undone."
+            description={
+              commands.collectionToDelete
+                ? describeCollectionDeletion(commands.collectionToDelete)
+                : 'Delete this collection?'
+            }
             confirmText="Delete"
             cancelText="Cancel"
             onConfirm={commands.handleConfirmDelete}
@@ -707,16 +708,8 @@ function Sidebar({ activePanel }: SidebarProps) {
           onOpenChange={(open) => {
             if (!open) setItemToDelete(null);
           }}
-          title={
-            itemToDelete && itemToDelete.itemIds.length > 1
-              ? `Delete ${itemToDelete.itemIds.length} items`
-              : 'Delete item'
-          }
-          description={
-            itemToDelete && itemToDelete.itemIds.length > 1
-              ? `Delete ${itemToDelete.itemIds.length} selected items and everything inside them? This action cannot be undone.`
-              : 'Delete this item and everything inside it? This action cannot be undone.'
-          }
+          title={itemDeletionCopy?.title ?? 'Delete item'}
+          description={itemDeletionCopy?.description ?? ''}
           confirmText="Delete"
           cancelText="Cancel"
           onConfirm={handleConfirmItemDelete}
