@@ -214,7 +214,12 @@ export function registerSocketIoHandlerIPC(): void {
           randomizationFactor: config.randomizationFactor ?? 0.5,
           timeout: policyConfig.timeout,
           rejectUnauthorized: policyConfig.verifySsl,
-          forceNew: config.forceNew ?? false,
+          // Always a fresh Manager: each IPC connection owns its agent + DNS pin
+          // (disposed with it). A multiplexed Manager for a second namespace on
+          // the same host would ignore this call's headers/query/transports/agent
+          // and break when the first connection disposes. `config.forceNew` is
+          // therefore always effectively true here.
+          forceNew: true,
           autoConnect: true,
           // Cap inbound websocket frames like the WebSocket handler (an
           // oversize frame closes the transport). Polling's cap is in the pinned
