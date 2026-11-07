@@ -4,8 +4,12 @@ import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
-const releaseUrl = 'https://github.com/dipjyotimetia/restura/releases/latest';
-const dismissalDurationMs = 4 * 60 * 60 * 1000;
+/** Where the desktop app is downloaded from (banner, palette, settings). */
+export const DESKTOP_RELEASES_URL = 'https://github.com/dipjyotimetia/restura/releases/latest';
+const releaseUrl = DESKTOP_RELEASES_URL;
+// A dismissal should stick: the command palette ("Get the desktop app") and
+// Settings keep a permanent way back to the download.
+const dismissalDurationMs = 30 * 24 * 60 * 60 * 1000;
 
 const platforms = [
   { label: 'macOS', icon: Apple },

@@ -4,6 +4,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   Columns,
   Copy,
+  Download,
   FileCode2,
   FolderOpen,
   Gauge,
@@ -35,6 +36,7 @@ import {
 } from '@/components/shared/CommandPaletteParts';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { CLOSE_ACTIVE_TAB_EVENT } from '@/components/shared/TabBar';
+import { DESKTOP_RELEASES_URL } from '@/components/shared/WebNativeDownloadBanner';
 import { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
 import { Kbd } from '@/components/ui/spatial';
 import { openCollectionItem } from '@/features/collections/lib/openCollectionItem';
@@ -44,7 +46,7 @@ import { MODE_DESCRIPTORS, MODES_IN_COMMAND_ORDER } from '@/features/registry/mo
 import { NARROW_LAYOUT_REASON, useNarrowWorkspace } from '@/hooks/useNarrowWorkspace';
 import { useVariableDetails } from '@/hooks/useVariableStatus';
 import { fuzzyScore } from '@/lib/shared/fuzzy';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, openExternalUrl } from '@/lib/shared/platform';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
@@ -402,6 +404,17 @@ export default function CommandPalette({
         consoleState.setExpanded(!consoleState.isExpanded);
       },
     });
+    if (!isElectron()) {
+      // Permanent route to the download once the web banner is dismissed.
+      items.push({
+        id: 'get-desktop-app',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Get the desktop app',
+        icon: Download,
+        onSelect: () => void openExternalUrl(DESKTOP_RELEASES_URL),
+      });
+    }
     items.push({
       id: 'clear-history',
       kind: 'action',

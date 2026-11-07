@@ -63,7 +63,7 @@ describe('WebNativeDownloadBanner', () => {
     expect(chooser).toHaveAttribute('open');
   });
 
-  it('hides the banner for four hours when dismissed', async () => {
+  it('hides the banner for 30 days when dismissed', async () => {
     const now = 1_720_000_000_000;
     vi.spyOn(Date, 'now').mockReturnValue(now);
     const user = userEvent.setup();
@@ -75,7 +75,7 @@ describe('WebNativeDownloadBanner', () => {
       screen.queryByRole('complementary', { name: /native app download/i })
     ).not.toBeInTheDocument();
     expect(useSettingsStore.getState().settings.nativeAppDownloadBannerDismissedUntil).toBe(
-      now + 4 * 60 * 60 * 1000
+      now + 30 * 24 * 60 * 60 * 1000
     );
   });
 

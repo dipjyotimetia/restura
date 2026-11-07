@@ -58,6 +58,19 @@ describe('CommandPalette platform gating (A12)', () => {
   });
 });
 
+describe('CommandPalette desktop app entry (A10)', () => {
+  it('offers "Get the desktop app" on web', () => {
+    renderPalette();
+    expect(screen.getByRole('option', { name: /get the desktop app/i })).toBeInTheDocument();
+  });
+
+  it('does not offer it inside the desktop app', () => {
+    vi.mocked(isElectron).mockReturnValue(true);
+    renderPalette();
+    expect(screen.queryByRole('option', { name: /get the desktop app/i })).toBeNull();
+  });
+});
+
 describe('CommandPalette layout toggle on narrow windows (A6)', () => {
   it('disables the layout toggle with a reason when the window forces stacked layout', async () => {
     const user = userEvent.setup();
