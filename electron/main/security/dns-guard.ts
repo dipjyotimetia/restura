@@ -67,7 +67,9 @@ export function assertLocalRuntimeAddressAllowed(hostname: string, address: stri
  */
 export function unbracketHost(hostname: string): string {
   const bare = hostname.replace(/^\[(.*)\]$/, '$1');
-  return bare !== hostname && net.isIP(bare) === 6 ? bare : hostname;
+  // A zone id (`fe80::1%eth0`) passes net.isIP but not the private-range
+  // checks, so it is never unbracketed (it then fails DNS, closed).
+  return bare !== hostname && !bare.includes('%') && net.isIP(bare) === 6 ? bare : hostname;
 }
 
 export async function assertHostnameSafe(

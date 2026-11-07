@@ -103,3 +103,23 @@ describe('reporters strip terminal control sequences from untrusted text', () =>
     expect(text).toContain('evil');
   });
 });
+
+describe('LiveReporter script console lines', () => {
+  it('token-scrubs console output before it reaches stderr (CI logs)', () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const writes: string[] = [];
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      writes.push(String(chunk));
+      return true;
+    });
+    const jwt =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+    new LiveReporter().onRequestComplete({
+      ...result('r'),
+      consoleLogs: [{ phase: 'test', type: 'log', message: `Authorization: Bearer ${jwt}` }],
+    });
+    const out = writes.join('');
+    expect(out).toContain('[test log]');
+    expect(out).not.toContain(jwt);
+  });
+});

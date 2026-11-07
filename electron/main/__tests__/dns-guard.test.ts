@@ -15,6 +15,7 @@ import {
   assertHostnameSafe,
   assertUrlHostnameSafe,
   resolveUrlHostnameSafe,
+  unbracketHost,
 } from '../security/dns-guard';
 
 describe('dns-guard', () => {
@@ -176,6 +177,12 @@ describe('dns-guard', () => {
   });
 
   describe('bracketed IPv6 literal URLs', () => {
+    it('never unbrackets a zone id (it would evade the private-range checks)', () => {
+      expect(unbracketHost('[fe80::1%eth0]')).toBe('[fe80::1%eth0]');
+      expect(unbracketHost('[fe80::1]')).toBe('fe80::1');
+      expect(unbracketHost('[1.2.3.4]')).toBe('[1.2.3.4]');
+    });
+
     it('assertUrlHostnameSafe validates a public [v6] literal without DNS', async () => {
       await expect(
         assertUrlHostnameSafe('https://[2606:4700:4700::1111]/', { allowLocalhost: false })

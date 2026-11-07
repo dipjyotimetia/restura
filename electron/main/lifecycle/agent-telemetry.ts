@@ -186,11 +186,14 @@ async function createSpanProcessor(
   );
 }
 
-async function resolveEnvironmentCredential(ref: TelemetryCredentialRef): Promise<string> {
+/**
+ * Default resolver: refuses every credential. Desktop telemetry must be wired
+ * with the secret-handle resolver; reading `process.env[name]` for a name the
+ * renderer picks would let it exfiltrate any main-process env var.
+ */
+export async function resolveEnvironmentCredential(ref: TelemetryCredentialRef): Promise<string> {
   if (ref.source === 'env') {
-    const value = process.env[ref.name];
-    if (value) return value;
-    throw new Error(`Telemetry credential environment variable is not set: ${ref.name}`);
+    throw new Error('Environment-variable telemetry credentials are not supported on desktop');
   }
   throw new Error('SecretRef telemetry credentials require the Electron secret resolver');
 }

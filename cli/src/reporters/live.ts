@@ -1,3 +1,4 @@
+import { redactDiagnosticText } from '@shared/collection-run/evidence';
 import { stripControl } from '@shared/protocol/mcp-conformance-text';
 import { formatRequestLine, formatSummaryLine } from './format.js';
 import type { Reporter, RequestRunResult, RunMeta, RunResult } from './types.js';
@@ -16,10 +17,13 @@ export class LiveReporter implements Reporter {
   onRequestComplete(result: RequestRunResult): void {
     console.log(formatRequestLine(result));
     // Script `console.*` output goes to stderr (stdout stays the result list),
+    // token-scrubbed like the file reports (CI logs are artifacts too) and
     // stripped of control characters so a script cannot drive the terminal.
     for (const line of result.consoleLogs ?? []) {
       for (const text of line.message.split(/\r?\n/)) {
-        process.stderr.write(`    [${line.phase} ${line.type}] ${stripControl(text)}\n`);
+        process.stderr.write(
+          `    [${line.phase} ${line.type}] ${stripControl(redactDiagnosticText(text))}\n`
+        );
       }
     }
   }

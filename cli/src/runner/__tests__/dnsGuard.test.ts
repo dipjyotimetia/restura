@@ -127,3 +127,15 @@ describe('security: CLI direct connections validate every resolved address', () 
     expect(r.status).toBe(200);
   });
 });
+
+describe('WebSocket executor DNS guard', () => {
+  it('refuses a name that resolves to cloud metadata before any handshake', async () => {
+    const { executeWebSocket } = await import('../executors/websocket');
+    const outcome = await executeWebSocket(
+      { url: `ws://metadata.rebind.test:${port}/`, durationMs: 200 } as never,
+      { allowLocalhost: true, timeoutMs: 2000 } as never
+    );
+    expect(outcome.passed).toBe(false);
+    expect(outcome.errorMessage ?? '').toMatch(/Refusing to connect to cloud metadata address/);
+  });
+});
