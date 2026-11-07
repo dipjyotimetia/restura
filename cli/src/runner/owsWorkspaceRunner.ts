@@ -37,6 +37,39 @@ function stringVariables(values: Record<string, unknown>): Record<string, string
   );
 }
 
+/**
+ * The workflow's starting state: `--env` values, then the collection's enabled
+ * variables (later wins) — the app's `globals < env < collection` seed.
+ */
+export function workflowSeedVariables(
+  env: Record<string, string>,
+  collection: LoadedCollection
+): Record<string, string> {
+  const seed: Record<string, string> = { ...env };
+  for (const v of collection.meta.variables ?? []) {
+    if (v.enabled !== false) seed[v.key] = v.value;
+  }
+  return seed;
+}
+
+/**
+ * Variables for one bound call, as the app resolves them: the seed, then the
+ * request's ancestor folder variables (outer → inner), then only the values
+ * prior workflow steps changed from the seed — an unchanged seed value never
+ * overrides the request's folder scope.
+ */
+export function callVariables(
+  seed: Record<string, string>,
+  folderVariables: Record<string, string> | undefined,
+  workflowState: Record<string, unknown>
+): Record<string, string> {
+  const incoming = stringVariables(workflowState);
+  const overrides = Object.fromEntries(
+    Object.entries(incoming).filter(([key, value]) => seed[key] !== value)
+  );
+  return { ...seed, ...(folderVariables ?? {}), ...overrides };
+}
+
 /** Convert the OpenCollection logical path into the portable binding reference form. */
 export function toOwsResourceId(relativePath: string): string {
   return relativePath
@@ -153,10 +186,14 @@ export async function runOwsWorkspaceWorkflow(
   }
   // client_credentials tokens are reused within this workflow run only.
   const oauth2TokenCache: OAuth2TokenCache = new Map();
+  // Same layering as the app's workflow runner (`useOwsWorkflowExecution`) and
+  // `restura run`: the workflow state is seeded with `--env` < collection
+  // variables (so `if:` conditions and `set` tasks see collection values too).
+  const initialVariables = workflowSeedVariables(options.variables, collection);
   return executeOwsWorkflow({
     workflow: selected.artifact.workflow,
     bindings: selected.artifact.bindings,
-    variables: options.variables,
+    variables: initialVariables,
     signal: options.signal,
     timeoutMs: options.timeoutMs,
     dispatcher: {
@@ -168,7 +205,7 @@ export async function runOwsWorkspaceWorkflow(
           call.binding
         );
         const outcome = await dependencies.executeHttp(item, {
-          vars: stringVariables(call.variables),
+          vars: callVariables(initialVariables, item.folderVariables, call.variables),
           timeoutMs: call.timeoutMs ?? options.timeoutMs,
           allowLocalhost: options.allowLocalhost,
           signal: call.signal,

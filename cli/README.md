@@ -48,6 +48,13 @@ CLI accepts only the safe OWS profile: sequential `do`, `set`, `wait`, timeout
 credentials, non-HTTP calls, and controls without a bounded runtime are rejected
 before any network request is made.
 
+Variables follow the app's workflow runner: the workflow starts from the
+`--env` values with the collection's enabled variables over them (collection
+wins, as in `restura run`), so `if:` conditions and `set` tasks see collection
+values. Each saved-request call then layers the request's folder variables
+(outer → inner) over that, and values earlier workflow steps produced or
+changed win over both.
+
 ## Interactive mode
 
 Run `restura` (or `restura run`) with **no collection** in a terminal to launch a guided wizard — pick the collection, reporters, output paths, an optional env file, and whether to allow localhost, then it runs:
