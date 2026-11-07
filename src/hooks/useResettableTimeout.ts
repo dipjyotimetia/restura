@@ -22,7 +22,6 @@ export function useResettableTimeout(resetOn: readonly unknown[] = []) {
     },
     [cancel]
   );
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the reset triggers are caller-supplied
   useEffect(() => cancel, [cancel, ...resetOn]);
   return schedule;
 }
