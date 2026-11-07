@@ -11,11 +11,7 @@ import StatusBar from '@/components/shared/StatusBar';
 import { CLOSE_ACTIVE_TAB_EVENT, TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
 import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBanner';
-import WelcomeOnboarding, {
-  hasCompletedOnboarding,
-  markOnboardingComplete,
-  REPLAY_ONBOARDING_EVENT,
-} from '@/components/shared/WelcomeOnboarding';
+import WelcomeOnboarding, { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
@@ -51,7 +47,7 @@ import { DEMO_REQUEST_URL, FirstRunWelcome } from './components/FirstRunWelcome'
 import { NoOpenTabs } from './components/NoOpenTabs';
 import { RequestWorkspace } from './components/RequestWorkspace';
 import { WindowFileDrop } from './components/WindowFileDrop';
-import { useWelcomeAutoDismiss } from './useWelcomeAutoDismiss';
+import { useFirstRunWelcome } from './useFirstRunWelcome';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 const CommandPalette = lazyComponent(
@@ -92,9 +88,9 @@ export default function Home() {
   const [bugReportCaptureError, setBugReportCaptureError] = useState<string>();
   const [bugReportDiagnosticsError, setBugReportDiagnosticsError] = useState<string>();
   const isNarrowWorkspace = useNarrowWorkspace();
-  // Web first run shows the FirstRunWelcome screen in place of the blank tab
-  // and the modal tour; desktop keeps the tour (isElectron() is constant).
-  const [showWelcome, setShowWelcome] = useState(() => !isElectron() && !hasCompletedOnboarding());
+  // First run (web and desktop) shows the FirstRunWelcome screen in place of
+  // the blank tab; the tour is opt-in from there, Help or the palette.
+  const { showWelcome, finishWelcome } = useFirstRunWelcome();
 
   useStoreHydration();
   const activeTab = useActiveTab();
@@ -364,12 +360,6 @@ export default function Home() {
     setBugReportOpen(false);
   }, []);
 
-  const finishWelcome = useCallback(() => {
-    markOnboardingComplete();
-    setShowWelcome(false);
-  }, []);
-  useWelcomeAutoDismiss(showWelcome, finishWelcome);
-
   // Live demo: load the echo request into a tab (reusing the untouched
   // starter tab when there is one) and let the HTTP builder send it through
   // the real executor once it mounts.
@@ -520,7 +510,8 @@ export default function Home() {
           initialSection={settingsInitialSection}
         />
       )}
-      <WelcomeOnboarding autoOpen={isElectron()} />
+      {/* Tour never auto-opens: FirstRunWelcome greets first runs on both targets. */}
+      <WelcomeOnboarding autoOpen={false} />
 
       {/* Dialogs */}
       {envManagerLoaded && (
