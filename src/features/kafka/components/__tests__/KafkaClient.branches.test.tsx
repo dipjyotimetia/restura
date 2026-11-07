@@ -129,14 +129,18 @@ describe('KafkaClient branches', () => {
       expect(screen.queryByRole('button', { name: /Connect/ })).not.toBeInTheDocument();
     });
 
-    it('shows Connect and a connecting badge while connecting, wiring delete and connect', async () => {
+    it('shows a disabled Connect and a connecting badge while connecting, wiring delete and connect', async () => {
       setConn({ status: 'connecting' });
       const user = userEvent.setup();
-      render(<KafkaClient />);
+      const { rerender } = render(<KafkaClient />);
       expect(screen.getByLabelText('Kafka connection status: Connecting')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: /Connect/ }));
+      expect(screen.getByRole('button', { name: /Connecting/ })).toBeDisabled();
+      setConn({ status: 'disconnected' });
+      rerender(<KafkaClient />);
+      await user.click(screen.getByRole('button', { name: /^Connect$/ }));
       expect(mocks.connect).toHaveBeenCalled();
-      await user.click(screen.getByTitle('Delete connection'));
+      await user.click(screen.getByRole('button', { name: 'Delete connection' }));
+      await user.click(await screen.findByRole('button', { name: 'Delete' }));
       expect(mocks.removeConnection).toHaveBeenCalledWith(currentId);
     });
 

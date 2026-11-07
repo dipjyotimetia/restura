@@ -1,6 +1,11 @@
 import { Plug, PlugZap, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import {
+  ConnectErrorBanner,
+  useConnectAttemptError,
+} from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
 import { ConnectionBadge, Floater, ProtoChip, VariableText } from '@/components/ui/spatial';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -73,6 +78,32 @@ export function KafkaClient() {
   );
   const [produceKeySubject, setProduceKeySubject] = useState<KafkaSubjectSelection | null>(null);
   const [produceError, setProduceError] = useState<string | null>(null);
+  const connectError = useConnectAttemptError(
+    connection?.id,
+    connection?.messages,
+    connection?.status
+  );
+  const { confirm: confirmDelete, DialogComponent: DeleteDialog } = useConfirmDialog({
+    title: 'Delete Kafka connection?',
+    description:
+      'This disconnects from the cluster and removes the connection with its settings and message log.',
+    confirmText: 'Delete',
+    variant: 'destructive',
+  });
+  const handleConnect = (): void => {
+    connectError.markAttempt();
+    void kafkaConnection.connect();
+  };
+  const handleDelete = async (): Promise<void> => {
+    if (!connection) return;
+    const id = connection.id;
+    if (!(await confirmDelete())) return;
+    // Close the client first so no consumer outlives the connection.
+    if (connection.status !== 'disconnected') {
+      await Promise.resolve(kafkaConnection.disconnect()).catch(() => undefined);
+    }
+    removeConnection(id);
+  };
 
   useEffect(() => {
     setPaused(false);
@@ -303,21 +334,24 @@ export function KafkaClient() {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => removeConnection(connection.id)}
+              onClick={() => void handleDelete()}
               title="Delete connection"
+              aria-label="Delete connection"
               className="h-7 w-7 p-0 rounded-sp-btn"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           )}
           {connection?.status !== 'connected' && connection && (
             <Button
               variant="cta"
               size="cta"
-              onClick={kafkaConnection.connect}
+              onClick={handleConnect}
+              disabled={connection.status === 'connecting'}
               className="min-w-[88px]"
             >
-              <Plug className="h-3.5 w-3.5" /> Connect
+              <Plug className="h-3.5 w-3.5" />{' '}
+              {connection.status === 'connecting' ? 'Connecting…' : 'Connect'}
             </Button>
           )}
           {connection?.status === 'connected' && (
@@ -332,6 +366,8 @@ export function KafkaClient() {
           )}
         </div>
       </Floater>
+      <ConnectErrorBanner error={connectError.error} />
+      <DeleteDialog />
       {!connection ? (
         <Floater
           radius="panel"

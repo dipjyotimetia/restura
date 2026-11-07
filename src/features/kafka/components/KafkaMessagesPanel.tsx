@@ -1,24 +1,24 @@
 import { reformatJsonLossless } from '@shared/text/lossless-json';
-import { Activity, Pause, Play, RefreshCw, Search } from 'lucide-react';
+import { Activity, Search, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { LogExportMenu } from '@/components/shared/messageLog/MessageLogControls';
+import {
+  DroppedNotice,
+  FreezeToggle,
+  JumpToLatestPill,
+  LogExportMenu,
+  useFrozenView,
+} from '@/components/shared/messageLog/MessageLogControls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { CodeEditorFrame, ConnectionBadge, Floater, Stat } from '@/components/ui/spatial';
+import { CodeEditorFrame, Floater, Stat } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
 import { isKafkaBrowse } from '@/features/kafka/lib/kafkaBrowse';
 import { kafkaToLogEntries } from '@/features/kafka/lib/kafkaLogExport';
-import type { KafkaMessage } from '@/features/kafka/store/useKafkaStore';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
@@ -86,7 +86,6 @@ export function KafkaMessagesPanel({
   const setSearchQuery = useKafkaStore((state) => state.setSearchQuery);
   const getFilteredMessages = useKafkaStore((state) => state.getFilteredMessages);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
-  const [pausedSnapshot, setPausedSnapshot] = useState<KafkaMessage[] | null>(null);
   const [committedTokens, setCommittedTokens] = useState<Set<string>>(() => new Set());
 
   const filteredMessages = useMemo(
@@ -128,14 +127,11 @@ export function KafkaMessagesPanel({
 
   useEffect(() => {
     setSelectedMessageId(null);
-    setPausedSnapshot(null);
     setCommittedTokens(new Set());
   }, [connection.id]);
-  useEffect(() => {
-    setPausedSnapshot(paused ? filteredMessages : null);
-  }, [paused]);
-
-  const visibleMessages = paused && pausedSnapshot ? pausedSnapshot : filteredMessages;
+  // Shared freeze: a time cutoff, so search/filter still apply and "N new" shows.
+  const { visible: visibleMessages, newCount } = useFrozenView(filteredMessages, paused);
+  const stick = useStickToBottom<HTMLDivElement>(visibleMessages.length);
 
   return (
     <TabsContent value="messages" className="flex-1 flex flex-col min-h-0 gap-3 m-0">
@@ -172,50 +168,34 @@ export function KafkaMessagesPanel({
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-2.5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-sp-line shrink-0">
-            <Select
+            <select
               value={messageFilter}
-              onValueChange={(value) =>
-                setMessageFilter(value as 'sent' | 'received' | 'system' | 'all')
+              onChange={(event) =>
+                setMessageFilter(event.target.value as 'sent' | 'received' | 'system' | 'all')
               }
+              aria-label="Filter messages"
+              className="h-7 w-28 rounded-sp-btn border border-sp-line bg-sp-surface-lo px-1.5 text-xs text-sp-text outline-none"
             >
-              <SelectTrigger className="h-7 w-28 text-xs bg-sp-surface-lo border border-sp-line">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="sent">Sent</SelectItem>
-                <SelectItem value="received">Received</SelectItem>
-                <SelectItem value="system">System</SelectItem>
-              </SelectContent>
-            </Select>
+              <option value="all">All</option>
+              <option value="sent">Sent</option>
+              <option value="received">Received</option>
+              <option value="system">System</option>
+            </select>
             <div className="relative flex-1">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-sp-dim" />
+              <Search
+                className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-sp-dim"
+                aria-hidden="true"
+              />
               <Input
+                type="search"
+                aria-label="Search messages"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Search topic, key, value"
                 className="h-7 pl-7 text-xs bg-sp-surface-lo border-sp-line font-mono"
               />
             </div>
-            {paused && <ConnectionBadge label="Frozen" tone="warning" />}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onPausedChange(!paused)}
-              className="h-7 px-2.5 text-xs font-mono rounded-sp-btn"
-              aria-label={paused ? 'Resume live message view' : 'Freeze message view'}
-              title={paused ? 'Resume live message view' : 'Freeze message view'}
-            >
-              {paused ? (
-                <>
-                  <Play className="h-3 w-3 mr-1.5" /> Live
-                </>
-              ) : (
-                <>
-                  <Pause className="h-3 w-3 mr-1.5" /> Freeze
-                </>
-              )}
-            </Button>
+            <FreezeToggle frozen={paused} newCount={newCount} onChange={onPausedChange} />
             <LogExportMenu
               entries={() => kafkaToLogEntries(filteredMessages)}
               name={`${connection.name}-kafka`}
@@ -228,8 +208,10 @@ export function KafkaMessagesPanel({
               onClick={() => clearMessages(connection.id)}
               className="h-7 w-7 p-0"
               title="Clear messages"
+              aria-label="Clear messages"
+              disabled={connection.messages.length === 0}
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
           <div
@@ -242,17 +224,60 @@ export function KafkaMessagesPanel({
             <span className="sp-label">Key</span>
             <span className="sp-label">Value</span>
           </div>
-          <ScrollArea className="flex-1 min-h-0">
-            <ul className="text-xs" data-stream-rapid={rapidStream || undefined}>
-              {visibleMessages.map((message) => {
-                const selected = message.id === selectedMessageId;
-                if (message.direction === 'system') {
+          <DroppedNotice dropped={connection.droppedCount} />
+          <div className="relative flex-1 min-h-0">
+            <div ref={stick.ref} onScroll={stick.onScroll} className="h-full overflow-auto">
+              <ul
+                role="log"
+                aria-label="Kafka messages"
+                className="text-xs"
+                data-stream-rapid={rapidStream || undefined}
+              >
+                {visibleMessages.map((message) => {
+                  const selected = message.id === selectedMessageId;
+                  if (message.direction === 'system') {
+                    return (
+                      <li
+                        key={message.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Activity: ${message.value}`}
+                        onClick={() => setSelectedMessageId(message.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            setSelectedMessageId(message.id);
+                          }
+                        }}
+                        className={cn(
+                          'flex items-center gap-2 border-l-2 px-3 py-2 font-mono transition-colors sp-stream-row cursor-pointer',
+                          selected
+                            ? 'bg-sp-active border-l-sp-accent'
+                            : 'border-l-transparent hover:bg-sp-hover'
+                        )}
+                      >
+                        <Activity
+                          className="h-3.5 w-3.5 shrink-0 text-sp-muted"
+                          aria-hidden="true"
+                        />
+                        <Badge variant="outline" className="shrink-0 text-sp-9">
+                          Activity
+                        </Badge>
+                        <span className="truncate text-sp-text">{message.value}</span>
+                        <time className="ml-auto shrink-0 text-sp-dim tabular-nums">
+                          {new Date(message.timestamp).toLocaleTimeString()}
+                        </time>
+                      </li>
+                    );
+                  }
                   return (
                     <li
                       key={message.id}
                       role="button"
                       tabIndex={0}
-                      aria-label={`Activity: ${message.value}`}
+                      aria-label={`Kafka record in ${message.topic}, partition ${
+                        message.partition ?? 'unknown'
+                      }, offset ${message.offset ?? 'unknown'}`}
                       onClick={() => setSelectedMessageId(message.id)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
@@ -261,80 +286,53 @@ export function KafkaMessagesPanel({
                         }
                       }}
                       className={cn(
-                        'flex items-center gap-2 border-l-2 px-3 py-2 font-mono transition-colors sp-stream-row cursor-pointer',
+                        'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors sp-stream-row',
                         selected
                           ? 'bg-sp-active border-l-sp-accent'
                           : 'border-l-transparent hover:bg-sp-hover'
                       )}
+                      style={{ gridTemplateColumns: '40px 80px 110px 130px 1fr' }}
                     >
-                      <Activity className="h-3.5 w-3.5 shrink-0 text-sp-muted" aria-hidden="true" />
-                      <Badge variant="outline" className="shrink-0 text-sp-9">
-                        Activity
-                      </Badge>
-                      <span className="truncate text-sp-text">{message.value}</span>
-                      <time className="ml-auto shrink-0 text-sp-dim tabular-nums">
+                      <div>
+                        {message.partition !== undefined ? (
+                          <PartitionMiniPill partition={message.partition} />
+                        ) : (
+                          <span className="text-sp-dim">—</span>
+                        )}
+                      </div>
+                      <span className="text-sp-muted tabular-nums truncate">
+                        {message.offset ?? '—'}
+                      </span>
+                      <span className="text-sp-dim tabular-nums">
                         {new Date(message.timestamp).toLocaleTimeString()}
-                      </time>
+                      </span>
+                      <span className="text-sp-muted truncate" title={message.key ?? ''}>
+                        {message.key ?? <span className="text-sp-dim">—</span>}
+                      </span>
+                      <span
+                        className={cn('truncate', message.error ? 'text-red-400' : 'text-sp-text')}
+                        title={message.tombstone ? '<tombstone>' : message.value}
+                      >
+                        {message.error
+                          ? message.error
+                          : message.tombstone
+                            ? '<tombstone>'
+                            : message.value}
+                      </span>
                     </li>
                   );
-                }
-                return (
-                  <li
-                    key={message.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Kafka record in ${message.topic}, partition ${
-                      message.partition ?? 'unknown'
-                    }, offset ${message.offset ?? 'unknown'}`}
-                    onClick={() => setSelectedMessageId(message.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setSelectedMessageId(message.id);
-                      }
-                    }}
-                    className={cn(
-                      'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors sp-stream-row',
-                      selected
-                        ? 'bg-sp-active border-l-sp-accent'
-                        : 'border-l-transparent hover:bg-sp-hover'
-                    )}
-                    style={{ gridTemplateColumns: '40px 80px 110px 130px 1fr' }}
-                  >
-                    <div>
-                      {message.partition !== undefined ? (
-                        <PartitionMiniPill partition={message.partition} />
-                      ) : (
-                        <span className="text-sp-dim">—</span>
-                      )}
-                    </div>
-                    <span className="text-sp-muted tabular-nums truncate">
-                      {message.offset ?? '—'}
-                    </span>
-                    <span className="text-sp-dim tabular-nums">
-                      {new Date(message.timestamp).toLocaleTimeString()}
-                    </span>
-                    <span className="text-sp-muted truncate" title={message.key ?? ''}>
-                      {message.key ?? <span className="text-sp-dim">—</span>}
-                    </span>
-                    <span
-                      className={cn('truncate', message.error ? 'text-red-400' : 'text-sp-text')}
-                      title={message.tombstone ? '<tombstone>' : message.value}
-                    >
-                      {message.error
-                        ? message.error
-                        : message.tombstone
-                          ? '<tombstone>'
-                          : message.value}
-                    </span>
+                })}
+                {visibleMessages.length === 0 && (
+                  <li className="px-3 py-8 text-center text-sp-muted">
+                    {connection.messages.length === 0
+                      ? 'No messages yet.'
+                      : filteredEmptyText('message', newCount)}
                   </li>
-                );
-              })}
-              {visibleMessages.length === 0 && (
-                <li className="px-3 py-8 text-center text-sp-muted">No messages yet.</li>
-              )}
-            </ul>
-          </ScrollArea>
+                )}
+              </ul>
+            </div>
+            <JumpToLatestPill visible={stick.showJump} onClick={stick.jumpToLatest} />
+          </div>
         </Floater>
         <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
           {selectedMessage ? (

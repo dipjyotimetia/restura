@@ -323,6 +323,13 @@ export function KafkaProducerPanel({
                   aria-label="Kafka message value"
                   value={produceValue}
                   onChange={(e) => setProduceValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    // Ctrl/Cmd+Enter produces, matching the WebSocket / Socket.IO composers.
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      if (connection.status === 'connected' && connection.defaultTopic) onPublish();
+                    }
+                  }}
                   disabled={produceTombstone}
                   placeholder={payloadPlaceholder(produceValueEncoding)}
                   className="font-mono text-xs"
