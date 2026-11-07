@@ -194,6 +194,7 @@ export default function SseClient() {
           eventNames={eventNames}
           onClearLog={() => clearLog(active.id)}
           exportName={sseExportName(request.url)}
+          droppedCount={active.droppedCount}
         />
         <div className="flex flex-col gap-2.5 min-h-0">
           <SseAssembledOutput
