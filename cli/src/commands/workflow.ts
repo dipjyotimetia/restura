@@ -39,13 +39,26 @@ export async function executeOwsWorkflowCommand(
   dependencies: OwsWorkflowCommandDependencies = defaultDependencies
 ): Promise<0 | 1> {
   const variables = opts.env ? await dependencies.loadEnv(opts.env, { expandEnvVars: true }) : {};
-  const result = await dependencies.runOwsWorkspaceWorkflow(workspace, workflowId, {
-    variables,
-    timeoutMs: positiveTimeout(opts.timeout),
-    allowLocalhost: Boolean(opts.allowLocalhost),
-    allowMutations: Boolean(opts.allowMutations),
-  });
-  return result.status === 'success' ? 0 : 1;
+  const timeoutMs = positiveTimeout(opts.timeout);
+  // Ctrl-C / SIGTERM stop the workflow cooperatively (result status `stopped`,
+  // exit 1) instead of killing the process mid-call.
+  const interrupt = new AbortController();
+  const onSignal = (): void => interrupt.abort(new Error('Workflow interrupted'));
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  try {
+    const result = await dependencies.runOwsWorkspaceWorkflow(workspace, workflowId, {
+      variables,
+      timeoutMs,
+      allowLocalhost: Boolean(opts.allowLocalhost),
+      allowMutations: Boolean(opts.allowMutations),
+      signal: interrupt.signal,
+    });
+    return result.status === 'success' ? 0 : 1;
+  } finally {
+    process.removeListener('SIGINT', onSignal);
+    process.removeListener('SIGTERM', onSignal);
+  }
 }
 
 /** Register `restura workflow run <workspace> <workflow-id>`. */

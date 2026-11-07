@@ -59,6 +59,22 @@ describe('followRedirects releases intermediate hop bodies', () => {
     ]);
   });
 
+  it('returns a final 3xx without Location even when the hop budget is spent', async () => {
+    const fetcher = vi.fn(async () => {
+      const hop = fetcher.mock.calls.length - 1;
+      // One hop allowed: start -> hop1 (302 + Location), then hop1 answers a
+      // 302 with no Location, which is a final response, not a redirect.
+      return hop === 0
+        ? response(302, { location: 'https://api.example.com/hop1' }, vi.fn())
+        : response(302, {}, vi.fn());
+    });
+    const final = await followRedirects(start(), fetcher, {
+      allowLocalhost: false,
+      maxRedirects: 1,
+    });
+    expect(final.status).toBe(302);
+  });
+
   it('cancels the unreturned 3xx body when the redirect is refused', async () => {
     const cancel = vi.fn();
     const fetcher = vi.fn(async () =>

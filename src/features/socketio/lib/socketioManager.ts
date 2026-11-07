@@ -459,7 +459,12 @@ class SocketIOManager {
 
     socket.on('disconnect', (reason: Socket.DisconnectReason) => {
       const s = useSocketIOStore.getState();
-      s.updateConnectionStatus(connectionId, 'disconnected');
+      // Only a server/client-initiated disconnect deactivates the socket; any
+      // other drop is retried by the manager, so it is "reconnecting".
+      s.updateConnectionStatus(
+        connectionId,
+        socketWillRetry(socket) ? 'reconnecting' : 'disconnected'
+      );
       s.addEvent(connectionId, { direction: 'system', eventName: 'disconnect', args: [reason] });
     });
 
@@ -558,9 +563,12 @@ class SocketIOManager {
       },
 
       close: (payload) => {
-        const data = payload as { reason?: string } | undefined;
+        const data = payload as { reason?: string; willReconnect?: boolean } | undefined;
         const s = useSocketIOStore.getState();
-        s.updateConnectionStatus(connectionId, 'disconnected');
+        s.updateConnectionStatus(
+          connectionId,
+          data?.willReconnect === true ? 'reconnecting' : 'disconnected'
+        );
         s.addEvent(connectionId, {
           direction: 'system',
           eventName: 'disconnect',

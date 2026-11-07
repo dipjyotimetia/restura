@@ -362,6 +362,35 @@ describe('McpRequestBuilder client ownership', () => {
     });
   });
 
+  it('closes the opened session when discovery (connect or refresh) fails', async () => {
+    clientMocks.discoveryResults.push(Promise.resolve({ error: 'capability discovery failed' }));
+    render(<McpRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() =>
+      expect(useMcpStore.getState().connections.first).toMatchObject({
+        status: 'error',
+        lastError: 'capability discovery failed',
+      })
+    );
+    // The handshake succeeded, so main / the proxy holds a session: it must be closed.
+    expect(clientMocks.instances[0]?.disconnect).toHaveBeenCalledTimes(1);
+
+    clientMocks.discoveryResults.push(
+      Promise.resolve(FIRST_CAPABILITIES),
+      Promise.resolve({ error: 'refresh failed' })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(useMcpStore.getState().connections.first?.status).toBe('connected'));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() =>
+      expect(useMcpStore.getState().connections.first).toMatchObject({
+        status: 'error',
+        lastError: 'refresh failed',
+      })
+    );
+    expect(clientMocks.instances[1]?.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('refreshes a current session and sends tools, prompts, and resources to its log', async () => {
     clientMocks.discoveryResults.push(
       Promise.resolve(FIRST_CAPABILITIES),

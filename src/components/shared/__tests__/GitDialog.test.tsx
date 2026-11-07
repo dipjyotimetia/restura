@@ -215,6 +215,19 @@ describe('GitDialog', () => {
     );
   });
 
+  it('releases the busy lock when a git call rejects instead of returning an error', async () => {
+    git.fetch.mockRejectedValueOnce(new Error('IPC handler missing'));
+    render(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith('fetch failed: IPC handler missing')
+    );
+    // The dialog is usable again rather than locked behind a stuck `busy`.
+    expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
+  });
+
   it('starts a merge from a pinned non-current branch', async () => {
     git.status = { branch: 'feature/collection', ahead: 0, behind: 0, clean: true, files: [] };
     render(
@@ -284,6 +297,78 @@ describe('GitDialog', () => {
         })
       )
     );
+  });
+
+  describe('merge resolver async guards', () => {
+    const conflictA = {
+      id: 'conflict-a',
+      path: 'requests/a.yml',
+      relatedPaths: ['requests/a.yml'],
+      status: 'both-modified' as const,
+      kind: 'text' as const,
+      openCollectionKind: 'request' as const,
+    };
+    const conflictB = {
+      ...conflictA,
+      id: 'conflict-b',
+      path: 'requests/b.yml',
+      relatedPaths: ['requests/b.yml'],
+    };
+    const detailFor = (conflict: typeof conflictA) => ({
+      ...conflict,
+      strategy: 'structured' as const,
+      base: { present: true, content: 'type: http\nname: A\nurl: /v1\n' },
+      local: { present: true, content: 'type: http\nname: A\nurl: /local\n' },
+      incoming: { present: true, content: 'type: http\nname: A\nurl: /incoming\n' },
+      proposedContent: 'type: http\nname: A\nurl: /local\n',
+      structured: {
+        result: { type: 'http', name: 'A', url: '/local' },
+        conflicts: [
+          {
+            path: `/url-${conflict.id}`,
+            base: { present: true, value: '/v1' },
+            local: { present: true, value: '/local' },
+            incoming: { present: true, value: '/incoming' },
+          },
+        ],
+      },
+    });
+    beforeEach(() => {
+      git.mergeState = {
+        phase: 'conflicted',
+        branch: 'feature/collection',
+        mergeHead: 'c'.repeat(40),
+        conflicts: [conflictA, conflictB],
+        suggestedMessage: "Merge branch 'main'",
+      };
+    });
+
+    it('reports a rejected conflict read instead of staying in loading', async () => {
+      git.getMergeConflict.mockRejectedValueOnce(new Error('read failed'));
+      render(
+        <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+      );
+      fireEvent.click(screen.getByRole('button', { name: /requests\/a.yml/ }));
+      await waitFor(() =>
+        expect(toastMock.error).toHaveBeenCalledWith('Unable to read conflict: read failed')
+      );
+    });
+
+    it('reports a rejected resolve and releases the busy lock', async () => {
+      git.getMergeConflict.mockResolvedValueOnce(detailFor(conflictA));
+      git.resolveMergeConflict.mockRejectedValueOnce(new Error('write failed'));
+      render(
+        <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+      );
+      fireEvent.click(screen.getByRole('button', { name: /requests\/a.yml/ }));
+      await screen.findByText('/url-conflict-a');
+      fireEvent.click(screen.getByRole('button', { name: 'Use incoming for /url-conflict-a' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Resolve file' }));
+      await waitFor(() =>
+        expect(toastMock.error).toHaveBeenCalledWith('Resolve failed: write failed')
+      );
+      expect(screen.getByRole('button', { name: 'Resolve file' })).toBeEnabled();
+    });
   });
 
   it('offers choice-only resolution and marks submodules for external handling', async () => {

@@ -22,6 +22,8 @@ interface CookieStore {
 // Purge expired cookies once per hour during long sessions
 const PURGE_INTERVAL_MS = 60 * 60 * 1000;
 
+let purgeTimer: ReturnType<typeof setInterval> | undefined;
+
 export const useCookieStore = create<CookieStore>()(
   persist(
     (set, get) => ({
@@ -78,8 +80,15 @@ export const useCookieStore = create<CookieStore>()(
         }
         if (state) {
           state.purgeExpired();
-          // Schedule periodic purge for long-running sessions
-          setInterval(() => useCookieStore.getState().purgeExpired(), PURGE_INTERVAL_MS);
+          // Schedule periodic purge for long-running sessions — once: this
+          // callback runs on every `rehydrate()`, and stacking intervals would
+          // leak a timer (and a purge pass) per rehydration.
+          if (purgeTimer === undefined) {
+            purgeTimer = setInterval(
+              () => useCookieStore.getState().purgeExpired(),
+              PURGE_INTERVAL_MS
+            );
+          }
         }
       },
     }

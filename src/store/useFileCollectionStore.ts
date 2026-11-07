@@ -40,6 +40,8 @@ export interface FileCollectionInfo {
   lastSynced: number;
   isWatching: boolean;
   error?: string;
+  /** In-memory edits not on disk that `syncState` can't show (an `error` after a failed save or edit). */
+  hasUnsavedChanges?: boolean;
 }
 
 interface FileCollectionState {
@@ -58,6 +60,7 @@ interface FileCollectionState {
   updateSyncState: (collectionId: string, state: FileSyncUiState, error?: string) => void;
   markAsSynced: (collectionId: string) => void;
   setWatching: (collectionId: string, isWatching: boolean) => void;
+  markUnsavedChanges: (collectionId: string) => void;
   addConflict: (conflict: ConflictState) => void;
   removeConflict: (collectionId: string, itemId?: string) => void;
   clearConflicts: (collectionId: string) => void;
@@ -73,8 +76,10 @@ export const useFileCollectionStore = create<FileCollectionState>()(
       conflicts: [],
       defaultDirectory: null,
 
+      // (Re)registration means memory mirrors disk: earlier conflicts are moot.
       registerFileCollection: (collectionId, directoryPath) =>
         set((state) => ({
+          conflicts: state.conflicts.filter((c) => c.collectionId !== collectionId),
           fileCollections: {
             ...state.fileCollections,
             [collectionId]: {
@@ -124,6 +129,7 @@ export const useFileCollectionStore = create<FileCollectionState>()(
                 syncState: 'synced',
                 lastSynced: Date.now(),
                 error: undefined,
+                hasUnsavedChanges: undefined,
               },
             },
           };
@@ -142,6 +148,14 @@ export const useFileCollectionStore = create<FileCollectionState>()(
               },
             },
           };
+        }),
+
+      markUnsavedChanges: (collectionId) =>
+        set((state) => {
+          const existing = state.fileCollections[collectionId];
+          if (!existing || existing.hasUnsavedChanges) return state;
+          const next = { ...existing, hasUnsavedChanges: true };
+          return { fileCollections: { ...state.fileCollections, [collectionId]: next } };
         }),
 
       addConflict: (conflict) =>
@@ -533,6 +547,7 @@ export async function saveCollectionToDirectory(
     notifySaveRedactions(collection.id, result.redactions);
   } else {
     fileStore.updateSyncState(collection.id, 'error', result.error);
+    fileStore.markUnsavedChanges(collection.id); // the edits are still only in memory
   }
 
   return result;
@@ -563,6 +578,7 @@ export async function syncFileCollection(collectionId: string): Promise<{
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     fileStore.updateSyncState(collectionId, 'error', message);
+    fileStore.markUnsavedChanges(collectionId);
     return { success: false, error: message };
   }
 }
@@ -676,6 +692,16 @@ function workflowArtifactsChanged(
   );
 }
 
+/** A local edit: `synced` → `modified`; in `error` the badge stays but the edit is recorded. */
+function markLocalEdit(info: FileCollectionInfo): void {
+  const fileStore = useFileCollectionStore.getState();
+  if (info.syncState === 'synced') fileStore.updateSyncState(info.collectionId, 'modified');
+  else if (info.syncState === 'error') fileStore.markUnsavedChanges(info.collectionId);
+}
+
+/** States whose in-memory collection holds edits not on disk (never reloaded over). */
+const UNSAVED_STATES: ReadonlySet<FileSyncUiState> = new Set(['modified', 'loading', 'conflict']);
+
 export function initFileCollectionWatcher(): void {
   const electron = getElectronCollections();
   if (!electron) return;
@@ -688,20 +714,17 @@ export function initFileCollectionWatcher(): void {
     for (const info of Object.values(fileStore.fileCollections)) {
       const current = state.collections.find((collection) => collection.id === info.collectionId);
       const before = previous.collections.find((collection) => collection.id === info.collectionId);
-      if (current !== before && before && info.syncState === 'synced') {
-        fileStore.updateSyncState(info.collectionId, 'modified');
-      }
+      if (current !== before && before) markLocalEdit(info);
     }
   });
   unsubscribeWorkflowChanges = useWorkflowStore.subscribe((state, previous) => {
     const fileStore = useFileCollectionStore.getState();
     for (const info of Object.values(fileStore.fileCollections)) {
       if (
-        info.syncState === 'synced' &&
         !workflowReloadCollections.has(info.collectionId) &&
         workflowArtifactsChanged(state.workflows, previous.workflows, info.collectionId)
       ) {
-        fileStore.updateSyncState(info.collectionId, 'modified');
+        markLocalEdit(info);
       }
     }
   });
@@ -716,7 +739,9 @@ export function initFileCollectionWatcher(): void {
 
     if (!fileInfo) return;
 
-    if (fileInfo.syncState === 'modified' || fileInfo.syncState === 'loading') {
+    // Unsaved edits (incl. an existing conflict) raise a conflict; only a
+    // collection that mirrors disk may be reloaded in place.
+    if (UNSAVED_STATES.has(fileInfo.syncState) || fileInfo.hasUnsavedChanges) {
       fileStore.addConflict({
         collectionId: fileInfo.collectionId,
         itemName: event.filePath.split('/').pop() || 'Unknown',
@@ -766,6 +791,8 @@ export function initFileCollectionWatcher(): void {
 export function cleanupFileCollectionWatcher(): void {
   unsubscribeCollectionChanges?.();
   unsubscribeCollectionChanges = null;
+  unsubscribeWorkflowChanges?.();
+  unsubscribeWorkflowChanges = null;
   unsubscribeFileChanges?.();
   unsubscribeFileChanges = null;
   externalReloads.clear();

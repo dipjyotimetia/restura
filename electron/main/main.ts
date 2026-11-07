@@ -119,7 +119,13 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
+// Set when this process must not finish starting up (Squirrel install event,
+// lost single-instance lock): `app.quit()` is asynchronous, so the whenReady
+// chain checks this latch instead of priming keys, registering IPC and opening
+// a window before the quit lands.
+let quittingAtStartup = false;
 if (require('electron-squirrel-startup')) {
+  quittingAtStartup = true;
   app.quit();
 }
 
@@ -147,13 +153,14 @@ const getMainWindow = (): BrowserWindow | null => getActiveWindow();
 if (!isMcpServerMode) {
   const gotTheLock = app.requestSingleInstanceLock();
   if (!gotTheLock) {
+    quittingAtStartup = true;
     app.quit();
+  } else {
+    // Register deep-link handler before app.whenReady() so open-url / second-instance
+    // events can fire even before the window is created
+    // (requires single-instance lock to be requested before calling this)
+    registerDeepLinkHandler(getMainWindow);
   }
-
-  // Register deep-link handler before app.whenReady() so open-url / second-instance
-  // events can fire even before the window is created
-  // (requires single-instance lock to be requested before calling this)
-  registerDeepLinkHandler(getMainWindow);
 }
 
 // Register security measures early so all web-contents are protected from creation
@@ -242,9 +249,22 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerMcpControlIPC(), dispose: () => disposeMcpControlIPC() },
 ];
 
+// Modules whose `register` completed: only these are disposed on quit, and a
+// module whose registration threw no longer aborts every module after it.
+const registeredIpcModules: IpcModule[] = [];
+
 // Register all IPC handlers
 function registerIPCHandlers(): void {
-  for (const mod of IPC_MODULES) mod.register();
+  for (const mod of IPC_MODULES) {
+    try {
+      mod.register();
+      registeredIpcModules.push(mod);
+    } catch (err) {
+      log.error('IPC module register failed', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 }
 
 // Setup Content Security Policy for production.
@@ -348,6 +368,7 @@ function setupSecurityMeasures(): void {
 
 // Initialize the application
 app.whenReady().then(async () => {
+  if (quittingAtStartup) return;
   if (isMcpServerMode) {
     // Headless: no window, no tray, no auto-updater, no store keys (the shim
     // opens no store — priming would cost a keychain prompt per agent launch).
@@ -366,9 +387,13 @@ app.whenReady().then(async () => {
       // clean-EOF signal off. A timeout backstop bounds a hung transport.
       const MCP_STOP_TIMEOUT_MS = 3000;
       let mcpStopped = false;
+      let mcpStopping = false;
       app.on('will-quit', (event) => {
         if (mcpStopped) return;
         event.preventDefault();
+        // A second quit while the stop is in flight waits for that one.
+        if (mcpStopping) return;
+        mcpStopping = true;
         void Promise.race([
           handle.stop().catch((err) => {
             log.error('mcp-server stop failed', {
@@ -449,18 +474,25 @@ app.on('window-all-closed', () => {
 if (!isMcpServerMode) {
   const QUIT_DISPOSE_TIMEOUT_MS = 3000;
   let quitCleanupDone = false;
+  let quitCleanupStarted = false;
   app.on('will-quit', (event) => {
     if (quitCleanupDone) return;
     event.preventDefault();
-    const disposals = IPC_MODULES.filter((mod) => mod.dispose).map((mod) =>
-      Promise.resolve()
-        .then(() => mod.dispose!())
-        .catch((err) => {
-          log.error('IPC module dispose failed', {
-            message: err instanceof Error ? err.message : String(err),
-          });
-        })
-    );
+    // A second quit (Cmd+Q twice, tray Quit during shutdown) must not run every
+    // dispose again: the first cleanup already ends in `app.exit(0)`.
+    if (quitCleanupStarted) return;
+    quitCleanupStarted = true;
+    const disposals = registeredIpcModules
+      .filter((mod) => mod.dispose)
+      .map((mod) =>
+        Promise.resolve()
+          .then(() => mod.dispose!())
+          .catch((err) => {
+            log.error('IPC module dispose failed', {
+              message: err instanceof Error ? err.message : String(err),
+            });
+          })
+      );
     void Promise.race([
       Promise.allSettled(disposals),
       new Promise((resolve) => setTimeout(resolve, QUIT_DISPOSE_TIMEOUT_MS)),

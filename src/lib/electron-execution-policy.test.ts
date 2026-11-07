@@ -149,6 +149,48 @@ describe('initExecutionPolicySync', () => {
     expect(sync.getExecutionPolicySyncState()).toBe('acknowledged');
   });
 
+  it('does not let a failed delivery overwrite a newer policy queued while it was in flight', async () => {
+    vi.useFakeTimers();
+    const sync = await load({ isElectron: true, settings: {}, hydrated: true });
+    let rejectFirst: (error: Error) => void = () => {};
+    sync.setExecutionPolicyMock.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+        })
+    );
+    const init = sync.initExecutionPolicySync();
+    await vi.waitFor(() => expect(sync.setExecutionPolicyMock).toHaveBeenCalledTimes(1));
+    // A newer settings snapshot arrives while the first delivery is in flight.
+    sync.triggerStoreChange({ allowLocalhost: false, defaultTimeout: 42_000 });
+    rejectFirst(new Error('main unavailable'));
+    await init;
+    expect(sync.getExecutionPolicySyncState()).toBe('retrying');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sync.setExecutionPolicyMock).toHaveBeenCalledTimes(2);
+    expect(sync.setExecutionPolicyMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ timeout: 42_000 })
+    );
+    expect(sync.getExecutionPolicySyncState()).toBe('acknowledged');
+  });
+
+  it('backs off between repeated rejected deliveries', async () => {
+    vi.useFakeTimers();
+    const sync = await load({ isElectron: true, settings: {}, hydrated: true });
+    sync.setExecutionPolicyMock
+      .mockRejectedValueOnce(new Error('1'))
+      .mockRejectedValueOnce(new Error('2'));
+    await sync.initExecutionPolicySync();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sync.setExecutionPolicyMock).toHaveBeenCalledTimes(2);
+    // Second retry waits longer than the first.
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sync.setExecutionPolicyMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(sync.setExecutionPolicyMock).toHaveBeenCalledTimes(3);
+    expect(sync.getExecutionPolicySyncState()).toBe('acknowledged');
+  });
+
   it('synchronizes a changed settings snapshot after acknowledgement', async () => {
     const sync = await load({ isElectron: true, settings: {}, hydrated: true });
     await sync.initExecutionPolicySync();

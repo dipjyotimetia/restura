@@ -37,8 +37,16 @@ export function GitMergeResolver({
 
   const selectConflict = async (conflictId: string) => {
     setLoadingId(conflictId);
-    const result = await getConflict(conflictId);
-    setLoadingId(null);
+    let result: Awaited<ReturnType<typeof getConflict>>;
+    try {
+      result = await getConflict(conflictId);
+    } catch (error) {
+      // A rejected IPC must not leave `loadingId` set: every conflict button
+      // stays disabled while it is.
+      result = error instanceof Error ? error.message : String(error);
+    } finally {
+      setLoadingId(null);
+    }
     if (typeof result === 'string') {
       toast.error(`Unable to read conflict: ${result}`);
       return;
@@ -48,8 +56,14 @@ export function GitMergeResolver({
 
   const submit = async (resolution: GitConflictResolution) => {
     onBusyChange(true);
-    const error = await resolveConflict(resolution);
-    onBusyChange(false);
+    let error: string | null;
+    try {
+      error = await resolveConflict(resolution);
+    } catch (thrown) {
+      error = thrown instanceof Error ? thrown.message : String(thrown);
+    } finally {
+      onBusyChange(false);
+    }
     if (error) toast.error(`Resolve failed: ${error}`);
     else {
       toast.success('Conflict resolved');

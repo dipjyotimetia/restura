@@ -443,6 +443,73 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
     ).toBe('expired');
   });
 
+  it('ignores a second send fired before re-render, and keeps loading until the first settles', async () => {
+    let resolveExecution:
+      | ((value: requestExecutorModule.RequestExecutionResult) => void)
+      | undefined;
+    const executeRequest = vi.fn(
+      () =>
+        new Promise<requestExecutorModule.RequestExecutionResult>((resolve) => {
+          resolveExecution = resolve;
+        })
+    );
+    vi.doMock('@/features/http/lib/requestExecutor', async (importOriginal) => ({
+      ...(await importOriginal<typeof requestExecutorModule>()),
+      executeRequest,
+    }));
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const request = {
+      id: 'req-1',
+      name: 'One',
+      type: 'http' as const,
+      method: 'GET' as const,
+      url: 'https://one.example',
+      headers: [],
+      params: [],
+      body: { type: 'none' as const },
+      auth: { type: 'none' as const },
+    };
+    useRequestStore.setState({
+      tabs: [{ id: 'tab-1', request, isDirty: false }],
+      activeTabId: 'tab-1',
+      isLoading: false,
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    let first: Promise<void> | undefined;
+    let second: Promise<void> | undefined;
+    act(() => {
+      // Same render closure: `isLoading` is still false for both calls.
+      first = result.current.handlers.sendRequest();
+      second = result.current.handlers.sendRequest();
+    });
+    await act(async () => {
+      await second;
+    });
+    await vi.waitFor(() => expect(executeRequest).toHaveBeenCalledTimes(1));
+    expect(useRequestStore.getState().isLoading).toBe(true);
+    await act(async () => {
+      resolveExecution?.({
+        response: {
+          id: 'r',
+          requestId: 'req-1',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 1,
+          timestamp: Date.now(),
+        },
+        transportOk: true,
+        sentUrl: 'https://one.example',
+        sentHeaders: {},
+      });
+      await first;
+    });
+    expect(useRequestStore.getState().isLoading).toBe(false);
+  });
+
   it('writes a delayed thrown error only to the tab that sent the request', async () => {
     let rejectExecution: ((reason: Error) => void) | undefined;
     const execution = new Promise<requestExecutorModule.RequestExecutionResult>(

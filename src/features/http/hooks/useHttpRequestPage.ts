@@ -235,7 +235,10 @@ export function useHttpRequestPage() {
   // executor; this hook owns only page concerns (toasts, response panel,
   // history, console, persisting refreshed auth / collection var mutations).
   const sendRequest = useCallback(async () => {
-    if (!httpRequest?.url || isLoading) return;
+    // `abortRef` is the synchronous in-flight latch: `isLoading` is the render
+    // closure's value, so two sends fired before a re-render would both pass it
+    // and the second would orphan the first one's controller.
+    if (!httpRequest?.url || isLoading || abortRef.current) return;
     const originTabId = useRequestStore.getState().activeTabId;
     if (!originTabId) return;
     // A new send replaces this tab's response, so end a stream still running.
@@ -254,7 +257,9 @@ export function useHttpRequestPage() {
     const release = () => {
       if (released) return;
       released = true;
-      if (abortRef.current === controller) abortRef.current = null;
+      // Only the send that still owns the page's loading state may clear it.
+      if (abortRef.current !== controller) return;
+      abortRef.current = null;
       setLoading(false);
       useUiStore.getState().setInFlight(null);
     };

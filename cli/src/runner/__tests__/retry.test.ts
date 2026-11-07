@@ -1,6 +1,6 @@
 import { createServer } from 'node:net';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { LoadedRequest } from '../collectionLoader';
 import { executeHttp } from '../executors/http';
 import type { ExecuteOutcome } from '../executors/types';
@@ -114,6 +114,21 @@ describe('withRetry', () => {
       { retries: 2, retryOn: ['network'], baseDelayMs: 1 }
     );
     expect(calls).toBe(1);
+  });
+
+  it('a cancelled run cuts the backoff short and sends no further attempt', async () => {
+    const controller = new AbortController();
+    const attempt = vi.fn(() => Promise.resolve(outcome(500)));
+    const pending = withRetry(
+      attempt,
+      { retries: 3, retryOn: ['5xx'], baseDelayMs: 60_000 },
+      controller.signal
+    );
+    await vi.waitFor(() => expect(attempt).toHaveBeenCalledTimes(1));
+    controller.abort();
+    const result = await pending;
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe(500);
   });
 
   it('accumulates durations across attempts', async () => {

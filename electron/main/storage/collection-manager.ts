@@ -351,13 +351,16 @@ async function saveCollectionToDirectory(
         fingerprint,
       ])
     );
-    const writeState: SelfWriteState = { active: true, expected: before, queued: [] };
-    selfWriteStates.set(dirKey, writeState);
-    const safeCollection = redactCollectionSecrets(collection as Collection);
+    // Resolve the trusted root BEFORE arming the self-write state: an early
+    // return after `active: true` would leave the watcher queueing (and so
+    // swallowing) every external change to this directory until release.
     const trustedRoot = getAllowedRootForPath(directoryPath);
     if (!trustedRoot) {
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
+    const writeState: SelfWriteState = { active: true, expected: before, queued: [] };
+    selfWriteStates.set(dirKey, writeState);
+    const safeCollection = redactCollectionSecrets(collection as Collection);
     const saveResult = await saveCollectionToDir(internalToOC(safeCollection), directoryPath, {
       previousManagedFiles,
       expectedPreviousFingerprints,

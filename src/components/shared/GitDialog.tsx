@@ -85,11 +85,23 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
     }
   }, [mergeState]);
 
+  // Every git action toggles one shared `busy` flag that disables the dialog;
+  // an IPC invoke that rejects (rather than returning an error) must still
+  // release it, or the whole dialog stays locked until it is reopened.
+  const withBusy = async (op: () => Promise<string | null>): Promise<string | null> => {
+    setBusy(true);
+    try {
+      return await op();
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleCommit = async () => {
     if (!message.trim() || stagedFiles.length === 0) return;
-    setBusy(true);
-    const err = await commit(message.trim());
-    setBusy(false);
+    const err = await withBusy(() => commit(message.trim()));
     if (err) {
       toast.error(`Commit failed: ${err}`);
     } else {
@@ -99,30 +111,33 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
   };
 
   const handleFileAction = async (action: 'stage' | 'unstage' | 'discard', filePath: string) => {
-    setBusy(true);
-    const err =
+    const err = await withBusy(async () =>
       action === 'stage'
         ? await stage([filePath])
         : action === 'unstage'
           ? await unstage([filePath])
-          : await discard([filePath]);
-    setBusy(false);
+          : await discard([filePath])
+    );
     if (err) toast.error(`${action} failed: ${err}`);
     else if (action === 'discard') toast.success('Discarded local change');
   };
 
   const handleDiff = async (filePath: string, staged: boolean) => {
     setBusy(true);
-    const result = await diff(filePath, staged);
-    setBusy(false);
-    setDiffText(result ?? 'No diff available.');
+    try {
+      const result = await diff(filePath, staged);
+      setDiffText(result ?? 'No diff available.');
+    } catch (error) {
+      toast.error(`Diff failed: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleSync = async (action: 'fetch' | 'pull' | 'push') => {
-    setBusy(true);
-    const err =
-      action === 'fetch' ? await fetch() : action === 'pull' ? await pull() : await push();
-    setBusy(false);
+    const err = await withBusy(async () =>
+      action === 'fetch' ? await fetch() : action === 'pull' ? await pull() : await push()
+    );
     if (err) toast.error(`${action} failed: ${err}`);
     else toast.success(action === 'push' ? 'Published branch' : `${action} complete`);
   };
@@ -130,9 +145,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
   const handleCreateBranch = async () => {
     const name = newBranch.trim();
     if (!name) return;
-    setBusy(true);
-    const err = await createBranch(name);
-    setBusy(false);
+    const err = await withBusy(() => createBranch(name));
     if (err) toast.error(`Create branch failed: ${err}`);
     else {
       toast.success(`Switched to ${name}`);
@@ -141,17 +154,13 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
   };
 
   const handleCheckout = async (name: string) => {
-    setBusy(true);
-    const err = await checkout(name);
-    setBusy(false);
+    const err = await withBusy(() => checkout(name));
     if (err) toast.error(`Checkout failed: ${err}`);
     else toast.success(`Switched to ${name}`);
   };
 
   const handleInit = async () => {
-    setBusy(true);
-    const err = await init();
-    setBusy(false);
+    const err = await withBusy(() => init());
     if (err) toast.error(`Init failed: ${err}`);
     else toast.success('Initialized Git repository');
   };
@@ -159,9 +168,8 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
   const handleStartMerge = async () => {
     const source = mergeBranches.find((branch) => branch.name === mergeSource);
     if (!source?.oid) return;
-    setBusy(true);
-    const err = await startMerge(source.name, source.oid);
-    setBusy(false);
+    const { name: sourceName, oid: sourceOid } = source;
+    const err = await withBusy(() => startMerge(sourceName, sourceOid));
     if (err) toast.error(`Merge failed: ${err}`);
     else {
       toast.success('Merge started');
@@ -170,9 +178,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
   };
 
   const handleAbortMerge = async () => {
-    setBusy(true);
-    const err = await abortMerge();
-    setBusy(false);
+    const err = await withBusy(() => abortMerge());
     if (err) toast.error(`Abort failed: ${err}`);
     else toast.success('Merge aborted');
   };
@@ -180,9 +186,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
   const handleCompleteMerge = async () => {
     const commitMessage = mergeMessage.trim();
     if (!commitMessage) return;
-    setBusy(true);
-    const err = await completeMerge(commitMessage);
-    setBusy(false);
+    const err = await withBusy(() => completeMerge(commitMessage));
     if (err) toast.error(`Merge commit failed: ${err}`);
     else toast.success('Merge committed');
   };

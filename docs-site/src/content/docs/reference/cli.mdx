@@ -156,7 +156,7 @@ restura run [collection] [options]
 restura workflow run <workspace> <workflow-id> [--env ci.env] [--timeout 30000] [--allow-localhost] [--allow-mutations]
 ```
 
-`--allow-localhost` permits loopback targets and `--allow-mutations` permits saved GraphQL mutation calls; both are off by default.
+`--allow-localhost` permits loopback targets and `--allow-mutations` permits saved GraphQL mutation calls; both are off by default. Ctrl-C / SIGTERM stops the workflow cooperatively (status `stopped`, exit `1`).
 
 The workspace must be an OpenCollection directory with `opencollection.yml` and a complete `workflows/<workflow-id>/` artifact set. The command accepts only Restura's safe OWS profile: `do`, `set`, `wait`, timeout/cancellation, and binding-only HTTP calls to saved requests. It rejects inline endpoints, credentials, non-HTTP calls, and controls without a bounded runtime before dispatching any network request.
 
@@ -267,7 +267,7 @@ Combine with a comma: `--reporter live,junit --reporter-output junit=results.xml
 | Code | Meaning |
 |---|---|
 | `0` | Every request passed AND at least one request ran |
-| `1` | One or more requests failed or errored (or no requests matched after filtering) |
+| `1` | One or more requests failed or errored (or no requests matched after filtering), or the run was interrupted: the first SIGINT / SIGTERM (Ctrl-C) cancels cooperatively — in-flight requests are aborted, no further request or retry starts, and reporters still write the partial result (`interrupted: true` in JSON); a second signal force-quits with `130` |
 | `2` | Internal error: missing collection, bad reporter name, IO failure, … |
 
 ## Agent eval

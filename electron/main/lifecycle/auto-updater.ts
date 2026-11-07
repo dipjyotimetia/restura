@@ -39,6 +39,19 @@ let recheckInterval: ReturnType<typeof setInterval> | null = null;
 let updaterStatus: UpdaterStatus = { state: 'idle' };
 let updateReadyToInstall = false;
 let updaterListenersCleanup: (() => void) | null = null;
+/** A download call is in flight (status may still read `available` until progress arrives). */
+let downloadInFlight = false;
+
+/** States in which a fresh check must not run: it would flip the status back to `checking`. */
+function updatePipelineBusy(): boolean {
+  return (
+    downloadInFlight ||
+    updaterStatus.state === 'downloading' ||
+    updaterStatus.state === 'validating' ||
+    updaterStatus.state === 'downloaded' ||
+    updaterStatus.state === 'installing'
+  );
+}
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 
@@ -259,6 +272,11 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
     if (isDev) {
       return { updateAvailable: false, message: 'Updates disabled in development' };
     }
+    // An update is already being downloaded / validated / installed: report it
+    // instead of re-checking (which would reset the visible status mid-download).
+    if (updatePipelineBusy() && lastUpdateInfo) {
+      return { updateAvailable: true, version: lastUpdateInfo.version };
+    }
     try {
       const result: UpdateCheckResult | null = await autoUpdater.checkForUpdates();
       const latestVersion = result?.updateInfo?.version;
@@ -304,27 +322,36 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
       NoInputSchema,
       async (): Promise<{ ok: boolean; error?: string }> => {
         if (updatesDisabled(isDev)) return { ok: false, error: 'Updates disabled' };
-        cancellationToken = new CancellationToken();
+        // A second download would replace the cancellation token, leaving the
+        // first download impossible to cancel.
+        if (updatePipelineBusy())
+          return { ok: false, error: 'An update download is already in progress' };
+        const token = new CancellationToken();
+        cancellationToken = token;
+        downloadInFlight = true;
         try {
-          await autoUpdater.downloadUpdate(cancellationToken);
+          await autoUpdater.downloadUpdate(token);
           return { ok: true };
         } catch (error) {
           // A user-initiated cancel rejects this promise — surface the
           // "available" state again rather than an error. Anything else is a
           // genuine failure.
-          if (cancellationToken?.cancelled) {
-            if (lastUpdateInfo) {
-              broadcast({
-                state: 'available',
-                version: lastUpdateInfo.version,
-              });
-            }
+          if (token.cancelled) {
+            broadcast(
+              lastUpdateInfo
+                ? { state: 'available', version: lastUpdateInfo.version }
+                : // Never leave the UI stuck in `downloading` after a cancel.
+                  { state: 'idle' }
+            );
             return { ok: false, error: 'cancelled' };
           }
           log.error('renderer update download failed', {
             error: error instanceof Error ? error.message : String(error),
           });
           return { ok: false, error: safeErrorMessage('download') };
+        } finally {
+          downloadInFlight = false;
+          if (cancellationToken === token) cancellationToken = null;
         }
       }
     )

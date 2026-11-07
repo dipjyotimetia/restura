@@ -224,6 +224,26 @@ describe('kafka-handler browse mode', () => {
     expect(consumer.close).toHaveBeenCalled();
   });
 
+  it('forwards every queued record before a self-closing browse stream is torn down', async () => {
+    const event = await connected('b-drain');
+    const records = Array.from({ length: 25 }, (_, i) => ({ offset: i, value: `v${i}` }));
+    FakeConsumer.fetchPlan.push(records);
+    await handlerFor(IPC.kafka.subscribe)(event, {
+      connectionId: 'b-drain',
+      membership: 'browse',
+      topics: ['orders'],
+      mode: 'last-n',
+      lastN: 25,
+      maxMessages: 25,
+    });
+    const closedChannel = kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, 'b-drain');
+    await until(() => emitted(closedChannel).length > 0);
+    // The stream's own 'close' must not abort the ordered-delivery queue: every
+    // record already fetched reaches the renderer before the consumer is closed.
+    expect(emitted(kafkaChannel(KAFKA_CHANNEL.MESSAGE, 'b-drain'))).toHaveLength(25);
+    expect(emitted(closedChannel)).toHaveLength(1);
+  });
+
   it('releases the consumer when a stop-after-N limit ends the stream', async () => {
     const event = await connected('b2');
     FakeConsumer.fetchPlan.push([

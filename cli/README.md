@@ -39,6 +39,8 @@ restura workflow run ./my-workspace billing --env ./ci.env
 | `--allow-localhost` | `false` | Permit `localhost` / `127.0.0.1` targets (SSRF guard).         |
 | `--allow-mutations` | `false` | Permit saved GraphQL mutation calls.                           |
 
+Ctrl-C / SIGTERM stops the workflow cooperatively (status `stopped`, exit `1`).
+
 The workspace must contain `opencollection.yml` and `workflows/billing/` with
 `workflow.ows.json`, `bindings.restura.json`, and `layout.restura.json`. The
 CLI accepts only the safe OWS profile: sequential `do`, `set`, `wait`, timeout
@@ -269,7 +271,7 @@ The `live` reporter (also what CI logs get) prints one line per request:
 | Code | Meaning                                                                         |
 | ---- | ------------------------------------------------------------------------------- |
 | `0`  | Every request passed AND at least one request ran                               |
-| `1`  | One or more requests failed or errored (or no requests matched after filtering) |
+| `1`  | One or more requests failed or errored (or no requests matched after filtering), or the run was interrupted: the first SIGINT / SIGTERM (Ctrl-C) cancels cooperatively — in-flight requests are aborted, no further request or retry starts, and reporters still write the partial result (`interrupted: true` in JSON); a second signal force-quits with `130` |
 | `2`  | Internal error: missing collection, bad reporter name, IO failure, a Postman input over the caps, `--strict-import` with a non-empty import report, … |
 
 ## Troubleshooting

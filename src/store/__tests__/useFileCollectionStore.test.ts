@@ -634,6 +634,89 @@ describe('file collection operations', () => {
     });
   });
 
+  it('never reloads over unsaved local changes (conflict, failed save, edit after error)', async () => {
+    const { useFileCollectionStore, initFileCollectionWatcher, saveCollectionToDirectory } =
+      await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    const { useWorkflowStore } = await import('../useWorkflowStore');
+    let onFileChanged:
+      | ((event: {
+          type: 'modified' | 'added' | 'deleted';
+          filePath: string;
+          directoryPath: string;
+          lastModified?: number;
+        }) => void)
+      | undefined;
+    const loadFromDirectory = vi.fn().mockResolvedValue({
+      success: true,
+      collection: { id: 'disk-1', name: 'From disk', items: [] },
+    });
+    installElectronCollections({
+      loadFromDirectory,
+      saveToDirectory: vi.fn().mockResolvedValue({ success: false, error: 'disk full' }),
+      watchDirectory: vi.fn().mockResolvedValue({ success: true }),
+      onFileChanged: vi.fn((listener) => {
+        onFileChanged = listener;
+        return vi.fn();
+      }),
+    });
+    useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
+    useWorkflowStore.setState({ workflows: [] });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+    initFileCollectionWatcher();
+    const change = (file: string) =>
+      onFileChanged?.({
+        type: 'modified',
+        filePath: `/tmp/demo/${file}`,
+        directoryPath: '/tmp/demo',
+      });
+
+    // 1. A second external change while already in conflict keeps the conflict.
+    useCollectionStore.getState().updateCollection('c1', { name: 'Local edit' });
+    change('a.yaml');
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('conflict');
+    change('b.yaml');
+    await Promise.resolve();
+    expect(loadFromDirectory).not.toHaveBeenCalled();
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('conflict');
+    expect(useCollectionStore.getState().collections[0]?.name).toBe('Local edit');
+
+    // 2. A failed save leaves unsaved local changes: an external change is a conflict.
+    useFileCollectionStore.getState().markAsSynced('c1');
+    useFileCollectionStore.getState().clearConflicts('c1');
+    useCollectionStore.getState().updateCollection('c1', { name: 'Unsaved' });
+    const collection = useCollectionStore.getState().getCollectionById('c1');
+    await saveCollectionToDirectory(collection!, '/tmp/demo');
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('error');
+    change('c.yaml');
+    await Promise.resolve();
+    expect(loadFromDirectory).not.toHaveBeenCalled();
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('conflict');
+
+    // 3. An edit made while in a (load) error state is still tracked as unsaved.
+    useFileCollectionStore.getState().markAsSynced('c1');
+    useFileCollectionStore.getState().updateSyncState('c1', 'error', 'invalid disk data');
+    useCollectionStore.getState().updateCollection('c1', { name: 'Edited during error' });
+    change('d.yaml');
+    await Promise.resolve();
+    expect(loadFromDirectory).not.toHaveBeenCalled();
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('conflict');
+  });
+
+  it('clears stale conflicts once the collection is reloaded from disk', async () => {
+    const { useFileCollectionStore } = await import('../useFileCollectionStore');
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+    useFileCollectionStore.getState().addConflict({
+      collectionId: 'c1',
+      itemName: 'a.yaml',
+      filePath: '/tmp/demo/a.yaml',
+      localModified: 1,
+      externalModified: 2,
+    });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+    expect(useFileCollectionStore.getState().conflicts).toEqual([]);
+  });
+
   it('reloads clean external changes and surfaces load failures', async () => {
     const { useFileCollectionStore, initFileCollectionWatcher } = await import(
       '../useFileCollectionStore'

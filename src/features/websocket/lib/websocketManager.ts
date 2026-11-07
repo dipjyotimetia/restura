@@ -628,7 +628,14 @@ class WebSocketManager {
   }
 
   cleanup(): void {
-    for (const [connectionId] of this.connections) {
+    // Browser sockets, Electron-managed connections and connections waiting on
+    // a reconnect timer all need tearing down — not only browser sockets.
+    const ids = new Set<string>([
+      ...this.connections.keys(),
+      ...this.electronConnections,
+      ...this.reconnectTimeouts.keys(),
+    ]);
+    for (const connectionId of ids) {
       this.disconnect(connectionId);
     }
   }

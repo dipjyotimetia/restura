@@ -39,6 +39,7 @@ import {
   type KafkaConsumerSession,
   subscriptionSession,
 } from './kafka/consumer-session';
+import { closeConsumerAndStream } from './kafka/consumer-teardown';
 import { type OrderedDelivery, UNSUBSCRIBE_DRAIN_MS } from './kafka/ordered-delivery';
 import { partitionKey } from './kafka/partition-pause';
 import {
@@ -116,34 +117,6 @@ function disposePendingKafkaClaim(claim: KafkaClaimFields): void {
   claim.pendingProducer = undefined;
 }
 
-/**
- * Queued records get `drainMs` to reach the renderer before the rest are
- * aborted, then the session commits what was actually sent. Browse has nothing
- * to commit, so its queue is always aborted at once.
- */
-async function closeConsumerAndStream(entry: ActiveKafka, drainMs = 0): Promise<void> {
-  await (entry.session?.close(drainMs) ?? entry.browse?.close());
-  if (entry.stream) {
-    try {
-      await Promise.resolve(entry.stream.close());
-    } catch {
-      /* ignore */
-    }
-    entry.stream = undefined;
-    entry.session = undefined;
-    entry.browse = undefined;
-  }
-  if (entry.consumer) {
-    try {
-      await Promise.resolve(entry.consumer.close(true));
-    } catch {
-      /* ignore */
-    }
-    entry.consumer = undefined;
-  }
-  entry.pendingCommits.clear();
-}
-
 async function closeConnection(entry: ActiveKafka): Promise<void> {
   await closeConsumerAndStream(entry);
   await closeKafkaProducerSessions(entry);
@@ -218,7 +191,21 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
   return {
     deliver: (msg, signal) => emitConsumedMessage(entry, msg, signal),
     onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
-    onClose: () => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}),
+    // A stream ending on its own frees the consumer slot before reporting it, or
+    // the next subscribe is refused ("Already subscribed") while the UI is idle.
+    // Queued records drain first (browse: its queue goes idle; group: the drain
+    // window), and only this subscription's consumer is torn down.
+    onClose: () => {
+      const consumer = entry.consumer;
+      void Promise.resolve(entry.browse?.idle)
+        .then(() =>
+          entry.consumer === consumer
+            ? closeConsumerAndStream(entry, UNSUBSCRIBE_DRAIN_MS)
+            : undefined
+        )
+        .catch((err) => log.warn('consumer teardown failed', { error: errorMessage(err) }))
+        .finally(() => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}));
+    },
     onAssignment: (assigned) => pruneRevokedCommitTokens(entry, assigned),
   };
 }

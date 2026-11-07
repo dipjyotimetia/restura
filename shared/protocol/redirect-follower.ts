@@ -252,11 +252,13 @@ function nextHop(
   stripOnOriginChange: (name: string) => boolean,
   options: FollowRedirectsOptions
 ): FetcherRequest | undefined {
+  // A 3xx without Location is the final response, even at the hop limit —
+  // check it before the budget so it is returned rather than refused.
+  const location = getLocationHeader(response.headers);
+  if (!location) return undefined;
   if (hops >= maxHops) {
     throw new RedirectPolicyError(`Too many redirects (>${maxHops})`);
   }
-  const location = getLocationHeader(response.headers);
-  if (!location) return undefined;
 
   let nextUrl: string;
   try {

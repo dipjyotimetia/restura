@@ -362,6 +362,38 @@ describe('kafkaManager (Electron path)', () => {
       ]);
     });
 
+    it('keeps the consumer subscribed when main refuses the unsubscribe', async () => {
+      const { kafka, id } = await subscribed();
+      kafka.unsubscribe.mockResolvedValueOnce({ success: false, error: 'commit failed' });
+      await kafkaManager.unsubscribe(id);
+      const conn = useKafkaStore.getState().connections[id]!;
+      expect(conn.consumer.status).toBe('subscribed');
+      expect(conn.messages.at(-1)).toMatchObject({
+        value: 'commit failed',
+        error: 'commit failed',
+      });
+      // "Not connected" means main holds nothing: the consumer does go idle.
+      kafka.unsubscribe.mockResolvedValueOnce({ success: false, error: 'Not connected' });
+      await kafkaManager.unsubscribe(id);
+      expect(useKafkaStore.getState().connections[id]!.consumer.status).toBe('idle');
+    });
+
+    it('never leaves a subscribed consumer on a closed connection', async () => {
+      const { emit, id } = await subscribed();
+      expect(useKafkaStore.getState().connections[id]!.consumer.status).toBe('subscribed');
+      emit(kafkaChannel(KAFKA_CHANNEL.CLOSE, id), {});
+      const conn = useKafkaStore.getState().connections[id]!;
+      expect(conn.status).toBe('disconnected');
+      expect(conn.consumer.status).toBe('idle');
+    });
+
+    it('ignores a late consumer-closed while a new subscribe is in flight', async () => {
+      const { emit, id } = await subscribed();
+      useKafkaStore.getState().updateConsumer(id, { status: 'subscribing' });
+      emit(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, id), {});
+      expect(useKafkaStore.getState().connections[id]!.consumer.status).toBe('subscribing');
+    });
+
     it('flushes buffered records before consumer-closed, error, and disconnect bookkeeping', async () => {
       vi.useFakeTimers();
       const { emit, id } = await subscribed();

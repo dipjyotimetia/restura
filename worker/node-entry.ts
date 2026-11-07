@@ -162,9 +162,20 @@ const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) =>
 
 injectWebSocket(server);
 
+let shuttingDown = false;
 const shutdown = (signal: NodeJS.Signals): void => {
+  // A second signal (SIGINT then SIGTERM, or a double Ctrl-C) must not call
+  // close() again or arm a second hard-exit timer.
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`[restura] received ${signal}, draining connections`);
-  server.close(() => process.exit(0));
+  server.close((err) => {
+    if (err) console.error('[restura] server close failed:', err.message);
+    process.exit(err ? 1 : 0);
+  });
+  // close() only stops accepting: idle keep-alive sockets would otherwise hold
+  // the drain open until the 10s backstop below (and exit 1).
+  if ('closeIdleConnections' in server) server.closeIdleConnections();
   setTimeout(() => process.exit(1), 10_000).unref();
 };
 process.on('SIGINT', shutdown);

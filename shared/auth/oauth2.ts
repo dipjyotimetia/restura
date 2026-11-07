@@ -313,8 +313,9 @@ export async function pollForDeviceToken(
   maxAttempts = 60,
   options?: OAuth2TokenRequestOptions
 ): Promise<OAuth2TokenResponse> {
+  let interval = intervalSeconds;
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, intervalSeconds * 1000));
+    await abortableDelay(interval * 1000, options?.signal);
 
     const params: Record<string, string> = {
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
@@ -326,10 +327,14 @@ export async function pollForDeviceToken(
       return await postToken(config.tokenUrl, params, options);
     } catch (err) {
       // RFC 8628 §3.5 — keep polling on these two codes; any other error is terminal
-      if (
-        err instanceof OAuth2TokenError &&
-        (err.errorCode === 'authorization_pending' || err.errorCode === 'slow_down')
-      ) {
+      if (err instanceof OAuth2TokenError && err.errorCode === 'authorization_pending') {
+        continue;
+      }
+      // RFC 8628 §3.5: slow_down means "and increase the interval by 5 seconds
+      // for this and all subsequent requests" — polling at the old rate keeps
+      // tripping the server's rate limit.
+      if (err instanceof OAuth2TokenError && err.errorCode === 'slow_down') {
+        interval += 5;
         continue;
       }
       throw err;
@@ -337,6 +342,25 @@ export async function pollForDeviceToken(
   }
 
   throw new Error('Device code flow timed out');
+}
+
+/** Wait `ms`, rejecting with the signal's reason as soon as it aborts (a cancelled poll). */
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('Aborted'));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new Error('Aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 export interface RefreshTokenConfig {

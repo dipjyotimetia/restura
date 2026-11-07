@@ -286,9 +286,15 @@ describe('socketioManager (browser)', () => {
     expect(conn().events.at(-1)).toMatchObject({ eventName: 'reconnect', args: [{ attempt: 2 }] });
     sock.managerListeners.get('reconnect_failed')?.();
     expect(conn().events.at(-1)).toMatchObject({ eventName: 'reconnect_failed' });
+    // A recoverable drop keeps the socket active: the manager will retry, so
+    // the status is "reconnecting", never a transient "disconnected".
     sock.listeners.get('disconnect')?.('transport close');
-    expect(conn().status).toBe('disconnected');
+    expect(conn().status).toBe('reconnecting');
     expect(conn().events.at(-1)).toMatchObject({ eventName: 'disconnect' });
+    // A server-initiated disconnect deactivates the socket: no retry follows.
+    sock.active = false;
+    sock.listeners.get('disconnect')?.('io server disconnect');
+    expect(conn().status).toBe('disconnected');
   });
 
   it('stops connecting when server middleware refuses the handshake', () => {

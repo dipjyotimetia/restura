@@ -2,7 +2,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import type { DeepLinkImportFormat } from '@shared/deep-link';
 import { load } from 'js-yaml';
 import { Check, Download, Link, Lock, Upload, X } from 'lucide-react';
-import { type ChangeEvent, type DragEvent, useEffect, useState } from 'react';
+import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
 import {
@@ -21,6 +21,7 @@ import {
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
 import { importPostmanV3Files } from '@/features/collections/lib/importers/postman';
+import { useResettableTimeout } from '@/hooks/useResettableTimeout';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 import { assertValidEnvironments } from '@/lib/shared/store-validators';
@@ -83,6 +84,12 @@ export default function ImportDialog({
   useEffect(() => {
     if (deepLinkSource?.format) setActiveFormat(deepLinkSource.format);
   }, [deepLinkSource]);
+
+  // Auto-close after success / error reset; cancelled on close-reopen and unmount.
+  const scheduleStatusTimer = useResettableTimeout([open]);
+  // Confirm is async (secret-handle conversion): a second click must not import twice.
+  const [confirming, setConfirming] = useState(false);
+  const confirmingRef = useRef(false);
 
   const format = FORMATS.find((f) => f.id === activeFormat) ?? FORMATS[0]!;
   const features = FEATURE_LISTS[activeFormat];
@@ -209,8 +216,20 @@ export default function ImportDialog({
   };
 
   const confirmImport = async () => {
-    if (!pendingOutcome) return;
-    const outcome = pendingOutcome;
+    if (!pendingOutcome || confirmingRef.current) return;
+    confirmingRef.current = true;
+    setConfirming(true);
+    try {
+      await commitPendingImport(pendingOutcome);
+    } catch (error) {
+      handleImportError(error);
+    } finally {
+      confirmingRef.current = false;
+      setConfirming(false);
+    }
+  };
+
+  const commitPendingImport = async (outcome: PendingOutcome) => {
     assertValidEnvironments('kind' in outcome ? [outcome.environment] : outcome.environments);
     if ('kind' in outcome) {
       addEnvironment(outcome.environment);
@@ -221,7 +240,7 @@ export default function ImportDialog({
       setReviewFormat(null);
       // Like collection imports, stay open while there are warnings to read.
       if (outcome.warnings.length === 0) {
-        setTimeout(() => {
+        scheduleStatusTimer(() => {
           onOpenChange(false);
           setImportStatus('idle');
           setEnvironmentOnlyName(null);
@@ -241,7 +260,7 @@ export default function ImportDialog({
     setPendingOutcome(null);
     setReviewFormat(null);
     if (outcome.warnings.length === 0) {
-      setTimeout(() => {
+      scheduleStatusTimer(() => {
         onOpenChange(false);
         setImportStatus('idle');
       }, 1500);
@@ -297,7 +316,7 @@ export default function ImportDialog({
   const handleImportError = (error: unknown) => {
     setImportStatus('error');
     setErrorMessage(error instanceof Error ? error.message : 'Failed to import collection');
-    setTimeout(() => setImportStatus('idle'), 3000);
+    scheduleStatusTimer(() => setImportStatus('idle'), 3000);
   };
 
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -546,8 +565,9 @@ export default function ImportDialog({
                 <div className="mt-3 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => void confirmImport().catch(handleImportError)}
-                    className="rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                    onClick={() => void confirmImport()}
+                    disabled={confirming}
+                    className="rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent disabled:opacity-60"
                   >
                     Confirm import
                   </button>
