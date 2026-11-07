@@ -38,7 +38,7 @@ import {
   copyBugReportScreenshot,
 } from '@/lib/shared/bug-report-client';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { LazyDialogFallback, lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, onMenuEvent, openExternalUrl } from '@/lib/shared/platform';
 import { shortcutCombo } from '@/lib/shared/shortcuts';
 import { useActiveTab } from '@/store/selectors';
@@ -53,8 +53,14 @@ import { WindowFileDrop } from './components/WindowFileDrop';
 import { useWelcomeAutoDismiss } from './useWelcomeAutoDismiss';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
-const CommandPalette = lazyComponent(() => import('@/components/shared/CommandPalette'));
-const SettingsDrawer = lazyComponent(() => import('@/components/shared/SettingsDrawer'));
+const CommandPalette = lazyComponent(
+  () => import('@/components/shared/CommandPalette'),
+  <LazyDialogFallback label="Loading command palette…" />
+);
+const SettingsDrawer = lazyComponent(
+  () => import('@/components/shared/SettingsDrawer'),
+  <LazyDialogFallback label="Loading settings…" />
+);
 const EnvironmentManager = lazyComponent(
   () => import('@/features/environments/components/EnvironmentManager')
 );
