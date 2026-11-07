@@ -39,7 +39,7 @@ function MessageImpl({ message, onRetry }: Props) {
         )}
       >
         {asMarkdown ? (
-          <MarkdownPreview source={message.text} />
+          <MarkdownPreview source={message.text} untrusted />
         ) : (
           message.text ||
           (message.status === 'streaming' ? (
