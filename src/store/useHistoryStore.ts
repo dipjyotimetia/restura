@@ -1,6 +1,11 @@
+import { redactUrlCredentialsForStorage } from '@shared/collections/postman/text-redaction';
+import { redactSecretKeyValues } from '@shared/secrets/key-value-redaction';
+import { REQUEST_SECRET_SLOTS } from '@shared/secrets/request-secret-slots';
+import { blankSecretSlots } from '@shared/secrets/secret-slot';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { redactSetCookie } from '@/lib/shared/console-sanitization';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import type { HistoryItem, Request, Response } from '@/types';
@@ -42,10 +47,38 @@ const DEFAULT_PAGE_SIZE = 20;
  * not copied into every history entry. Re-opening from history falls back to
  * the per-URL introspection cache.
  */
-function toHistoryRequest(request: Request): Request {
-  if (request.type !== 'http' || request.graphqlSchema === undefined) return request;
-  const { graphqlSchema: _omitted, ...rest } = request;
-  return rest;
+// `auth` is excluded: it already persists as SecretRef handles (ADR-0007) and
+// re-opening an entry should keep the credential attached.
+const HISTORY_SECRET_SLOTS = REQUEST_SECRET_SLOTS.filter((slot) => slot.name !== 'auth');
+
+/**
+ * Credentials typed anywhere other than the structured `auth` block (inline
+ * `Authorization` header, `?api_key=` query, gRPC metadata, URL userinfo,
+ * credential-named form rows) are blanked before the entry is persisted (#924).
+ * The row is kept so the request shape survives; the user re-enters the value.
+ */
+export function toHistoryRequest(request: Request): Request {
+  const slim =
+    request.type === 'http' && request.graphqlSchema !== undefined
+      ? (({ graphqlSchema: _omitted, ...rest }) => rest)(request)
+      : request;
+  return blankSecretSlots(HISTORY_SECRET_SLOTS, { ...slim }) as Request;
+}
+
+/** Response headers and cookies carry session credentials (`Set-Cookie`, tokens). */
+export function toHistoryResponse(response: Response): Response {
+  const headers: Record<string, string | string[]> = {};
+  for (const [key, value] of Object.entries(response.headers ?? {})) {
+    const redacted = redactSecretKeyValues([
+      { key, value: Array.isArray(value) ? value.join(', ') : value },
+    ]);
+    headers[key] = redacted?.[0]?.value === '' && value !== '' ? '' : value;
+  }
+  return {
+    ...response,
+    headers,
+    ...(response.setCookies && { setCookies: response.setCookies.map(redactSetCookie) }),
+  };
 }
 
 export const useHistoryStore = create<HistoryState>()(
@@ -70,8 +103,10 @@ export const useHistoryStore = create<HistoryState>()(
             // A timestamp alone collides for two sends in one millisecond.
             id: `history-${uuidv4()}`,
             request: toHistoryRequest(request),
-            ...(response !== undefined && { response }),
-            ...(resolvedUrl !== undefined && { resolvedUrl }),
+            ...(response !== undefined && { response: toHistoryResponse(response) }),
+            ...(resolvedUrl !== undefined && {
+              resolvedUrl: redactUrlCredentialsForStorage(resolvedUrl),
+            }),
             timestamp: Date.now(),
           };
 

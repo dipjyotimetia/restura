@@ -156,7 +156,10 @@ export function useCollectionSidebarCommands() {
       } else {
         const { exportBrunoCollection } = await import('../lib/bruno-exporter');
         const exported = await exportBrunoCollection(collection, {
-          environments: useEnvironmentStore.getState().environments,
+          // Only this collection's own environments — never other collections' or globals.
+          environments: useEnvironmentStore
+            .getState()
+            .environments.filter((environment) => environment.collectionId === collection.id),
         });
         if (exported.kind !== 'directory') return;
         const api = getElectronAPI();
