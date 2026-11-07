@@ -332,7 +332,9 @@ describe('RequestBuilderTabs body panel', () => {
   });
 
   it('passes the body, schema and GraphQL variables through to the editor', () => {
-    const graphqlSchema = { sdl: 'type Query { a: Int }' } as HttpRequest['graphqlSchema'];
+    const graphqlSchema = { sdl: 'type Query { a: Int }' } as NonNullable<
+      HttpRequest['graphqlSchema']
+    >;
     const { fn } = renderTabs(
       {
         ...base,
