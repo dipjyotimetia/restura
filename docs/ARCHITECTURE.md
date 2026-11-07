@@ -194,7 +194,7 @@ restura/
 │   │   ├── collections/          # Sidebar, CollectionRunner, importers, exporters
 │   │   ├── environments/         # EnvironmentManager
 │   │   ├── registry/             # Service/schema registry
-│   │   ├── contracts/            # OpenAPI contract testing
+│   │   ├── contracts/            # OpenAPI contract testing (eval-free JSON Schema check, not Ajv; OpenAPI 3.0 nullable + boolean exclusive bounds normalised)
 │   │   ├── auth/                 # AuthConfig (shared across protocols)
 │   │   └── scripts/              # ScriptsEditor, scriptExecutor (QuickJS sandbox)
 │   │
@@ -556,7 +556,7 @@ Stores built with `createPersistedStore` (`src/lib/shared/persistence/createPers
 - Web permissions are default-deny: `session.defaultSession.setPermissionRequestHandler` / `setPermissionCheckHandler` reject every permission except `clipboard-sanitized-write` (used by copy buttons); any new permission requires an explicit allowlist change in `electron/main/main.ts` (see ADR-0026)
 - Production CSP pins `object-src 'none'` and `worker-src 'self' file:` in addition to the script/style/connect policy; the header CSP in `electron/main/main.ts` and the `<meta>` fallback in `vite.config.mts` are kept identical, enforced by `electron/main/__tests__/security-hardening.test.ts`
 - Removed unnecessary `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` (the app is a client only)
-- Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active
+- Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active. A plaintext fallback key is re-sealed (same key) once the keychain is available; a sealed key with no keychain fails closed (that store is unavailable for the session, never reset); Linux `basic_text` counts as plaintext in the keychain status (`electron/main/security/encrypted-key.ts`)
 - Renderer-cleanup deduplication via `electron/main/ipc/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers; `StreamRegistry` also holds the connect claim across the awaited dial (reserve, then commit or release), and a claim is dropped when its renderer is destroyed
 - Connect-time DNS-rebind pinning for HTTP, gRPC, WebSocket, and SSE (undici `Agent.connect.lookup`, `connect-node`'s `nodeOptions.lookup`, and `electron/main/security/safe-connect.ts`'s `createPinnedLookup` / `createPinnedFetch`); pre-flight DNS guard via `electron/main/security/dns-guard.ts` covers the rest (Socket.IO, MCP, gRPC reflection, Kafka, MQTT)
 

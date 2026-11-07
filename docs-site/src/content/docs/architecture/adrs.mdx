@@ -52,6 +52,7 @@ timeline
              : 0040 — Random install ID for Release Health
   2026-11-03 : 0041 — Desktop MCP control server
              : 0042 — Rate-limit principal and trusted proxy
+  2026-11-07 : 0043 — Electron Git runtime hardening
 ```
 
 <CardGrid>
@@ -264,6 +265,11 @@ timeline
     title="0042 — Rate-limit principal and trusted proxy"
     description="The rate-limit bucket is client IP plus the principal the auth middleware verified; self-host Node keys on the socket peer unless TRUST_PROXY=true."
     href="/architecture/adrs/0042-rate-limit-principal-and-trusted-proxy/"
+  />
+  <LinkCard
+    title="0043 — Electron Git runtime hardening"
+    description="Desktop Git runs with repo hooks and diff.external disabled and safe.bareRepository=explicit, and the renderer file API refuses paths inside .git/, so an untrusted collection repo or a compromised renderer cannot make main execute a program."
+    href="/architecture/adrs/0043-electron-git-runtime-hardening/"
   />
 </CardGrid>
 

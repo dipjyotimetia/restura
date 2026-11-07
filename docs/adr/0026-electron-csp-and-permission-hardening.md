@@ -28,6 +28,10 @@ Two renderer-facing hardening gaps survived the earlier security passes (ADR-000
 - Any future feature that needs a web permission (e.g. camera/microphone, web notifications) must add it to `ALLOWED_WEB_PERMISSIONS` **and** update the structural test — an explicit, reviewable security decision.
 - The CSP is still maintained in two places (a runtime header and a build-time meta tag); the test reduces but does not remove that duplication.
 
+## Amendment (2026-11-07): no Ajv in renderer-reachable code
+
+The no-`unsafe-eval` script policy also blocks Ajv, which compiles validators with `new Function`. AI Lab scorers, agent-suite graders (`shared/agent-lab`) and contract checks (`src/features/contracts/lib/validator.ts`) were silently broken on the packaged desktop app. They now use the eval-free, interpreter-style checker in `shared/protocol/json-schema-check.ts` (a keyword subset, listed in its header; unsupported keywords are annotations). Contract checks first normalise OpenAPI 3.0 `nullable` and boolean `exclusiveMinimum` / `exclusiveMaximum`. Ajv stays in Node-only code (Electron main, CLI, Worker), e.g. the Kafka JSON Schema codec. An architecture ratchet (ADR 0028) keeps Ajv imports out of `src/` and `shared/`.
+
 ## References
 
 - Code: `electron/main/main.ts` (`setupPermissionHandlers`, `setupContentSecurityPolicy`), `vite.config.mts` (`ELECTRON_RENDERER_CSP`), `electron/main/__tests__/security-hardening.test.ts`

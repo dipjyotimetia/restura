@@ -87,12 +87,12 @@ A cell passes only when its model call succeeded **and** every scorer passed. Ea
 | `contains` | Output contains a substring. |
 | `regex` | Output matches a pattern (invalid pattern → fail). |
 | `json-valid` | Output parses as JSON. |
-| `json-schema` | Output is JSON valid against a supplied JSON Schema (Ajv). |
+| `json-schema` | Output is JSON valid against a supplied JSON Schema (eval-free subset: `format`, `not`, `if`/`then`/`else`, `uniqueItems`, `multipleOf`, `patternProperties`, tuple `items` and remote `$ref` are not enforced; a schema too complex to check fails the scorer). |
 | `latency` | Round-trip ≤ `maxMs`. |
 | `cost` | Estimated USD ≤ `maxUSD`. **Unknown cost fails** — an unpriced gateway can't satisfy a budget. |
 | `script` | A [QuickJS](/architecture/adrs/0015-quickjs-script-sandbox/) test script passes (the output is exposed as `pm.response.text()`). |
 | `judge` | An **LLM-as-judge** scores the output ≥ a pass threshold. |
-| `tool-call` | The model called the expected tool, and its JSON arguments validate against a JSON Schema and/or match the case's `expected` / `reference` args. |
+| `tool-call` | The model called the expected tool, and its JSON arguments validate against a JSON Schema (same subset as `json-schema`) and/or match the case's `expected` / `reference` args. |
 | `pairwise` | A **preference judge** prefers the cell output over the case's `reference` (head-to-head A/B, with optional position-bias swap). |
 
 ### LLM-as-judge
@@ -165,8 +165,8 @@ These three have no static price table, so their cost shows as unknown.
 Agent telemetry is optional and **off by default**. It is available only in the desktop AI Lab and the `restura agent eval` CLI; the web app and Worker never export it. When you turn it on, Restura sends traces to **Langfuse** (via its OpenTelemetry processor) or to any **OTLP/HTTP** collector.
 
 - **Metadata only.** Exported spans carry allowlisted fields: suite, task and agent identifiers, timing, model and provider names, token and cost totals, tool names and outcomes, and aggregate evaluation state. Prompts, model responses, tool arguments and output, URLs, request bodies, headers, credentials and error text are never exported.
-- **Desktop.** Configure the destination in the AI Lab telemetry panel. It accepts HTTPS endpoints and local loopback HTTP collectors, and rejects endpoints with query strings, fragments or embedded credentials. Langfuse and OTLP credentials are stored as keychain handles and resolved only in the Electron main process.
-- **CI.** Pass `--telemetry-config telemetry.json`; credentials must be environment references (`{ "source": "env", "name": "LANGFUSE_SECRET_KEY" }`), never inline values. See the [CLI reference](/reference/cli/).
+- **Desktop.** Configure the destination in the AI Lab telemetry panel. It accepts HTTPS endpoints and local loopback HTTP collectors, and rejects endpoints with query strings, fragments or embedded credentials. Langfuse and OTLP credentials are stored as keychain handles and resolved only in the Electron main process. The desktop app refuses environment-variable (`source: "env"`) credential references; those work only in the CLI.
+- **CI.** Pass `--telemetry-config telemetry.json`; in the CLI, credentials must be environment references (`{ "source": "env", "name": "LANGFUSE_SECRET_KEY" }`), never inline values. See the [CLI reference](/reference/cli/).
 - **OpenInference spans.** Each trace is a root `AGENT` span with `LLM` (model call) and `TOOL` child spans, using `openinference.span.kind` and the OpenTelemetry `gen_ai.*` attributes. See the full attribute list in `docs/AGENT_TELEMETRY.md`.
 - **Best-effort.** A failed export is reported locally and never changes a suite's pass/fail exit code.
 

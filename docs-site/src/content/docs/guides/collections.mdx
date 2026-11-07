@@ -84,9 +84,11 @@ The Git dialog supports status and diffs, staging, commits, branches, fetch/pull
    - OpenCollection YAML gets field-level choices for mapping values. Lists remain atomic, avoiding surprising item-by-item merges.
    - Other text files show base, local, and incoming versions with an editable result.
    - Binary, oversized, and symlink conflicts offer whole-file choices. Submodules must be resolved with Git outside Restura.
-4. When all conflicts are resolved, review the merge message and choose **Commit merge**. This is an ordinary non-fast-forward Git commit, so configured commit hooks and signing still apply.
+4. When all conflicts are resolved, review the merge message and choose **Commit merge**. This is an ordinary non-fast-forward Git commit, so configured signing still applies.
 
 You can close the dialog or restart Restura during a conflict; reopening **Git…** reconstructs the merge from Git’s metadata and index. **Abort merge** restores the exact pre-merge state after confirmation.
+
+Restura runs Git with repository hooks disabled (`core.hooksPath` set to the null device) and `diff.external` turned off, so hooks such as husky or commitlint do not run for commits, merges or pulls made from Restura's Git dialog; run them from a terminal if you rely on them. Restura's file access also refuses paths inside `.git/`.
 
 Merging requires a clean working tree and an attached branch. Restura will not start a merge during a rebase, cherry-pick, or revert. **Pull** remains fast-forward-only; use the explicit merge workflow when histories diverge.
 

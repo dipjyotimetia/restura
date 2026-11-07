@@ -142,3 +142,11 @@ are not converted to handles: desktop keeps them as secret-flagged env vars
 and web drops them. Keychain handles for env vars remain a follow-up.
 
 **Update 2026-10-31:** A secret variable, SecretRef-backed or plaintext, resolves only from a token written in the field being sent, never through another variable's value; the renderer decides this before sending, and a reference through a value fails the send. A token endpoint value holding a variable token is refused and never stored. `pm.sendRequest` never resolves secret variables; a token naming one refuses the sub-request. A script-written request field cannot add a secret token; only tokens already in the saved field count as written.
+
+**Update 2026-11-07:** The "Loss of OS keychain" row covers only an install
+that never had a keychain. A plaintext fallback key is re-sealed into the
+keychain (same key, no reset) once one is available. A key file already
+sealed by the keychain fails closed while the keychain is unavailable: its
+store stays unopened that session instead of being reset or regenerated
+(`electron/main/security/encrypted-key.ts`). Linux `basic_text` storage is
+reported as plaintext in the keychain status.
