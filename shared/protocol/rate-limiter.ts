@@ -135,8 +135,13 @@ export function createIsolateRateLimiter(
       pruneOldEntries(now);
       lastPrune = now;
     }
-    const timestamps = requestLog.get(ip) ?? [];
+    // Prune this client's own log against the window on every check: the
+    // global sweep only runs every `pruneIntervalMs`, and relying on it alone
+    // kept a client blocked for up to that long after its window had passed.
+    const cutoff = now - windowMs;
+    const timestamps = (requestLog.get(ip) ?? []).filter((t) => t > cutoff);
     if (timestamps.length >= maxRequests) {
+      requestLog.set(ip, timestamps);
       return c.json(
         { error: `Rate limit exceeded. Maximum ${maxRequests} requests per minute.` },
         429,

@@ -643,6 +643,46 @@ describe('proxy handler', () => {
       expect(res.headers.get('x-restura-proxy-stream')).toBe('1');
     });
 
+    it.each([
+      ['GET', 204, 204],
+      ['GET', 205, 205],
+      // 304 is browser-actionable, so it goes out as 200 with the real status on the side channel.
+      ['GET', 304, 200],
+    ])(
+      'streams %s %i (null upstream body) as status %i with no body, not a 502',
+      async (method, status, wire) => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status })));
+        const res = await makeRequest({
+          method,
+          url: 'https://example.com/raw',
+          streamingMode: true,
+        });
+        expect(res.status).toBe(wire);
+        expect(res.headers.get('x-restura-upstream-status')).toBe(String(status));
+        expect(res.headers.get('x-restura-proxy-stream')).toBe('1');
+        expect(await res.text()).toBe('');
+      }
+    );
+
+    it('streams a HEAD response (null upstream body) as its status with no body', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValue(
+            new Response(null, { status: 200, headers: { 'content-length': '1234' } })
+          )
+      );
+      const res = await makeRequest({
+        method: 'HEAD',
+        url: 'https://example.com/raw',
+        streamingMode: true,
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-restura-upstream-status')).toBe('200');
+      expect(await res.text()).toBe('');
+    });
+
     it('carries finalUrl and every hop cookie in the cookie-hops side channel', async () => {
       const first = new Headers({ location: 'https://example.com/home?q=1' });
       first.append('Set-Cookie', 'sid=abc; Path=/');

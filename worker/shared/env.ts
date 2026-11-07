@@ -19,6 +19,20 @@ export function isLocalDevBypass(env: Env): boolean {
 }
 
 /**
+ * Process-level DNS-guard options for the Node/self-host adapters (CONNECT /
+ * HTTP upstream proxy, Node WebSocket). Uses the same gate as every handler
+ * (`isLocalDevBypass`): ENVIRONMENT='development' alone MUST NOT allow
+ * loopback dials. Node has no Miniflare, so localhost is only allowed with an
+ * explicit DEV_BYPASS_AUTH=true.
+ */
+export function nodeDnsGuardOptions(env: Env): {
+  allowLocalhost: boolean;
+  allowPrivateIPs: boolean;
+} {
+  return { allowLocalhost: isLocalDevBypass(env), allowPrivateIPs: allowPrivateIPs(env) };
+}
+
+/**
  * Self-hosted enterprises opt into RFC 1918 / link-local / CGNAT upstreams
  * via `ALLOW_PRIVATE_IPS=true`. Centralised so call-sites can't drift on
  * the env-var name or the truthiness check (`'true'` vs `'1'` vs etc.).

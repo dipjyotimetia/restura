@@ -147,6 +147,38 @@ describe('readHttpResponse — bodies without Content-Length are read to EOF', (
     expect(res.status).toBe(204);
   });
 
+  it('does not wait for a body on a HEAD response with Content-Length (RFC 9112 §6.3)', async () => {
+    const sock = fakeSocket();
+    state.next = sock;
+    // Never ends: a reader waiting for 1234 body bytes would hang.
+    sock.onWrite = (s) => s.push('HTTP/1.1 200 OK\r\nContent-Length: 1234\r\n\r\n');
+    const res = await httpViaProxy(
+      new URL('http://example.com/'),
+      PROXY,
+      { method: 'HEAD' },
+      new AbortController().signal
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-length')).toBe('1234');
+    expect(res.body).toBeNull();
+  });
+
+  it('httpsViaConnectProxy accepts a HEAD response closed right after the head', async () => {
+    const tlsSock = seedTunnel();
+    tlsSock.onWrite = (s) => {
+      s.push('HTTP/1.1 200 OK\r\nContent-Length: 1234\r\n');
+      s.push('\r\n');
+      s.end();
+    };
+    const res = await httpsViaConnectProxy(
+      new URL('https://example.com/'),
+      PROXY,
+      { method: 'HEAD' },
+      new AbortController().signal
+    );
+    expect(res.status).toBe(200);
+  });
+
   it('still stops at Content-Length without waiting for EOF', async () => {
     const sock = fakeSocket();
     state.next = sock;

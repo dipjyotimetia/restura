@@ -36,9 +36,24 @@ const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB cap on JSON-RPC replies
 
 interface JsonRpcReply {
   jsonrpc: '2.0';
-  id?: string | number;
+  id?: string | number | null;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
+}
+
+/**
+ * Whether `parsed` is the JSON-RPC response to the request with `expectedId`:
+ * a single object (not a batch array), no `method`, a `result` or `error`, and
+ * the same id — or a null id carrying an error (JSON-RPC 2.0 §5).
+ */
+function isReplyTo(
+  parsed: unknown,
+  expectedId: string | number | undefined
+): parsed is JsonRpcReply {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false;
+  const msg = parsed as JsonRpcReply & { method?: unknown };
+  if (msg.method !== undefined || !('result' in msg || 'error' in msg)) return false;
+  return msg.id === expectedId || (msg.id === null && 'error' in msg);
 }
 
 /**
@@ -281,11 +296,19 @@ export function createMcpHandler(nodeFetch?: NodeGuardedFetch) {
           }
           throw err;
         }
+        let parsed: unknown;
         try {
-          reply = JSON.parse(text) as JsonRpcReply;
+          parsed = JSON.parse(text);
         } catch {
           return c.json({ error: 'Upstream returned invalid JSON' }, 502);
         }
+        // Same rule as the SSE branch: only the reply to THIS request id counts
+        // (a null-id error is the server's unattributable failure). A batch
+        // array, a server request or a mismatched id is not our reply.
+        if (!isReplyTo(parsed, raw.jsonRpc.id as string | number | undefined)) {
+          return c.json({ error: 'Upstream did not return a matching JSON-RPC reply' }, 502);
+        }
+        reply = parsed;
       } else if (ct.includes('text/event-stream')) {
         if (!upstream.body) {
           return c.json({ error: 'Upstream SSE response has no body' }, 502);

@@ -82,7 +82,7 @@ export interface FinalHead extends ResponseHead {
   /** Byte offset of the first body byte. */
   bodyStart: number;
   contentLength: number | null;
-  /** 204 / 304: nothing follows the head. */
+  /** 204 / 304, or any response to HEAD: nothing follows the head. */
   bodyless: boolean;
 }
 
@@ -115,8 +115,10 @@ function decodeLatin1(bytes: Uint8Array): string {
  * Latin-1, so non-ASCII header octets neither shift the body offset nor
  * become code points Headers rejects. Interim 1xx heads (100 Continue, 103
  * Early Hints) are skipped; 101 fails, since the request never asks to upgrade.
+ * A response to HEAD never has a body whatever its Content-Length (RFC 9112
+ * §6.3), so `requestMethod` must be the method that was sent.
  */
-export function findFinalHead(bytes: Uint8Array): FinalHead | null {
+export function findFinalHead(bytes: Uint8Array, requestMethod?: string): FinalHead | null {
   let start = 0;
   for (;;) {
     const end = indexOfHeadEnd(bytes, start);
@@ -134,7 +136,7 @@ export function findFinalHead(bytes: Uint8Array): FinalHead | null {
         ...head,
         bodyStart: end + 4,
         contentLength: Number.isNaN(n) ? null : n,
-        bodyless: isBodylessStatus(status),
+        bodyless: isBodylessStatus(status) || requestMethod === 'HEAD',
       };
     }
     start = end + 4;
@@ -267,19 +269,21 @@ function encodeLatin1(text: string): Uint8Array {
 
 /**
  * Build the fetch Response from a parsed reply. Null-body statuses (204, 205,
- * 304) get a null body — the Response constructor throws otherwise. Headers
- * come from the ordered list so repeated fields survive.
+ * 304) get a null body — the Response constructor throws otherwise — and so
+ * does a response to HEAD, as fetch() gives it. Headers come from the ordered
+ * list so repeated fields survive.
  */
 export function toResponse(
   statusLine: string,
   headerList: Array<[string, string]>,
-  body: Uint8Array
+  body: Uint8Array,
+  requestMethod?: string
 ): Response {
   const status = parseStatusCode(statusLine);
   // Fetch's null-body statuses (Response() throws on a body for these). This
   // differs from isBodylessStatus on purpose: that one is the HTTP message
   // rule (1xx/204/304 carry no body on the wire), this one is what Response
   // accepts (205 included). 1xx never gets here: findFinalHead skips it.
-  const nullBody = status === 204 || status === 205 || status === 304;
+  const nullBody = status === 204 || status === 205 || status === 304 || requestMethod === 'HEAD';
   return new Response(nullBody ? null : body, { status, headers: headerList });
 }
