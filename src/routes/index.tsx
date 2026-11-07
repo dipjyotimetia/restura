@@ -12,6 +12,7 @@ import { CLOSE_ACTIVE_TAB_EVENT, TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
 import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBanner';
 import WelcomeOnboarding, { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
+import { MAIN_CONTENT_ID } from '@/components/ui/app-frame';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
@@ -407,7 +408,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-full min-h-0 flex-1 overflow-hidden">
       {/* WindowChrome — fixed 44px top bar. The Sidebar lives below it so
           the chrome spans the full window width per design §3. */}
       <TopBar
@@ -445,7 +446,12 @@ export default function Home() {
 
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
           {showWelcome ? (
-            <main aria-label="Welcome" className="flex flex-1 flex-col min-h-0 overflow-hidden">
+            <main
+              id={MAIN_CONTENT_ID}
+              tabIndex={-1}
+              aria-label="Welcome"
+              className="flex flex-1 flex-col min-h-0 overflow-hidden focus:outline-none"
+            >
               <FirstRunWelcome
                 onRunDemo={handleRunDemo}
                 onNewRequest={handleWelcomeNewRequest}
@@ -456,8 +462,10 @@ export default function Home() {
             </main>
           ) : (
             <main
+              id={MAIN_CONTENT_ID}
+              tabIndex={-1}
               aria-label="Request workspace"
-              className="flex flex-1 flex-col min-h-0 overflow-hidden"
+              className="flex flex-1 flex-col min-h-0 overflow-hidden focus:outline-none"
             >
               <TabBar
                 onSaveToCollection={setSaveDialogTabId}
