@@ -10,7 +10,7 @@
 
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest, KeyValue, Request } from '@/types';
-import { type AgentToolResult, runAgentTool } from './tools';
+import { type AgentToolResult, keepsCurrentValue, runAgentTool } from './tools';
 
 export interface ProposalChange {
   label: string;
@@ -23,6 +23,12 @@ export interface ProposalChange {
 export interface ProposalPreview {
   title: string;
   changes: ProposalChange[];
+  /**
+   * A proposed value was left out of `changes` because it carried the
+   * [REDACTED] placeholder and the tool keeps the current value for it. The
+   * card then shows the raw tool input expanded, so nothing is hidden.
+   */
+  suppressed: boolean;
 }
 
 const TOOL_TITLES: Record<string, string> = {
@@ -31,8 +37,6 @@ const TOOL_TITLES: Record<string, string> = {
   update_http_request: 'Update the active request',
   enrich_docs: 'Set the request documentation',
 };
-
-const PLACEHOLDER = '[REDACTED]';
 
 function parse(raw: string): Record<string, unknown> | null {
   try {
@@ -54,19 +58,36 @@ function pairs(v: unknown): Array<{ key: string; value: string }> | undefined {
   });
 }
 
+interface Diff {
+  tool: string;
+  changes: ProposalChange[];
+  suppressed: boolean;
+}
+
+/**
+ * `field` names the tool input field, so a placeholder value is hidden only
+ * where runAgentTool really keeps the current value (keepsCurrentValue); any
+ * other value is shown verbatim because it is applied verbatim.
+ */
 function diffField(
-  out: ProposalChange[],
+  d: Diff,
+  field: string,
   label: string,
   before: string | undefined,
   after: string | undefined
 ): void {
-  if (after === undefined || after.includes(PLACEHOLDER) || after === before) return;
-  out.push(before ? { label, before, after } : { label, after });
+  if (after === undefined || after === before) return;
+  if (keepsCurrentValue(d.tool, field, after)) {
+    d.suppressed = true;
+    return;
+  }
+  d.changes.push(before ? { label, before, after } : { label, after });
 }
 
 /** Mirrors tools.ts mergeKeyValues: enabled rows matched by key; omitted rows are removed. */
 function diffKeyValues(
-  out: ProposalChange[],
+  d: Diff,
+  field: 'headers' | 'params',
   noun: string,
   current: readonly KeyValue[],
   proposed: Array<{ key: string; value: string }>,
@@ -77,17 +98,22 @@ function diffKeyValues(
     const k = keyOf(p.key);
     pending.set(k, [...(pending.get(k) ?? []), p]);
   }
+  const kept = (value: string): boolean => {
+    if (!keepsCurrentValue(d.tool, field, value)) return false;
+    d.suppressed = true;
+    return true;
+  };
   for (const row of current) {
     if (!row.enabled) continue;
     const match = pending.get(keyOf(row.key))?.shift();
-    if (!match) out.push({ label: `${noun} ${row.key}`, before: row.value });
-    else if (match.value !== row.value && !match.value.includes(PLACEHOLDER)) {
-      out.push({ label: `${noun} ${row.key}`, before: row.value, after: match.value });
+    if (!match) d.changes.push({ label: `${noun} ${row.key}`, before: row.value });
+    else if (match.value !== row.value && !kept(match.value)) {
+      d.changes.push({ label: `${noun} ${row.key}`, before: row.value, after: match.value });
     }
   }
   for (const queue of pending.values()) {
     for (const p of queue) {
-      if (!p.value.includes(PLACEHOLDER)) out.push({ label: `${noun} ${p.key}`, after: p.value });
+      if (!kept(p.value)) d.changes.push({ label: `${noun} ${p.key}`, after: p.value });
     }
   }
 }
@@ -100,43 +126,45 @@ export function describeProposal(
 ): ProposalPreview {
   const title = TOOL_TITLES[name] ?? name;
   const input = parse(rawInput);
-  const changes: ProposalChange[] = [];
-  if (!input) return { title, changes };
+  const d: Diff = { tool: name, changes: [], suppressed: false };
+  if (!input) return { title, changes: d.changes, suppressed: false };
 
   switch (name) {
     case 'create_http_request': {
       const method = (str(input.method) ?? 'GET').toUpperCase();
-      diffField(changes, 'Request', undefined, `${method} ${str(input.url) ?? ''}`.trim());
-      diffField(changes, 'Name', undefined, str(input.name));
+      diffField(d, 'url', 'Request', undefined, `${method} ${str(input.url) ?? ''}`.trim());
+      diffField(d, 'name', 'Name', undefined, str(input.name));
       for (const h of pairs(input.headers) ?? [])
-        changes.push({ label: `Header ${h.key}`, after: h.value });
-      diffField(changes, 'Body', undefined, str(input.body));
+        d.changes.push({ label: `Header ${h.key}`, after: h.value });
+      diffField(d, 'body', 'Body', undefined, str(input.body));
       break;
     }
     case 'set_test_script':
-      diffField(changes, 'Test script', active?.testScript, str(input.script));
+      diffField(d, 'script', 'Test script', active?.testScript, str(input.script));
       break;
     case 'enrich_docs':
-      diffField(changes, 'Documentation', active?.description, str(input.documentation));
+      diffField(d, 'documentation', 'Documentation', active?.description, str(input.documentation));
       break;
     case 'update_http_request': {
       const method = str(input.method);
-      diffField(changes, 'Method', active?.method, method?.toUpperCase());
-      diffField(changes, 'URL', active?.url, str(input.url));
-      diffField(changes, 'Name', active?.name, str(input.name));
+      diffField(d, 'method', 'Method', active?.method, method?.toUpperCase());
+      diffField(d, 'url', 'URL', active?.url, str(input.url));
+      diffField(d, 'name', 'Name', active?.name, str(input.name));
       const headers = pairs(input.headers);
       if (headers) {
-        diffKeyValues(changes, 'Header', active?.headers ?? [], headers, (k) =>
+        diffKeyValues(d, 'headers', 'Header', active?.headers ?? [], headers, (k) =>
           k.trim().toLowerCase()
         );
       }
       const params = pairs(input.params);
-      if (params) diffKeyValues(changes, 'Param', active?.params ?? [], params, (k) => k.trim());
-      diffField(changes, 'Body', active?.body.raw, str(input.body));
+      if (params) {
+        diffKeyValues(d, 'params', 'Param', active?.params ?? [], params, (k) => k.trim());
+      }
+      diffField(d, 'body', 'Body', active?.body.raw, str(input.body));
       break;
     }
   }
-  return { title, changes };
+  return { title, changes: d.changes, suppressed: d.suppressed };
 }
 
 /** Fields the active-request tools can change; restored as a unit on Undo. */
