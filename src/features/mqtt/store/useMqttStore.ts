@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
+import { capMessages, droppedByCap, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
 import {
@@ -140,6 +140,8 @@ export interface MqttConnection {
   // Active subscriptions
   subscriptions: MqttSubscription[];
   messages: MqttMessage[];
+  /** Runtime only: entries evicted by the 1,000-entry cap since the last clear. */
+  droppedCount?: number;
   /** Saved publishes, stored unresolved — `{{var}}` is substituted at publish time. */
   templates: MqttPublishTemplate[];
   createdAt: number;
@@ -417,7 +419,11 @@ export const useMqttStore = create<MqttState>()(
           return {
             connections: {
               ...state.connections,
-              [connectionId]: { ...conn, messages: capMessages(conn.messages, next) },
+              [connectionId]: {
+                ...conn,
+                messages: capMessages(conn.messages, next),
+                droppedCount: (conn.droppedCount ?? 0) + droppedByCap(conn.messages.length, 1),
+              },
             },
           };
         }),
@@ -441,7 +447,14 @@ export const useMqttStore = create<MqttState>()(
               ? merged.slice(merged.length - MAX_MESSAGES_PER_CONNECTION)
               : merged;
           return {
-            connections: { ...state.connections, [connectionId]: { ...conn, messages: capped } },
+            connections: {
+              ...state.connections,
+              [connectionId]: {
+                ...conn,
+                messages: capped,
+                droppedCount: (conn.droppedCount ?? 0) + (merged.length - capped.length),
+              },
+            },
           };
         }),
 
@@ -450,7 +463,10 @@ export const useMqttStore = create<MqttState>()(
           const conn = state.connections[connectionId];
           if (!conn) return state;
           return {
-            connections: { ...state.connections, [connectionId]: { ...conn, messages: [] } },
+            connections: {
+              ...state.connections,
+              [connectionId]: { ...conn, messages: [], droppedCount: 0 },
+            },
           };
         }),
 
@@ -503,6 +519,7 @@ export const useMqttStore = create<MqttState>()(
               // IPC time in the main process.
               status: 'disconnected' as const,
               messages: [] as MqttMessage[],
+              droppedCount: undefined,
               subscriptions: [] as MqttSubscription[],
               assignedClientId: undefined,
               serverTopicAliasMaximum: undefined,

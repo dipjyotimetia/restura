@@ -37,14 +37,17 @@ export function QosSelect({
   value,
   onChange,
   triggerClassName = 'h-8 text-xs',
+  id,
 }: {
   value: MqttQoS;
   onChange: (qos: MqttQoS) => void;
   triggerClassName?: string;
+  /** Lets a <Label htmlFor> name the trigger. */
+  id?: string;
 }) {
   return (
     <Select value={String(value)} onValueChange={(next) => onChange(Number(next) as MqttQoS)}>
-      <SelectTrigger className={triggerClassName}>
+      <SelectTrigger id={id} className={triggerClassName}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

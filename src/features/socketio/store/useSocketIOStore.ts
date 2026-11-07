@@ -72,6 +72,8 @@ export interface SocketIOConnection {
   status: SocketIOStatus;
   reconnectAttemptCount: number;
   events: SocketIOEvent[];
+  /** Runtime only: entries evicted by the 1,000-entry cap since the last clear. */
+  droppedCount?: number;
   subscribedEvents: string[];
   /** Saved emits, stored unresolved — `{{var}}` is substituted at emit time. */
   templates: SocketIOEmitTemplate[];
@@ -335,7 +337,9 @@ export const useSocketIOStore = create<SocketIOState>()(
             ...event,
           };
           let events = [...c.events, newEvent];
+          let droppedCount = c.droppedCount ?? 0;
           if (events.length > MAX_EVENTS_PER_CONNECTION) {
+            droppedCount += events.length - MAX_EVENTS_PER_CONNECTION;
             events = events.slice(-MAX_EVENTS_PER_CONNECTION);
           }
 
@@ -365,7 +369,7 @@ export const useSocketIOStore = create<SocketIOState>()(
           });
 
           return {
-            connections: { ...state.connections, [connectionId]: { ...c, events } },
+            connections: { ...state.connections, [connectionId]: { ...c, events, droppedCount } },
           };
         }),
 
@@ -425,7 +429,10 @@ export const useSocketIOStore = create<SocketIOState>()(
           const c = state.connections[connectionId];
           if (!c) return state;
           return {
-            connections: { ...state.connections, [connectionId]: { ...c, events: [] } },
+            connections: {
+              ...state.connections,
+              [connectionId]: { ...c, events: [], droppedCount: 0 },
+            },
           };
         }),
 
@@ -508,6 +515,7 @@ export const useSocketIOStore = create<SocketIOState>()(
               status: 'disconnected' as const,
               reconnectAttemptCount: 0,
               events: [], // Don't persist the event log
+              droppedCount: undefined,
             },
           ])
         ),

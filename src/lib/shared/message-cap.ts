@@ -25,3 +25,15 @@ export function capMessages<T>(
   trimmed.push(next);
   return trimmed;
 }
+
+/**
+ * How many entries a cap of `max` evicts when `added` entries join a log of
+ * `prevLength`. Stores accumulate it so logs can say "N older dropped".
+ */
+export function droppedByCap(
+  prevLength: number,
+  added: number,
+  max: number = MAX_MESSAGES_PER_CONNECTION
+): number {
+  return Math.max(0, prevLength + added - max);
+}

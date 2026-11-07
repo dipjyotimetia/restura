@@ -7,7 +7,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
+import { capMessages, droppedByCap, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
 import { type ConsoleFrame, useConsoleStore } from '@/store/useConsoleStore';
@@ -258,6 +258,8 @@ export interface KafkaConnection {
   registry?: KafkaRegistry;
   consumer: KafkaConsumerState;
   messages: KafkaMessage[];
+  /** Runtime only: entries evicted by the 1,000-entry cap since the last clear. */
+  droppedCount?: number;
   createdAt: number;
   lastConnectedAt?: number;
 }
@@ -558,7 +560,11 @@ export const useKafkaStore = create<KafkaState>()(
           return {
             connections: {
               ...state.connections,
-              [connectionId]: { ...conn, messages: capMessages(conn.messages, next) },
+              [connectionId]: {
+                ...conn,
+                messages: capMessages(conn.messages, next),
+                droppedCount: (conn.droppedCount ?? 0) + droppedByCap(conn.messages.length, 1),
+              },
             },
           };
         }),
@@ -576,7 +582,14 @@ export const useKafkaStore = create<KafkaState>()(
               ? merged.slice(merged.length - MAX_MESSAGES_PER_CONNECTION)
               : merged;
           return {
-            connections: { ...state.connections, [connectionId]: { ...conn, messages: capped } },
+            connections: {
+              ...state.connections,
+              [connectionId]: {
+                ...conn,
+                messages: capped,
+                droppedCount: (conn.droppedCount ?? 0) + (merged.length - capped.length),
+              },
+            },
           };
         }),
 
@@ -587,7 +600,10 @@ export const useKafkaStore = create<KafkaState>()(
           const conn = state.connections[connectionId];
           if (!conn) return state;
           return {
-            connections: { ...state.connections, [connectionId]: { ...conn, messages: [] } },
+            connections: {
+              ...state.connections,
+              [connectionId]: { ...conn, messages: [], droppedCount: 0 },
+            },
           };
         }),
 
@@ -645,6 +661,7 @@ export const useKafkaStore = create<KafkaState>()(
               // The renderer keeps sentinels; resolution happens at IPC time.
               status: 'disconnected' as const,
               messages: [] as KafkaMessage[],
+              droppedCount: undefined,
               auth: redactSecrets(conn.auth),
               registry: conn.registry ? redactRegistry(conn.registry) : undefined,
               consumer: { ...conn.consumer, status: 'idle' as const, pausedPartitions: undefined },
