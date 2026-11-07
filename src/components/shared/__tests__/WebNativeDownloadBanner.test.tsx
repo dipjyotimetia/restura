@@ -91,4 +91,21 @@ describe('WebNativeDownloadBanner', () => {
 
     expect(screen.getByRole('complementary', { name: /native app download/i })).toBeInTheDocument();
   });
+
+  it('never schedules a re-check longer than setTimeout can hold (no 1ms loop for a 30-day dismissal)', () => {
+    const now = 1_720_000_000_000;
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+    act(() => {
+      useSettingsStore.getState().updateSettings({
+        nativeAppDownloadBannerDismissedUntil: now + 30 * 24 * 60 * 60 * 1000,
+      });
+    });
+
+    render(<WebNativeDownloadBanner />);
+
+    const delays = setTimeoutSpy.mock.calls.map(([, delay]) => Number(delay ?? 0));
+    expect(delays.length).toBeGreaterThan(0);
+    for (const delay of delays) expect(delay).toBeLessThanOrEqual(2_147_483_647);
+  });
 });

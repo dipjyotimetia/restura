@@ -10,6 +10,8 @@ const releaseUrl = DESKTOP_RELEASES_URL;
 // A dismissal should stick: the command palette ("Get the desktop app") and
 // Settings keep a permanent way back to the download.
 const dismissalDurationMs = 30 * 24 * 60 * 60 * 1000;
+/** setTimeout stores its delay as a 32-bit int; longer delays fire at once. */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 const platforms = [
   { label: 'macOS', icon: Apple },
@@ -26,7 +28,9 @@ export function WebNativeDownloadBanner(): ReactElement | null {
 
   useEffect(() => {
     if (!dismissedUntil || dismissedUntil <= now) return;
-    const timeout = window.setTimeout(() => setNow(Date.now()), dismissedUntil - now);
+    // Re-check at most every ~24.8 days; the effect reschedules until expiry.
+    const delay = Math.min(dismissedUntil - now, MAX_TIMEOUT_MS);
+    const timeout = window.setTimeout(() => setNow(Date.now()), delay);
     return () => window.clearTimeout(timeout);
   }, [dismissedUntil, now]);
 
