@@ -50,12 +50,14 @@ interface McpConnectionPanelProps {
   onCode?: () => void;
 }
 
-const remoteTransportOptions: Array<{
+interface TransportOption {
   value: McpTransportType;
   label: string;
   title?: string;
   disabled?: boolean;
-}> = [
+}
+
+const remoteTransportOptions: TransportOption[] = [
   {
     value: 'streamable-http',
     label: 'Streamable HTTP',
@@ -67,7 +69,7 @@ const remoteTransportOptions: Array<{
     title: 'HTTP + SSE — the legacy MCP transport (2024-11-05); use only for older servers',
   },
 ];
-const stdioTransportOption = { value: 'stdio' as const, label: 'stdio' };
+const stdioTransportOption: TransportOption = { value: 'stdio', label: 'stdio' };
 
 const HTTP_SSE_WEB_TITLE =
   'HTTP + SSE — desktop only. The web build supports Streamable HTTP; legacy HTTP + SSE servers need the Restura desktop app.';
@@ -77,7 +79,7 @@ const HTTP_SSE_WEB_TITLE =
  * (desktop). The legacy HTTP + SSE transport is desktop-only too (the web
  * client rejects it at connect), so on web it is shown disabled with the reason.
  */
-export function mcpTransportOptions(desktop: boolean) {
+export function mcpTransportOptions(desktop: boolean): TransportOption[] {
   const remote = desktop
     ? remoteTransportOptions
     : remoteTransportOptions.map((option) =>

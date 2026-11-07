@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useConnectionStatusAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { SseCodeDialog } from '@/features/sse/components/SseCodeDialog';
+import { cancelSseHistory, queueSseHistory } from '@/features/sse/lib/sseHistory';
 import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
@@ -15,7 +16,6 @@ import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGua
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { resolveSseConnect } from '@/lib/shared/connectSpec';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
-import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { SseRequest } from '@/types';
 import SseAssembledOutput from './SseAssembledOutput';
@@ -100,20 +100,9 @@ export default function SseClient() {
   const [codeOpen, setCodeOpen] = useState(false);
   const cleartextGuard = useCleartextCredentialsGuard();
 
-  // History (S14): one entry per user-started stream, written when it first
-  // connects (not on every auto-reconnect). addHistoryItem redacts inline
-  // credentials and URL secrets the same way it does for HTTP.
-  const pendingHistory = useRef<{ connectionId: string; request: SseRequest; url: string } | null>(
-    null
-  );
-  const activeStatus = active?.status;
+  // History (S14): queueSseHistory records one entry per user-started stream
+  // when it first connects, even if its tab is in the background by then.
   useConnectionStatusAnnouncements('Event stream', active?.status);
-  useEffect(() => {
-    const pending = pendingHistory.current;
-    if (activeStatus !== 'connected' || !pending || pending.connectionId !== active?.id) return;
-    pendingHistory.current = null;
-    useHistoryStore.getState().addHistoryItem(pending.request, undefined, pending.url);
-  }, [activeStatus, active?.id]);
 
   const isConnected = active?.status === 'connected';
   const isConnecting = active?.status === 'connecting' || active?.status === 'reconnecting';
@@ -138,7 +127,7 @@ export default function SseClient() {
       return;
     }
 
-    pendingHistory.current = { connectionId: active.id, request, url: spec.url };
+    queueSseHistory(active.id, request, spec.url);
     sseManager.connect(active.id, spec.url, spec.headers, {
       reconnectOnResume: request.reconnectOnResume ?? true,
       autoReconnect: request.autoReconnect ?? true,
@@ -150,6 +139,7 @@ export default function SseClient() {
 
   const handleDisconnect = () => {
     if (!active) return;
+    cancelSseHistory(active.id);
     sseManager.disconnect(active.id);
   };
 

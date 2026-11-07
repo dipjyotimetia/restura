@@ -356,4 +356,19 @@ describe('SseClient behaviour', () => {
     expect(history[0]?.resolvedUrl).toBe('https://stream.example.com/events?topic=news');
     expect(JSON.stringify(history[0])).not.toContain('inline-secret');
   });
+
+  it('still records history when the stream connects after its tab went to the background', async () => {
+    const user = userEvent.setup();
+    await useHistoryStore.persist.rehydrate();
+    useHistoryStore.setState({ history: [] });
+    openSse();
+    const { unmount } = render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    const connectionId = activeId();
+    unmount(); // e.g. the user switched to a non-SSE tab before it connected
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(connectionId, 'connected');
+    });
+    expect(useHistoryStore.getState().history).toHaveLength(1);
+  });
 });

@@ -126,6 +126,21 @@ const inFlightSends = new Map<string, AbortController>();
 const crossBinaryStash = new Map<string, string>();
 const stashKey = (requestId: string, binary: boolean) =>
   `${requestId}:${binary ? 'binary' : 'text'}`;
+/** Binary sides hold base64 file contents: keep only the most recent few. */
+export const MAX_BODY_STASH_ENTRIES = 16;
+export function stashCrossBinaryBody(key: string, raw: string): void {
+  crossBinaryStash.delete(key); // re-insert as most recent
+  crossBinaryStash.set(key, raw);
+  while (crossBinaryStash.size > MAX_BODY_STASH_ENTRIES) {
+    const oldest = crossBinaryStash.keys().next().value;
+    if (oldest === undefined) break;
+    crossBinaryStash.delete(oldest);
+  }
+}
+/** Test seam. */
+export function bodyStashSize(): number {
+  return crossBinaryStash.size;
+}
 
 /**
  * Remove a params / headers row with an Undo toast. Undo re-inserts the row at
@@ -670,7 +685,7 @@ export function useHttpRequestPage() {
       // the user undo a switch that cleared something.
       const previousBody = httpRequest.body;
       const previousRaw = previousBody.raw ?? '';
-      if (previousRaw) crossBinaryStash.set(stashKey(httpRequest.id, wasBinary), previousRaw);
+      if (previousRaw) stashCrossBinaryBody(stashKey(httpRequest.id, wasBinary), previousRaw);
       const restored = crossBinaryStash.get(stashKey(httpRequest.id, type === 'binary')) ?? '';
       const tabId = useRequestStore.getState().activeTabId;
       const applied = updateRequest({ body: { ...previousBody, type, raw: restored } });

@@ -103,6 +103,14 @@ function capLog(
   return { log: log.slice(over), droppedCount: (dropped ?? 0) + over, trimmed: true };
 }
 
+/** True when some tab still maps to this connection id. */
+export function isMappedConnection(
+  connectionByTabId: Readonly<Record<string, string>>,
+  connectionId: string
+): boolean {
+  return Object.values(connectionByTabId).includes(connectionId);
+}
+
 export const useSseStore = create<SseState>()(
   persist(
     (set, get) => ({
@@ -329,25 +337,29 @@ export const useSseStore = create<SseState>()(
       version: 1,
       steps: [],
       partialize: (state) => ({
+        // Only connections a tab still owns: rows from the old single-connection
+        // model (never mapped to a tab) are shed on the next write.
         connections: Object.fromEntries(
-          Object.entries(state.connections).map(([id, conn]) => [
-            id,
-            {
-              // Explicit pick (not a spread) so request config persisted by
-              // older versions (url/headers/auth…) is shed on the next write.
-              id: conn.id,
-              status: 'disconnected' as const,
-              log: [],
-              // No lastEventId: it only resumes reconnects within one session.
-              reconnectAttempts: 0,
-              maxReconnectAttempts: conn.maxReconnectAttempts,
-              reconnectDelay: conn.reconnectDelay,
-              createdAt: conn.createdAt,
-              ...(conn.lastConnectedAt !== undefined
-                ? { lastConnectedAt: conn.lastConnectedAt }
-                : {}),
-            },
-          ])
+          Object.entries(state.connections)
+            .filter(([id]) => isMappedConnection(state.connectionByTabId, id))
+            .map(([id, conn]) => [
+              id,
+              {
+                // Explicit pick (not a spread) so request config persisted by
+                // older versions (url/headers/auth…) is shed on the next write.
+                id: conn.id,
+                status: 'disconnected' as const,
+                log: [],
+                // No lastEventId: it only resumes reconnects within one session.
+                reconnectAttempts: 0,
+                maxReconnectAttempts: conn.maxReconnectAttempts,
+                reconnectDelay: conn.reconnectDelay,
+                createdAt: conn.createdAt,
+                ...(conn.lastConnectedAt !== undefined
+                  ? { lastConnectedAt: conn.lastConnectedAt }
+                  : {}),
+              },
+            ])
         ),
         activeConnectionId: state.activeConnectionId,
         connectionByTabId: state.connectionByTabId,
