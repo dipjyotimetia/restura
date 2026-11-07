@@ -117,6 +117,8 @@ export interface AiChatState extends Omit<PersistedAiChatState, 'conversations'>
   appendAssistantDelta: (id: string, delta: string) => void;
   finalizeAssistantMessage: (id: string, usage?: ChatMessage['usage']) => void;
   setMessageError: (id: string, error: string) => void;
+  /** Drop a message and everything after it in its conversation (used by Retry). */
+  truncateMessagesFrom: (id: string) => void;
   setPanelOpen: (open: boolean) => void;
   setPanelWidth: (px: number) => void;
   setProviderConfig: (p: ChatProvider, cfg: ProviderConfig | null) => void;
@@ -316,6 +318,23 @@ export const useAiChatStore = create<AiChatState>()(
                 messages: conv.messages.map((m) =>
                   m.id === id ? { ...m, text: m.text + delta } : m
                 ),
+                updatedAt: Date.now(),
+              },
+            },
+          };
+        }),
+
+      truncateMessagesFrom: (id) =>
+        set((s) => {
+          const conv = findConversationByMessageId(s.conversations, id);
+          if (!conv) return s;
+          const index = conv.messages.findIndex((m) => m.id === id);
+          return {
+            conversations: {
+              ...s.conversations,
+              [conv.id]: {
+                ...conv,
+                messages: conv.messages.slice(0, index),
                 updatedAt: Date.now(),
               },
             },

@@ -192,7 +192,7 @@ describe('ReportView agent reports', () => {
     expect(screen.getByText(/trial execution failed/i)).toBeInTheDocument();
     expect(screen.getByText(/incorrect outcome/i)).toBeInTheDocument();
     expect(screen.getByText(/1 total.*1 failed.*0 errors.*0 cancelled/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/pass@k/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('pass@1 0% · pass^1 0%').length).toBeGreaterThan(0);
     expect(screen.getByText(/model\.completed/)).toBeInTheDocument();
     expect(screen.getByText(/user asserted.*tools enabled/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'JSON' })).toBeInTheDocument();

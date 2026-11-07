@@ -401,6 +401,18 @@ export function ChatPanel({ onClose }: Props) {
   }, []);
 
   const agentBusy = isAgentActive(agentSession);
+
+  // Regenerate the latest reply: drop the last user turn and its reply, then
+  // re-send that turn with the same raw-mode choice the user made for it.
+  const retryLast = () => {
+    if (sendingRef.current) return;
+    const st = useAiChatStore.getState();
+    const conv = st.activeConversationId ? st.conversations[st.activeConversationId] : undefined;
+    const lastUser = conv?.messages.findLast((m) => m.role === 'user');
+    if (!lastUser) return;
+    st.truncateMessagesFrom(lastUser.id);
+    void handleSendRef.current(lastUser.text, lastUser.rawMode ?? false);
+  };
   const activeHttpRequest = useRequestStore((s) => {
     const req = s.tabs.find((t) => t.id === s.activeTabId)?.request;
     return req?.type === 'http' ? req : null;
@@ -460,7 +472,10 @@ export function ChatPanel({ onClose }: Props) {
         </div>
       </header>
       <ContextPill />
-      <MessageList messages={messages} />
+      <MessageList
+        messages={messages}
+        {...(!streamingId && !agentBusy && apiKeyConfigured ? { onRetry: retryLast } : {})}
+      />
       {toolCalls.length > 0 && (
         <div className="border-t border-border/40 p-2 space-y-2 max-h-60 overflow-auto">
           <div className="text-[10px] text-muted-foreground px-0.5">Proposed actions</div>
