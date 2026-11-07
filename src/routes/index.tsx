@@ -227,15 +227,8 @@ export default function Home() {
         }
       },
     },
-    {
-      combo: 'mod+n',
-      allowInInput: true,
-      // Desktop: File > New Request (CmdOrCtrl+N) arrives as 'menu:new-request'.
-      enabled: !isElectron(),
-      handler: () => {
-        createNewRequest('http');
-      },
-    },
+    // New request: desktop via File > New Request ('menu:new-request'); web via
+    // the registry's alt+keyn in tabShortcuts (mod+n is the browser's new window).
     {
       combo: 'mod+b',
       allowInInput: true,
