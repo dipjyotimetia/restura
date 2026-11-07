@@ -1,5 +1,5 @@
 import { Send } from 'lucide-react';
-import { type Dispatch, type SetStateAction, useState } from 'react';
+import { type Dispatch, type ReactNode, type SetStateAction, useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { Button } from '@/components/ui/button';
@@ -67,6 +67,8 @@ interface KafkaProducerPanelProps {
   produceTombstone: boolean;
   setProduceTombstone: Dispatch<SetStateAction<boolean>>;
   onPublish: () => void;
+  /** Saved produce templates (rendered above the composer). */
+  templatesSlot?: ReactNode;
 }
 
 function payloadPlaceholder(mode: ProducePayloadMode): string | undefined {
@@ -152,6 +154,7 @@ export function KafkaProducerPanel({
   produceTombstone,
   setProduceTombstone,
   onPublish,
+  templatesSlot,
 }: KafkaProducerPanelProps) {
   const [mode, setMode] = useState<ProducerMode>('single');
   const [batchJson, setBatchJson] = useState('[]');
@@ -185,7 +188,12 @@ export function KafkaProducerPanel({
     }
   };
   return (
-    <TabsContent value="produce" className="flex-1 overflow-auto m-0">
+    <TabsContent value="produce" className="flex-1 overflow-auto m-0 space-y-2.5">
+      {templatesSlot && (
+        <Floater radius="panel" className="p-3">
+          {templatesSlot}
+        </Floater>
+      )}
       <Floater radius="panel" className="p-3 space-y-3">
         <div className="space-y-2">
           <Label className="text-xs sp-label">Topic</Label>

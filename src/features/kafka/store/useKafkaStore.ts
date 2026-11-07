@@ -10,8 +10,10 @@ import { persist } from 'zustand/middleware';
 import { capMessages, droppedByCap, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
+import { migrateConnectionTemplates } from '@/lib/shared/streaming/messageTemplates';
 import { type ConsoleFrame, useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
+import { type KafkaProduceTemplate, kafkaTemplateSchema } from '../lib/kafkaTemplates';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
 export type KafkaSaslMechanism =
@@ -258,6 +260,8 @@ export interface KafkaConnection {
   registry?: KafkaRegistry;
   consumer: KafkaConsumerState;
   messages: KafkaMessage[];
+  /** Saved produces (stored unresolved; `{{var}}` resolves at send time). */
+  templates?: KafkaProduceTemplate[];
   /** Runtime only: entries evicted by the 1,000-entry cap since the last clear. */
   droppedCount?: number;
   createdAt: number;
@@ -386,6 +390,7 @@ function makeDefaultConnection(
       status: 'idle',
     },
     messages: [],
+    templates: [],
     createdAt: Date.now(),
   };
 }
@@ -638,7 +643,7 @@ export const useKafkaStore = create<KafkaState>()(
     createPersistedStore<KafkaState>({
       store: 'kafkaConnections',
       persistName: 'kafka-storage',
-      version: 3,
+      version: 4,
       steps: [
         {
           name: 'kafka-consumer-v2-committed-defaults',
@@ -649,6 +654,11 @@ export const useKafkaStore = create<KafkaState>()(
           name: 'kafka-consumer-v3-browse-membership',
           fromVersion: 2,
           apply: (state) => ({ state: migrateKafkaV2ToV3(state) }),
+        },
+        {
+          name: 'kafka-v4-produce-templates',
+          fromVersion: 3,
+          apply: (state) => ({ state: migrateConnectionTemplates(state, kafkaTemplateSchema) }),
         },
       ],
       partialize: (state) => ({
