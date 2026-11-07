@@ -221,7 +221,7 @@ async function runCollectionWithSessions(
   };
 
   // Dispatcher (TLS + explicit proxy) built once and reused for every request.
-  const dispatcher = buildDispatcher(options.tls, options.proxy);
+  const dispatcher = buildDispatcher(options.tls, options.proxy, options.allowLocalhost);
   // client_credentials tokens are reused within this run only.
   const oauth2TokenCache: OAuth2TokenCache = new Map();
 

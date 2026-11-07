@@ -11,53 +11,22 @@
  * password the CLI cannot read).
  */
 
-import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { isProxyBypassed } from '@shared/protocol/proxy-bypass';
-import { assertResolvedAddressAllowed, validateURL } from '@shared/protocol/url-validation';
+import { validateURL } from '@shared/protocol/url-validation';
 import { type SecretValue, unwrapSecret } from '@shared/secrets/secret-ref';
 import type { RequestSettingsOverride } from '@shared/types';
 import { Agent, type Dispatcher, ProxyAgent } from 'undici';
-import { tlsConnectOptions } from '../undiciFetcher';
+import { guardedLookup, tlsConnectOptions } from '../undiciFetcher';
 import type { ExecuteOptions } from './types';
 
 type Refusal = { ok: false; error: string };
 
-type LookupCallback = (
-  err: NodeJS.ErrnoException | Error | null,
-  address: string | LookupAddress[],
-  family?: number
-) => void;
-
 /**
- * The `lookup` the per-request proxy connection dials through: every address
- * a proxy host name resolves to must pass the shared SSRF guard (cloud
- * metadata and private ranges refused; loopback only with `--allow-localhost`).
- * The check runs on the answer that is actually dialled, so a DNS name cannot
- * re-point the proxy at an internal address after a preflight.
+ * The `lookup` the per-request proxy connection dials through: the same
+ * SSRF-guarded resolution as every direct CLI connection (`guardedLookup`), so
+ * a DNS name cannot re-point the proxy at an internal address after a preflight.
  */
-export function guardedProxyLookup(allowLocalhost: boolean) {
-  return (hostname: string, options: unknown, maybeCallback?: LookupCallback): void => {
-    const callback = (typeof options === 'function' ? options : maybeCallback) as LookupCallback;
-    const wantsAll = (options as { all?: boolean } | undefined)?.all === true;
-    dnsLookup(hostname, { all: true, verbatim: true }, (err, records) => {
-      if (err) return callback(err, wantsAll ? [] : '');
-      try {
-        if (records.length === 0) throw new Error(`Proxy host ${hostname} did not resolve`);
-        for (const record of records) {
-          assertResolvedAddressAllowed(hostname, record.address, {
-            allowLocalhost,
-            loopbackNeedsLocalhost: true,
-          });
-        }
-      } catch (guardError) {
-        return callback(guardError as Error, wantsAll ? [] : '');
-      }
-      const first = records[0] as LookupAddress;
-      if (wantsAll) return callback(null, records);
-      return callback(null, first.address, first.family);
-    });
-  };
-}
+export const guardedProxyLookup = guardedLookup;
 
 /**
  * A collection's own proxy host is untrusted input: an absolute-form request
@@ -198,5 +167,9 @@ export function requestDispatcher(
       }),
     };
   }
-  return { ok: true, dispatcher: new Agent(hasTls ? { connect } : {}) };
+  // Direct: the target dials through the SSRF-guarded lookup.
+  return {
+    ok: true,
+    dispatcher: new Agent({ connect: { ...connect, lookup: guardedLookup(opts.allowLocalhost) } }),
+  };
 }

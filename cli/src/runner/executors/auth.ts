@@ -9,6 +9,7 @@ import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/type
 import { validateURL } from '@shared/protocol/url-validation';
 import type { AuthConfig } from '@shared/types';
 import { type Dispatcher, request as undiciRequest } from 'undici';
+import { guardedDefaultDispatcher } from '../undiciFetcher';
 import { CliRefusalError, TransportFailureError } from './failure';
 import type { ExecuteOptions, OAuth2TokenCache } from './types';
 
@@ -108,7 +109,9 @@ export function oauth2TokenOptions(
   const timeout = AbortSignal.timeout(opts.timeoutMs);
   return {
     allowLocalhost: opts.allowLocalhost,
-    fetch: opts.oauthFetch ?? createTokenFetch(opts.dispatcher),
+    fetch:
+      opts.oauthFetch ??
+      createTokenFetch(opts.dispatcher ?? guardedDefaultDispatcher(opts.allowLocalhost)),
     signal: opts.signal ? AbortSignal.any([timeout, opts.signal]) : timeout,
     ...(opts.oauth2TokenCache ? { cache: opts.oauth2TokenCache } : {}),
   };
@@ -268,7 +271,9 @@ export async function resolveOAuth2Token(
       ...(scope !== undefined ? { scope } : {}),
     },
     {
-      fetch: refusingTokenRedirects(opts.fetch ?? createTokenFetch(undefined)),
+      fetch: refusingTokenRedirects(
+        opts.fetch ?? createTokenFetch(guardedDefaultDispatcher(opts.allowLocalhost ?? false))
+      ),
       maxResponseBytes: MAX_TOKEN_RESPONSE_BYTES,
       ...(opts.signal ? { signal: opts.signal } : {}),
     }

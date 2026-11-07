@@ -27,7 +27,7 @@ import type { Fetcher } from '@shared/protocol/types';
 import type { GrpcRequest, GrpcSchemaSnapshot } from '@shared/types';
 import { hasVariableToken } from '@shared/variables/tokens';
 import type { LoadedRequest } from '../collectionLoader';
-import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
+import { createUndiciFetcher, guardedUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
@@ -149,7 +149,9 @@ export async function executeGrpc(
     const metadataError = grpcMetadataSizeError(metadata);
     if (metadataError) return grpcFailure(GrpcStatusCode.INVALID_ARGUMENT, metadataError);
 
-    const fetcher = opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher;
+    const fetcher = opts.dispatcher
+      ? createUndiciFetcher(opts.dispatcher)
+      : guardedUndiciFetcher(opts.allowLocalhost);
     if (req.wireProtocol === 'grpc-web' || req.wireProtocol === 'grpc-web-text') {
       return await executeGrpcWeb(req, url, metadata, parsedMessage, fetcher, opts, start);
     }
