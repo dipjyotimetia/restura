@@ -17,8 +17,9 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 import { useMockStore } from '@/store/useMockStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
-import type { ActivePanel, CollectionItem, RequestType } from '@/types';
+import type { ActivePanel, CollectionItem } from '@/types';
 import { useCollectionSidebarCommands } from '../hooks/useCollectionSidebarCommands';
+import { useSidebarHistory } from '../hooks/useSidebarHistory';
 import { copyBrokerPresetSecrets, DUPLICATE_CREDENTIALS_FAILED } from '../lib/brokerPresets';
 import { describeCollectionDeletion } from '../lib/deleteCollection';
 import { deleteCollectionItems, describeItemDeletion } from '../lib/deleteItems';
@@ -29,13 +30,10 @@ import {
   parentFolderIdOf,
   siblingNamesForParent,
   uniqueName,
+  visibleItemIds,
 } from '../lib/names';
 import { openCollectionItem } from '../lib/openCollectionItem';
-import {
-  filterCollectionTree,
-  historyItemMatches,
-  historyItemMatchesFilter,
-} from '../lib/sidebarSearch';
+import { filterCollectionTree } from '../lib/sidebarSearch';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { selectionKey, type TreeActions, type TreeState } from './CollectionTree';
 import { ConflictDialog } from './ConflictDialog';
@@ -81,15 +79,6 @@ const siblingNames = (collectionId: string, parentId?: string) => {
   const collection = getCollectionById(collectionId);
   return collection ? siblingNamesForParent(collection, parentId) : [];
 };
-
-/** Item ids in visible (rendered) order, skipping the children of collapsed folders. */
-function visibleItemIds(items: CollectionItem[], collapsed: Set<string>, out: string[] = []) {
-  for (const item of items) {
-    out.push(item.id);
-    if (item.items && !collapsed.has(item.id)) visibleItemIds(item.items, collapsed, out);
-  }
-  return out;
-}
 
 /** What the shared search box filters, per sidebar tab (for its label/placeholder). */
 const SEARCH_SCOPE_LABEL: Record<string, string> = {
@@ -213,11 +202,6 @@ function Sidebar({ activePanel }: SidebarProps) {
   const isFileCollection = useFileCollectionStore((state) => state.isFileCollection);
   const activeConflict = conflicts.length > 0 ? conflicts[0] : null;
 
-  // Get visible history items using selector
-  const visibleHistory = useHistoryStore(
-    useShallow((state) => state.history.slice(0, visibleHistoryCount))
-  );
-
   // Per-collection workflow counts for the Workflows tab group headers.
   const workflowCounts = useWorkflowStore(
     useShallow((state) => {
@@ -236,36 +220,12 @@ function Sidebar({ activePanel }: SidebarProps) {
     [collections, searchQuery]
   );
 
-  // While searching or filtering, look through the whole history rather than
-  // only the loaded page (otherwise older entries are unfindable).
-  const allHistory = useHistoryStore((state) => state.history);
-  const filteredHistory = useMemo(() => {
-    let filtered = searchQuery || methodFilter ? allHistory : visibleHistory;
-
-    if (searchQuery) {
-      filtered = filtered.filter((item) => historyItemMatches(item, searchQuery));
-    }
-
-    if (methodFilter) {
-      filtered = filtered.filter((item) => historyItemMatchesFilter(item, methodFilter));
-    }
-
-    return filtered;
-  }, [allHistory, visibleHistory, searchQuery, methodFilter]);
-
-  const hasMoreHistory = visibleHistoryCount < totalHistoryCount;
-
-  // Non-HTTP protocols present in history, offered as filter chips.
-  const historyProtocols = useHistoryStore(
-    useShallow((state) => {
-      const seen = new Set<RequestType>();
-      for (const item of state.history)
-        if (item.request.type !== 'http') seen.add(item.request.type);
-      return [...seen].sort();
-    })
+  const { filteredHistory, historyProtocols, removeHistoryItem, clearHistory } = useSidebarHistory(
+    searchQuery,
+    methodFilter,
+    visibleHistoryCount
   );
-  const removeHistoryItem = useHistoryStore((state) => state.removeHistoryItem);
-  const clearHistory = useHistoryStore((state) => state.clearHistory);
+  const hasMoreHistory = visibleHistoryCount < totalHistoryCount;
 
   const handleLoadMore = useCallback(() => {
     setVisibleHistoryCount((prev) => prev + HISTORY_PAGE_SIZE);

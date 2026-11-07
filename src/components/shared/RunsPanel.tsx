@@ -291,7 +291,7 @@ export function RunsPanel() {
                   type="button"
                   aria-label="Export load test runs as JSON"
                   onClick={() => downloadBlob(renderLoadRunsJson(runs), 'restura-load-runs.json')}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted transition-colors"
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-sp-11 text-muted-foreground hover:bg-muted transition-colors"
                 >
                   <Download className="h-3 w-3" /> JSON
                 </button>
@@ -301,7 +301,7 @@ export function RunsPanel() {
                   onClick={() =>
                     downloadBlob(renderLoadRunsCsv(runs), 'restura-load-runs.csv', 'text/csv')
                   }
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted transition-colors"
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-sp-11 text-muted-foreground hover:bg-muted transition-colors"
                 >
                   <Download className="h-3 w-3" /> CSV
                 </button>

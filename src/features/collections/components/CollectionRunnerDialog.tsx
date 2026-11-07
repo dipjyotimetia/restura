@@ -375,7 +375,7 @@ function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
                 role="status"
                 className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 space-y-1.5"
               >
-                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                <p className="text-sp-11 text-amber-600 dark:text-amber-400">
                   Stop the run to close this dialog.
                 </p>
                 <Button

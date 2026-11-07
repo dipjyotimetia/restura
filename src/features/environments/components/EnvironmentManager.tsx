@@ -26,10 +26,10 @@ import { RailPin } from '@/features/environments/components/RailPin';
 import { ScopeInspector } from '@/features/environments/components/ScopeInspector';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint as hostHint } from '@/features/environments/lib/envHint';
-import { duplicateEnvironment } from '@/features/environments/lib/environmentActions';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { Environment, KeyValue } from '@/types';
+import { duplicateEnvironment, subEnvironmentDeleteRefusal } from '../lib/environmentActions';
 
 interface EnvironmentManagerProps {
   open: boolean;
@@ -507,38 +507,22 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
     setSelectedEnvId(clone.id);
   };
 
-  const subEnvironmentRefusal = (id: string): string | null => {
-    const env = environments.find((environment) => environment.id === id);
-    const subCount = environments.filter((environment) => environment.parentId === id).length;
-    if (subCount === 0) return null;
-    return `Can't delete "${env?.name ?? 'environment'}". Remove its ${subCount} sub-environment${
-      subCount === 1 ? '' : 's'
-    } first.`;
-  };
-
   const handleDeleteEnvironment = (id: string) => {
-    const refusal = subEnvironmentRefusal(id);
-    if (refusal) {
-      toast.error(refusal);
-      return;
-    }
+    const refusal = subEnvironmentDeleteRefusal(environments, id);
+    if (refusal) return void toast.error(refusal);
     setEnvToDelete(id);
     setDeleteDialogOpen(true);
   };
 
   const confirmDeleteEnvironment = () => {
     if (envToDelete) {
-      const refusal = subEnvironmentRefusal(envToDelete);
-      if (!removeEnvironment(envToDelete)) {
-        toast.error(refusal ?? "Couldn't delete the environment.");
-      }
+      if (!removeEnvironment(envToDelete)) toast.error('Remove its sub-environments first.');
       setEnvToDelete(null);
     }
     setDeleteDialogOpen(false);
   };
 
   const envToDeleteName = environments.find((environment) => environment.id === envToDelete)?.name;
-
   const handleAddVariable = () => {
     if (!selectedEnvId) return;
     const v: KeyValue = { id: uuidv4(), key: '', value: '', enabled: true };
