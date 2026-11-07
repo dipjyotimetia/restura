@@ -60,8 +60,16 @@ export interface RegistryRunOptions {
   stream?: StreamRunHooks;
 }
 
+/** Run key for a send with no originating tab (tests, headless callers). */
+const NO_TAB_KEY = '';
+
+/**
+ * One runner instance is shared by every tab of a protocol (the Builder is not
+ * keyed per tab), so in-flight runs are tracked PER TAB: a send from tab B must
+ * not abort tab A's request, and cancelling A must not cancel B.
+ */
 export function useRequestRunner() {
-  const abortRef = useRef<AbortController | null>(null);
+  const controllersRef = useRef(new Map<string, AbortController>());
 
   const run = useCallback(
     async (
@@ -74,6 +82,7 @@ export function useRequestRunner() {
         throw new Error(`Unknown protocol: ${protocolId}`);
       }
       const originTabId = useRequestStore.getState().activeTabId;
+      const runKey = originTabId ?? NO_TAB_KEY;
 
       // Folder/collection auth inheritance for single sends. A request whose
       // own auth is 'none' picks up the nearest configured ancestor auth —
@@ -85,12 +94,18 @@ export function useRequestRunner() {
       const inherited = resolveInheritedAuthForSend(rawRequest);
       const request = inherited ? withEffectiveAuth(rawRequest, inherited.auth) : rawRequest;
 
-      // Cancel any prior in-flight request from this hook instance. Builders
-      // that fire a second `run()` before the first resolves get the latest
-      // result; the older promise rejects with AbortError.
-      abortRef.current?.abort();
+      // Cancel any prior in-flight request from THIS TAB. A tab that fires a
+      // second `run()` before the first resolves gets the latest result; the
+      // older promise rejects with AbortError. Other tabs' runs are untouched.
+      const controllers = controllersRef.current;
+      controllers.get(runKey)?.abort();
       const ctrl = new AbortController();
-      abortRef.current = ctrl;
+      controllers.set(runKey, ctrl);
+      // Forget this run's controller once it settles, unless a newer run of
+      // the same tab already replaced it.
+      const release = () => {
+        if (controllers.get(runKey) === ctrl) controllers.delete(runKey);
+      };
 
       // Build the variables map from every scope the active request can resolve:
       // active environment + workspace globals + the request's collection vars
@@ -148,23 +163,27 @@ export function useRequestRunner() {
       };
 
       const startedAt = performance.now();
-      const response = await protocol.runRequest(request, {
-        signal: ctrl.signal,
-        variables,
-        secretVariables,
-        secretNames: sendSecretNames,
-        onScriptResult,
-        onAuthRefreshed,
-        ...(Object.keys(protocolOptions).length > 0 ? { protocolOptions } : {}),
-        ...(options?.stream ? { stream: options.stream } : {}),
-      });
+      let response: Response;
+      try {
+        response = await protocol.runRequest(request, {
+          signal: ctrl.signal,
+          variables,
+          secretVariables,
+          secretNames: sendSecretNames,
+          onScriptResult,
+          onAuthRefreshed,
+          ...(Object.keys(protocolOptions).length > 0 ? { protocolOptions } : {}),
+          ...(options?.stream ? { stream: options.stream } : {}),
+        });
+      } finally {
+        release();
+      }
       const durationMs = performance.now() - startedAt;
 
       // Cancelled while the transport was finishing (a gRPC unary call that
       // resolved anyway): the run is abandoned, so nothing it did is recorded
       // (no history entry, no environment or collection writes).
       if (ctrl.signal.aborted) {
-        if (abortRef.current === ctrl) abortRef.current = null;
         throw new DOMException('Request aborted', 'AbortError');
       }
 
@@ -173,12 +192,6 @@ export function useRequestRunner() {
       // The RAW request is stored: inherited auth is a send-time resolution,
       // and persisting it would copy ancestor credentials into history.
       useHistoryStore.getState().addHistoryItem(rawRequest, response);
-
-      // Clear the abort ref only if this run is still the latest one — a
-      // newer run() call would have already replaced it.
-      if (abortRef.current === ctrl) {
-        abortRef.current = null;
-      }
 
       // `pm.environment.set/unset` from either script persist to the active
       // environment when it applies to the request's collection — the same
@@ -214,9 +227,15 @@ export function useRequestRunner() {
     []
   );
 
-  const abort = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
+  /**
+   * Cancel the in-flight run of one tab — `tabId`, or the ACTIVE tab when
+   * omitted (the Builder's Cancel button / Cmd+Enter act on what is shown).
+   */
+  const abort = useCallback((tabId?: string) => {
+    const key = tabId ?? useRequestStore.getState().activeTabId ?? NO_TAB_KEY;
+    const controllers = controllersRef.current;
+    controllers.get(key)?.abort();
+    controllers.delete(key);
   }, []);
 
   return { run, abort };
