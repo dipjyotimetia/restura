@@ -114,3 +114,16 @@ export function moveWouldCollide(
   if (!targetItems) return false;
   return targetItems.some((s) => s.id !== itemId && norm(s.name) === norm(item.name));
 }
+
+/** Item ids in visible (rendered) order, skipping the children of collapsed folders. */
+export function visibleItemIds(
+  items: CollectionItem[],
+  collapsed: Set<string>,
+  out: string[] = []
+) {
+  for (const item of items) {
+    out.push(item.id);
+    if (item.items && !collapsed.has(item.id)) visibleItemIds(item.items, collapsed, out);
+  }
+  return out;
+}

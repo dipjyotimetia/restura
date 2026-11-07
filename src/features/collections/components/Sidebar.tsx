@@ -19,11 +19,10 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
 import type { ActivePanel, CollectionItem } from '@/types';
 import { useCollectionSidebarCommands } from '../hooks/useCollectionSidebarCommands';
-import {
-  copyBrokerPresetSecrets,
-  DUPLICATE_CREDENTIALS_FAILED,
-  reapBrokerPresetSecretsForItem,
-} from '../lib/brokerPresets';
+import { useSidebarHistory } from '../hooks/useSidebarHistory';
+import { copyBrokerPresetSecrets, DUPLICATE_CREDENTIALS_FAILED } from '../lib/brokerPresets';
+import { describeCollectionDeletion } from '../lib/deleteCollection';
+import { deleteCollectionItems, describeItemDeletion } from '../lib/deleteItems';
 import { duplicateRequestItem, makeFolderItem, makeRequestItem } from '../lib/itemFactory';
 import {
   folderPathTo,
@@ -31,9 +30,10 @@ import {
   parentFolderIdOf,
   siblingNamesForParent,
   uniqueName,
+  visibleItemIds,
 } from '../lib/names';
 import { openCollectionItem } from '../lib/openCollectionItem';
-import { filterCollectionTree, historyItemMatches } from '../lib/sidebarSearch';
+import { filterCollectionTree } from '../lib/sidebarSearch';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { selectionKey, type TreeActions, type TreeState } from './CollectionTree';
 import { ConflictDialog } from './ConflictDialog';
@@ -87,15 +87,13 @@ const SEARCH_SCOPE_LABEL: Record<string, string> = {
   workflows: 'workflows',
 };
 function Sidebar({ activePanel }: SidebarProps) {
-  const { collections, addItemToCollection, removeCollectionItem, moveCollectionItem } =
-    useCollectionStore(
-      useShallow((s) => ({
-        collections: s.collections,
-        addItemToCollection: s.addItemToCollection,
-        removeCollectionItem: s.removeCollectionItem,
-        moveCollectionItem: s.moveCollectionItem,
-      }))
-    );
+  const { collections, addItemToCollection, moveCollectionItem } = useCollectionStore(
+    useShallow((s) => ({
+      collections: s.collections,
+      addItemToCollection: s.addItemToCollection,
+      moveCollectionItem: s.moveCollectionItem,
+    }))
+  );
 
   // Use granular selectors for history to minimize re-renders
   const toggleFavorite = useHistoryStore((state) => state.toggleFavorite);
@@ -204,11 +202,6 @@ function Sidebar({ activePanel }: SidebarProps) {
   const isFileCollection = useFileCollectionStore((state) => state.isFileCollection);
   const activeConflict = conflicts.length > 0 ? conflicts[0] : null;
 
-  // Get visible history items using selector
-  const visibleHistory = useHistoryStore(
-    useShallow((state) => state.history.slice(0, visibleHistoryCount))
-  );
-
   // Per-collection workflow counts for the Workflows tab group headers.
   const workflowCounts = useWorkflowStore(
     useShallow((state) => {
@@ -227,28 +220,11 @@ function Sidebar({ activePanel }: SidebarProps) {
     [collections, searchQuery]
   );
 
-  // While searching or filtering, look through the whole history rather than
-  // only the loaded page (otherwise older entries are unfindable).
-  const allHistory = useHistoryStore((state) => state.history);
-  const filteredHistory = useMemo(() => {
-    let filtered = searchQuery || methodFilter ? allHistory : visibleHistory;
-
-    if (searchQuery) {
-      filtered = filtered.filter((item) => historyItemMatches(item, searchQuery));
-    }
-
-    if (methodFilter) {
-      filtered = filtered.filter((item) => {
-        if (item.request.type === 'http') {
-          return item.request.method === methodFilter;
-        }
-        return false;
-      });
-    }
-
-    return filtered;
-  }, [allHistory, visibleHistory, searchQuery, methodFilter]);
-
+  const { filteredHistory, historyProtocols, removeHistoryItem, clearHistory } = useSidebarHistory(
+    searchQuery,
+    methodFilter,
+    visibleHistoryCount
+  );
   const hasMoreHistory = visibleHistoryCount < totalHistoryCount;
 
   const handleLoadMore = useCallback(() => {
@@ -316,16 +292,17 @@ function Sidebar({ activePanel }: SidebarProps) {
 
   const handleConfirmItemDelete = useCallback(() => {
     if (itemToDelete) {
-      const items = getCollectionById(itemToDelete.collectionId)?.items ?? [];
-      for (const itemId of itemToDelete.itemIds) {
-        // Kafka / MQTT presets: drop their stored credentials too (#984).
-        reapBrokerPresetSecretsForItem(items, itemId);
-        removeCollectionItem(itemToDelete.collectionId, itemId);
-      }
+      // Also reaps preset credentials and detaches tabs saved from the removed items.
+      deleteCollectionItems(itemToDelete.collectionId, itemToDelete.itemIds);
       setSelectedKeys((prev) => (prev.size === 0 ? prev : new Set()));
       setItemToDelete(null);
     }
-  }, [itemToDelete, removeCollectionItem]);
+  }, [itemToDelete]);
+
+  // Cheap tree walk, only while the confirm is open — read fresh every render.
+  const itemDeletionCopy = itemToDelete
+    ? describeItemDeletion(itemToDelete.collectionId, itemToDelete.itemIds)
+    : null;
 
   // --- Tree state: collapse + multi-select -----------------------------------
   const toggleCollapse = useCallback((folderId: string) => {
@@ -337,7 +314,29 @@ function Sidebar({ activePanel }: SidebarProps) {
     });
   }, []);
 
+  // Shift-click range anchor: the last item toggled or range-selected.
+  const selectionAnchorRef = useRef<{ collectionId: string; itemId: string } | null>(null);
+  const collapsedFoldersRef = useRef(collapsedFolders);
+  collapsedFoldersRef.current = collapsedFolders;
+
+  const selectRange = useCallback((collectionId: string, itemId: string) => {
+    const anchor = selectionAnchorRef.current;
+    const collection = getCollectionById(collectionId);
+    if (!collection || !anchor || anchor.collectionId !== collectionId) {
+      selectionAnchorRef.current = { collectionId, itemId };
+      setSelectedKeys(new Set([selectionKey(collectionId, itemId)]));
+      return;
+    }
+    const order = visibleItemIds(collection.items, collapsedFoldersRef.current);
+    const from = order.indexOf(anchor.itemId);
+    const to = order.indexOf(itemId);
+    if (from === -1 || to === -1) return;
+    const [lo, hi] = from < to ? [from, to] : [to, from];
+    setSelectedKeys(new Set(order.slice(lo, hi + 1).map((id) => selectionKey(collectionId, id))));
+  }, []);
+
   const toggleSelect = useCallback((collectionId: string, itemId: string) => {
+    selectionAnchorRef.current = { collectionId, itemId };
     setSelectedKeys((prev) => {
       const key = selectionKey(collectionId, itemId);
       const next = new Set(prev);
@@ -460,6 +459,7 @@ function Sidebar({ activePanel }: SidebarProps) {
       renameInputRef: commands.itemRenameRef,
       toggleCollapse,
       toggleSelect,
+      selectRange,
       clearSelection,
       dragStart: handleItemDragStart,
       dragEnd: handleItemDragEnd,
@@ -478,6 +478,7 @@ function Sidebar({ activePanel }: SidebarProps) {
       commands.commitItemRename,
       toggleCollapse,
       toggleSelect,
+      selectRange,
       clearSelection,
       handleItemDragStart,
       handleItemDragEnd,
@@ -626,7 +627,11 @@ function Sidebar({ activePanel }: SidebarProps) {
             open={commands.deleteDialogOpen}
             onOpenChange={commands.setDeleteDialogOpen}
             title="Delete Collection"
-            description="Are you sure you want to delete this collection? This action cannot be undone."
+            description={
+              commands.collectionToDelete
+                ? describeCollectionDeletion(commands.collectionToDelete)
+                : 'Delete this collection?'
+            }
             confirmText="Delete"
             cancelText="Cancel"
             onConfirm={commands.handleConfirmDelete}
@@ -646,6 +651,12 @@ function Sidebar({ activePanel }: SidebarProps) {
             onLoadMore={handleLoadMore}
             onMethodFilterChange={setMethodFilter}
             onToggleFavorite={toggleFavorite}
+            availableProtocols={historyProtocols}
+            onRemoveHistoryItem={removeHistoryItem}
+            onClearHistory={() => {
+              clearHistory();
+              setMethodFilter(null);
+            }}
           />
 
           <SidebarWorkflowsPanel
@@ -707,16 +718,8 @@ function Sidebar({ activePanel }: SidebarProps) {
           onOpenChange={(open) => {
             if (!open) setItemToDelete(null);
           }}
-          title={
-            itemToDelete && itemToDelete.itemIds.length > 1
-              ? `Delete ${itemToDelete.itemIds.length} items`
-              : 'Delete item'
-          }
-          description={
-            itemToDelete && itemToDelete.itemIds.length > 1
-              ? `Delete ${itemToDelete.itemIds.length} selected items and everything inside them? This action cannot be undone.`
-              : 'Delete this item and everything inside it? This action cannot be undone.'
-          }
+          title={itemDeletionCopy?.title ?? 'Delete item'}
+          description={itemDeletionCopy?.description ?? ''}
           confirmText="Delete"
           cancelText="Cancel"
           onConfirm={handleConfirmItemDelete}

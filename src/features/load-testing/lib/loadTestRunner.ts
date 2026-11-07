@@ -26,6 +26,21 @@ export interface LoadTestOptions {
   concurrency: number;
 }
 
+/** Upper bounds the dialog states; the runner enforces them too. */
+export const MAX_LOAD_ITERATIONS = 100_000;
+export const MAX_LOAD_CONCURRENCY = 500;
+
+const clampInt = (value: number, max: number) =>
+  Math.min(max, Math.max(1, Number.isFinite(value) ? Math.floor(value) : 1));
+
+/** Clamp a run's options to `1..MAX_*` (whole numbers; NaN → 1). */
+export function clampLoadTestOptions(options: LoadTestOptions): LoadTestOptions {
+  return {
+    iterations: clampInt(options.iterations, MAX_LOAD_ITERATIONS),
+    concurrency: clampInt(options.concurrency, MAX_LOAD_CONCURRENCY),
+  };
+}
+
 export interface LoadSample {
   timeMs: number;
   status: number;
@@ -89,8 +104,7 @@ export async function runLoadTest(
   // iteration, instead of being swallowed per-iteration as status-0 samples.
   const executorOptions = buildExecutorOptions(request, signal);
   const samples: LoadSample[] = [];
-  const total = Math.max(1, options.iterations);
-  const concurrency = Math.max(1, options.concurrency);
+  const { iterations: total, concurrency } = clampLoadTestOptions(options);
   const start = performance.now();
   let launched = 0;
 

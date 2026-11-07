@@ -14,6 +14,14 @@ import { cn } from '@/lib/shared/utils';
 import { useLoadTestStore } from '@/store/useLoadTestStore';
 import type { HttpRequest } from '@/types';
 import { useLoadTest } from '../hooks/useLoadTest';
+import { MAX_LOAD_CONCURRENCY, MAX_LOAD_ITERATIONS } from '../lib/loadTestRunner';
+
+/** Parse a number input to `1..max`; `capped` is true when the typed value exceeded `max`. */
+function parseBounded(raw: string, max: number): { value: number; capped: boolean } {
+  const n = Math.floor(Number(raw)) || 1;
+  if (n > max) return { value: max, capped: true };
+  return { value: Math.max(1, n), capped: false };
+}
 
 interface LoadTestDialogProps {
   request: HttpRequest | null;
@@ -37,6 +45,8 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
   const { running, progress, start, stop } = useLoadTest();
   const [iterations, setIterations] = useState(100);
   const [concurrency, setConcurrency] = useState(10);
+  const [iterationsCapped, setIterationsCapped] = useState(false);
+  const [concurrencyCapped, setConcurrencyCapped] = useState(false);
 
   const stats = useMemo(() => {
     if (!progress) return null;
@@ -102,10 +112,15 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
                 aria-label="Total requests"
                 type="number"
                 min={1}
-                max={100000}
+                max={MAX_LOAD_ITERATIONS}
                 value={iterations}
                 disabled={running}
-                onChange={(e) => setIterations(Math.max(1, Number(e.target.value) || 1))}
+                aria-describedby={iterationsCapped ? 'load-test-iterations-cap' : undefined}
+                onChange={(e) => {
+                  const { value, capped } = parseBounded(e.target.value, MAX_LOAD_ITERATIONS);
+                  setIterations(value);
+                  setIterationsCapped(capped);
+                }}
                 className="mt-1 w-full h-8 px-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong"
               />
             </label>
@@ -115,10 +130,15 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
                 aria-label="Concurrency"
                 type="number"
                 min={1}
-                max={500}
+                max={MAX_LOAD_CONCURRENCY}
                 value={concurrency}
                 disabled={running}
-                onChange={(e) => setConcurrency(Math.max(1, Number(e.target.value) || 1))}
+                aria-describedby={concurrencyCapped ? 'load-test-concurrency-cap' : undefined}
+                onChange={(e) => {
+                  const { value, capped } = parseBounded(e.target.value, MAX_LOAD_CONCURRENCY);
+                  setConcurrency(value);
+                  setConcurrencyCapped(capped);
+                }}
                 className="mt-1 w-full h-8 px-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong"
               />
             </label>
@@ -141,6 +161,21 @@ export function LoadTestDialog({ request, open, onClose }: LoadTestDialogProps) 
               </button>
             )}
           </div>
+
+          {(iterationsCapped || concurrencyCapped) && (
+            <div className="text-sp-11 text-amber-500 font-mono space-y-0.5" role="status">
+              {iterationsCapped && (
+                <p id="load-test-iterations-cap">
+                  Capped at {MAX_LOAD_ITERATIONS.toLocaleString('en-US')} requests.
+                </p>
+              )}
+              {concurrencyCapped && (
+                <p id="load-test-concurrency-cap">
+                  Capped at {MAX_LOAD_CONCURRENCY.toLocaleString('en-US')} concurrent requests.
+                </p>
+              )}
+            </div>
+          )}
 
           {!isElectron() && (
             <p className="text-sp-11 text-sp-dim font-mono">

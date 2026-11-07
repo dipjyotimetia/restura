@@ -5,7 +5,7 @@ import { useFileCollectionStore } from '@/store/useFileCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { Collection, HttpRequest, RequestTab } from '@/types';
-import { deleteCollectionWithCleanup } from '../deleteCollection';
+import { deleteCollectionWithCleanup, describeCollectionDeletion } from '../deleteCollection';
 
 const request: HttpRequest = {
   id: 'request',
@@ -88,5 +88,71 @@ describe('deleteCollectionWithCleanup', () => {
     expect(useRequestStore.getState().tabs[0]).toMatchObject({ isDirty: true });
     expect(useRequestStore.getState().tabs[0]).not.toHaveProperty('savedRequestId');
     expect(useCollectionRunStore.getState().runs).toHaveLength(1);
+  });
+});
+
+describe('describeCollectionDeletion', () => {
+  beforeEach(() => {
+    useCollectionStore.setState({ collections: [collection] });
+    useFileCollectionStore.setState({ fileCollections: {}, conflicts: [] });
+    useWorkflowStore.setState({
+      workflows: [{ id: 'w', collectionId: 'collection' }] as never,
+    });
+  });
+
+  it('names the collection, counts requests and linked workflows', () => {
+    expect(describeCollectionDeletion('collection')).toBe(
+      'Delete "Collection" with 1 request and its 1 linked workflow? Open tabs stay open as unsaved copies.'
+    );
+  });
+
+  it('states that files on disk are kept for a file-backed collection', () => {
+    useFileCollectionStore.getState().registerFileCollection('collection', '/tmp/collection');
+    expect(describeCollectionDeletion('collection')).toContain(
+      'The files in /tmp/collection stay on disk'
+    );
+  });
+});
+
+describe('deleteCollectionWithCleanup undo', () => {
+  beforeEach(() => {
+    useCollectionStore.setState({ collections: [collection] });
+    useFileCollectionStore.setState({ fileCollections: {}, conflicts: [] });
+    useWorkflowStore.setState({
+      workflows: [
+        {
+          id: 'w',
+          collectionId: 'collection',
+          document: {
+            document: { dsl: '1.0.3', namespace: 'restura', name: 'workflow', version: '1.0.0' },
+            do: [{ initialize: { wait: { milliseconds: 0 } } }],
+          },
+          bindings: { version: 1, tasks: {} },
+          layout: { version: 1, nodes: {} },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ] as never,
+    });
+  });
+
+  it('restores the collection and its workflows', async () => {
+    const result = await deleteCollectionWithCleanup('collection', { undoable: true });
+    expect(result.success).toBe(true);
+    expect(useCollectionStore.getState().collections).toEqual([]);
+    expect(useWorkflowStore.getState().workflows).toEqual([]);
+    result.undo?.restore();
+    expect(useCollectionStore.getState().collections.map((c) => c.id)).toEqual(['collection']);
+    expect(useWorkflowStore.getState().workflows.map((w) => w.id)).toEqual(['w']);
+  });
+
+  it('offers no undo for a file-backed collection', async () => {
+    useFileCollectionStore.getState().registerFileCollection('collection', '/tmp/collection');
+    window.electron = {
+      collections: { unwatchDirectory: vi.fn().mockResolvedValue({ success: true }) },
+    } as unknown as typeof window.electron;
+    const result = await deleteCollectionWithCleanup('collection', { undoable: true });
+    expect(result.success).toBe(true);
+    expect(result.undo).toBeUndefined();
   });
 });
