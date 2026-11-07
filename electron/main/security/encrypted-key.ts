@@ -123,10 +123,23 @@ export async function deriveEncryptedKey(opts: EncryptedKeyOptions): Promise<str
 
   if (encryptedKey !== null) {
     tightenKeyFileMode(keyFile);
-    if (await isKeychainAvailable()) {
+    const plaintextKey = asPlaintextKey(encryptedKey);
+    const keychain = await isKeychainAvailable();
+    if (plaintextKey !== null) {
+      // Written by the no-keyring fallback. If a keychain is available now,
+      // re-seal the SAME key (decrypting it would fail and reset every store).
+      if (keychain && (await resealPlaintextKey(keyFile, plaintextKey, opts.storeLabel))) {
+        recordSealedState(opts.storeLabel);
+      } else {
+        emitFallbackWarning(opts.storeLabel, 'no-keyring');
+        recordKeyStoreState(opts.storeLabel, 'plaintext', 'no-keyring');
+      }
+      return plaintextKey;
+    }
+    if (keychain) {
       try {
         const { result } = await safeStorage.decryptStringAsync(encryptedKey);
-        recordKeyStoreState(opts.storeLabel, 'safeStorage');
+        recordSealedState(opts.storeLabel);
         return result;
       } catch {
         // Not a plaintext fallback: the keychain works, so the fresh key below
@@ -141,9 +154,20 @@ export async function deriveEncryptedKey(opts: EncryptedKeyOptions): Promise<str
         recordKeyStoreState(opts.storeLabel, 'plaintext', 'decrypt-failed');
       }
     } else {
-      emitFallbackWarning(opts.storeLabel, 'no-keyring');
+      // A safeStorage-sealed key while the keychain is unavailable (locked or
+      // missing keyring). Its bytes are ciphertext, not a key: using them, or
+      // generating a replacement, would make every store fail to decrypt and
+      // reset. Fail closed — the store stays unopened this session and its
+      // data is readable again once the keychain is back.
       recordKeyStoreState(opts.storeLabel, 'plaintext', 'no-keyring');
-      return encryptedKey.toString('utf8');
+      log.error('store key is sealed by the OS keychain, which is unavailable', {
+        storeLabel: opts.storeLabel,
+        remediation:
+          'Unlock or install the OS keychain (libsecret / KWallet on Linux) and restart.',
+      });
+      throw new Error(
+        `${opts.storeLabel}: the encryption key is sealed by the OS keychain, which is unavailable; refusing to open the store`
+      );
     }
   }
 
@@ -151,7 +175,7 @@ export async function deriveEncryptedKey(opts: EncryptedKeyOptions): Promise<str
   try {
     if (await isKeychainAvailable()) {
       fs.writeFileSync(keyFile, await safeStorage.encryptStringAsync(newKey));
-      recordKeyStoreState(opts.storeLabel, 'safeStorage');
+      recordSealedState(opts.storeLabel);
     } else {
       emitFallbackWarning(opts.storeLabel, 'no-keyring');
       fs.writeFileSync(keyFile, newKey, { mode: 0o600 });
@@ -176,16 +200,94 @@ async function isKeychainAvailable(): Promise<boolean> {
 }
 
 /**
+ * True when Linux safeStorage fell back to `basic_text` (a hard-coded
+ * password, not a secret). Encryption still "works", so keys stay sealed with
+ * it — but the data is not really protected, which status reporting and
+ * callers that need a real secret (mcp-stdio-consent) must know.
+ */
+export function isBasicTextSafeStorageBackend(): boolean {
+  try {
+    if (process.platform !== 'linux') return false;
+    const backend = (
+      safeStorage as unknown as { getSelectedStorageBackend?: () => string }
+    ).getSelectedStorageBackend?.();
+    return backend === 'basic_text';
+  } catch {
+    return false;
+  }
+}
+
+function recordSealedState(storeLabel: string): void {
+  if (isBasicTextSafeStorageBackend()) {
+    recordKeyStoreState(storeLabel, 'plaintext', 'no-keyring');
+  } else {
+    recordKeyStoreState(storeLabel, 'safeStorage');
+  }
+}
+
+const PLAINTEXT_KEY_RE = /^[0-9a-f]{64}$/;
+
+/** The no-keyring fallback writes the hex key verbatim; sealed blobs never match. */
+function asPlaintextKey(contents: Buffer): string | null {
+  const text = contents.toString('utf8');
+  return PLAINTEXT_KEY_RE.test(text) ? text : null;
+}
+
+/** Atomically replace a plaintext key file with the same key sealed by safeStorage. */
+async function resealPlaintextKey(
+  keyFile: string,
+  key: string,
+  storeLabel: string
+): Promise<boolean> {
+  const tmp = `${keyFile}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+  try {
+    const sealed = await safeStorage.encryptStringAsync(key);
+    fs.writeFileSync(tmp, sealed, { mode: 0o600 });
+    fs.renameSync(tmp, keyFile);
+    tightenKeyFileMode(keyFile);
+    log.info('migrated plaintext store key to OS keychain protection', { storeLabel });
+    return true;
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // never written
+    }
+    log.warn('could not re-seal plaintext store key; keeping it as is', {
+      storeLabel,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+/** Keys whose derivation failed (fail-closed), keyed by key file name. */
+const keyFailures = new Map<string, Error>();
+
+/**
  * Derive every store key once, after `app` is ready and before any IPC handler
  * can touch a store. The async safeStorage API cannot back the synchronous
  * store accessors directly, so this runs the async work up front and
- * `getOrCreateEncryptedKey` serves the result from memory.
+ * `getOrCreateEncryptedKey` serves the result from memory. A key that fails to
+ * derive does not block the others; opening its store throws that error, and
+ * the first failure is rethrown here so startup logs it.
  */
 export async function primeEncryptedKeys(specs: readonly EncryptedKeyOptions[]): Promise<void> {
-  const keys = await Promise.all(specs.map((spec) => deriveEncryptedKey(spec)));
+  const results = await Promise.allSettled(specs.map((spec) => deriveEncryptedKey(spec)));
+  let firstError: unknown;
   specs.forEach((spec, i) => {
-    primedKeys.set(spec.fileName, keys[i] as string);
+    const result = results[i];
+    if (result?.status === 'fulfilled') {
+      primedKeys.set(spec.fileName, result.value);
+      keyFailures.delete(spec.fileName);
+    } else if (result) {
+      const error =
+        result.reason instanceof Error ? result.reason : new Error(String(result.reason));
+      keyFailures.set(spec.fileName, error);
+      firstError ??= error;
+    }
   });
+  if (firstError !== undefined) throw firstError;
 }
 
 /**
@@ -196,6 +298,8 @@ export async function primeEncryptedKeys(specs: readonly EncryptedKeyOptions[]):
 export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
   const key = primedKeys.get(opts.fileName);
   if (key === undefined) {
+    const failure = keyFailures.get(opts.fileName);
+    if (failure) throw failure;
     throw new Error(
       `encryption key "${opts.fileName}" was not primed — call primeEncryptedKeys() at startup`
     );
@@ -206,4 +310,5 @@ export function getOrCreateEncryptedKey(opts: EncryptedKeyOptions): string {
 /** Test-only: drop primed keys so tests can re-derive. */
 export function __resetPrimedKeysForTests(): void {
   primedKeys.clear();
+  keyFailures.clear();
 }

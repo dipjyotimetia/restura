@@ -16,6 +16,8 @@ vi.mock('electron', () => ({
 vi.mock('fs', () => ({
   readFileSync: vi.fn(),
   writeFileSync: vi.fn(),
+  renameSync: vi.fn(),
+  unlinkSync: vi.fn(),
   chmodSync: vi.fn(),
 }));
 
@@ -91,14 +93,85 @@ describe('deriveEncryptedKey', () => {
   });
 
   it('reads an existing plaintext key file verbatim when no keyring is available', async () => {
-    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from('plain-key-hex'));
+    const plain = 'ab'.repeat(32);
+    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from(plain));
     vi.mocked(safeStorage.isAsyncEncryptionAvailable).mockResolvedValue(false);
 
     const key = await deriveEncryptedKey({ fileName: 'k4.bin', storeLabel: 'store-4' });
 
-    expect(key).toBe('plain-key-hex');
+    expect(key).toBe(plain);
     expect(fs.writeFileSync).not.toHaveBeenCalled();
     expect(getKeyStoreStatus().plaintextStores).toContain('store-4');
+  });
+
+  it('migrates a plaintext key file to safeStorage once a keyring appears (same key, no reset)', async () => {
+    const plain = 'cd'.repeat(32);
+    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from(plain));
+    vi.mocked(safeStorage.isAsyncEncryptionAvailable).mockResolvedValue(true);
+    vi.mocked(safeStorage.encryptStringAsync).mockResolvedValue(Buffer.from('sealed-plain'));
+
+    const key = await deriveEncryptedKey({ fileName: 'k6.bin', storeLabel: 'store-6' });
+
+    expect(key).toBe(plain);
+    expect(safeStorage.decryptStringAsync).not.toHaveBeenCalled();
+    expect(safeStorage.encryptStringAsync).toHaveBeenCalledWith(plain);
+    expect(fs.writeFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('/tmp/test-userData/k6.bin'),
+      Buffer.from('sealed-plain'),
+      { mode: 0o600 }
+    );
+    expect(fs.renameSync).toHaveBeenCalledWith(
+      expect.stringContaining('/tmp/test-userData/k6.bin'),
+      '/tmp/test-userData/k6.bin'
+    );
+    expect(getKeyStoreStatus().plaintextStores).not.toContain('store-6');
+  });
+
+  it('keeps using a plaintext key if re-sealing it fails', async () => {
+    const plain = 'ef'.repeat(32);
+    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from(plain));
+    vi.mocked(safeStorage.isAsyncEncryptionAvailable).mockResolvedValue(true);
+    vi.mocked(safeStorage.encryptStringAsync).mockRejectedValue(new Error('locked'));
+
+    const key = await deriveEncryptedKey({ fileName: 'k7.bin', storeLabel: 'store-7' });
+
+    expect(key).toBe(plain);
+    expect(fs.renameSync).not.toHaveBeenCalled();
+    expect(getKeyStoreStatus().plaintextStores).toContain('store-7');
+  });
+
+  it.skipIf(process.platform !== 'linux')(
+    'reports a basic_text-sealed key as unprotected while still using it',
+    async () => {
+      const ss = safeStorage as unknown as { getSelectedStorageBackend: () => string };
+      ss.getSelectedStorageBackend = vi.fn(() => 'basic_text');
+      try {
+        vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from('v10-basic'));
+        vi.mocked(safeStorage.isAsyncEncryptionAvailable).mockResolvedValue(true);
+        vi.mocked(safeStorage.decryptStringAsync).mockResolvedValue({
+          result: 'basic-key',
+          shouldReEncrypt: false,
+        });
+
+        const key = await deriveEncryptedKey({ fileName: 'k9.bin', storeLabel: 'store-9' });
+
+        expect(key).toBe('basic-key');
+        expect(getKeyStoreStatus().plaintextStores).toContain('store-9');
+      } finally {
+        ss.getSelectedStorageBackend = vi.fn(() => 'gnome_libsecret');
+      }
+    }
+  );
+
+  it('fails closed when a sealed key file is read while the keyring is unavailable', async () => {
+    vi.mocked(fs.readFileSync).mockReturnValue(Buffer.from('v11\u0001ÿsealed-bytes'));
+    vi.mocked(safeStorage.isAsyncEncryptionAvailable).mockResolvedValue(false);
+
+    await expect(deriveEncryptedKey({ fileName: 'k8.bin', storeLabel: 'store-8' })).rejects.toThrow(
+      /keychain/i
+    );
+    // Never overwrite the sealed key: the data stays readable once the keyring returns.
+    expect(fs.writeFileSync).not.toHaveBeenCalled();
   });
 
   it('regenerates a fresh key when an existing safeStorage blob fails to decrypt', async () => {
@@ -150,6 +223,29 @@ describe('primeEncryptedKeys / getOrCreateEncryptedKey', () => {
     );
     expect(getOrCreateEncryptedKey({ fileName: 'p2.bin', storeLabel: 'store-p2' })).toBe(
       'key-of-cipher-2'
+    );
+  });
+
+  it('primes healthy keys and surfaces the derivation error for a failed one', async () => {
+    vi.mocked(fs.readFileSync).mockImplementation((file) => {
+      if (String(file).endsWith('p3.bin')) return Buffer.from('12'.repeat(32));
+      if (String(file).endsWith('p4.bin')) return Buffer.from('v10\u0000sealed');
+      throw enoent();
+    });
+    vi.mocked(safeStorage.isAsyncEncryptionAvailable).mockResolvedValue(false);
+
+    await expect(
+      primeEncryptedKeys([
+        { fileName: 'p3.bin', storeLabel: 'store-p3' },
+        { fileName: 'p4.bin', storeLabel: 'store-p4' },
+      ])
+    ).rejects.toThrow(/keychain/i);
+
+    expect(getOrCreateEncryptedKey({ fileName: 'p3.bin', storeLabel: 'store-p3' })).toBe(
+      '12'.repeat(32)
+    );
+    expect(() => getOrCreateEncryptedKey({ fileName: 'p4.bin', storeLabel: 'store-p4' })).toThrow(
+      /keychain/i
     );
   });
 });

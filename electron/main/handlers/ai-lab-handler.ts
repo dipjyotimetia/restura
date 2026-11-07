@@ -16,6 +16,7 @@
  * and mirrors ai-handler's runChat, but on ai-lab channels with the carve-out.
  */
 
+import type { TelemetryCredentialRef } from '@shared/agent-lab/telemetry-config';
 import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
@@ -118,17 +119,28 @@ function makeSemaphore(max: number) {
 }
 
 const completeSlots = makeSemaphore(COMPLETE_CONCURRENCY);
+/**
+ * Desktop telemetry credentials come only from secret handles. The telemetry
+ * config is renderer-supplied, so an `env` ref would let a compromised renderer
+ * name any main-process environment variable and have it sent as a Bearer
+ * token to an endpoint of its choosing. The settings UI only produces
+ * secret-handle refs; `env` refs remain a CLI-only feature (--telemetry-config).
+ */
+export async function resolveDesktopTelemetryCredential(
+  ref: TelemetryCredentialRef
+): Promise<string> {
+  if (ref.source !== 'secret-handle') {
+    throw new Error(
+      'Environment-variable telemetry credentials are not supported in the desktop app; store the key in Restura instead'
+    );
+  }
+  const value = resolveSecretHandle(ref.id);
+  if (value) return value;
+  throw new Error('Telemetry secret handle could not be resolved');
+}
+
 const agentTelemetry = createAgentTelemetryService({
-  resolveCredential: async (ref) => {
-    if (ref.source === 'env') {
-      const value = process.env[ref.name];
-      if (value) return value;
-      throw new Error(`Telemetry credential environment variable is not set: ${ref.name}`);
-    }
-    const value = resolveSecretHandle(ref.id);
-    if (value) return value;
-    throw new Error('Telemetry secret handle could not be resolved');
-  },
+  resolveCredential: resolveDesktopTelemetryCredential,
 });
 
 interface ActiveAbort {

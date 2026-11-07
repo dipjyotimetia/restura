@@ -92,30 +92,46 @@ export function withGitLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+// Repo-local config (.git/config) is not trusted: it can be planted by anything
+// that writes into the working tree's git dir. Neutralise the config keys that
+// name programs git would execute on our behalf; command-line `-c` wins over
+// every config file. Filter/merge/textconv drivers have arbitrary names and
+// cannot be blanket-disabled here — writes under `.git/` are refused by the fs
+// guard (`isPathSafe` in storage/file-operations.ts) for that reason.
+const GIT_NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
+export const GIT_HARDENING_ARGS: readonly string[] = [
+  '-c',
+  'core.fsmonitor=',
+  '-c',
+  'core.sshCommand=',
+  '-c',
+  `core.hooksPath=${GIT_NULL_DEVICE}`,
+  '-c',
+  'diff.external=',
+  '-c',
+  'safe.bareRepository=explicit',
+];
+
 export async function runGit(cwd: string, args: string[]): Promise<string> {
   try {
     const safeEnv = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
     );
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-c', 'core.fsmonitor=', '-c', 'core.sshCommand=', ...args],
-      {
-        cwd,
-        maxBuffer: MAX_GIT_OUTPUT_BYTES,
-        timeout: ['clone', 'fetch', 'push'].includes(args[0] ?? '')
-          ? REMOTE_COMMAND_TIMEOUT_MS
-          : COMMAND_TIMEOUT_MS,
-        env: {
-          ...safeEnv,
-          LANG: 'C.UTF-8',
-          GIT_PAGER: 'cat',
-          PAGER: 'cat',
-          GIT_ALLOW_PROTOCOL: 'https:ssh',
-          GIT_LITERAL_PATHSPECS: '1',
-        },
-      }
-    );
+    const { stdout } = await execFileAsync('git', [...GIT_HARDENING_ARGS, ...args], {
+      cwd,
+      maxBuffer: MAX_GIT_OUTPUT_BYTES,
+      timeout: ['clone', 'fetch', 'push'].includes(args[0] ?? '')
+        ? REMOTE_COMMAND_TIMEOUT_MS
+        : COMMAND_TIMEOUT_MS,
+      env: {
+        ...safeEnv,
+        LANG: 'C.UTF-8',
+        GIT_PAGER: 'cat',
+        PAGER: 'cat',
+        GIT_ALLOW_PROTOCOL: 'https:ssh',
+        GIT_LITERAL_PATHSPECS: '1',
+      },
+    });
     return stdout;
   } catch (error) {
     throw normaliseGitError(error, cwd);

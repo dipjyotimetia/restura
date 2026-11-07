@@ -148,6 +148,17 @@ describe('isPathRealSafe', () => {
 
     await expect(isPathRealSafe(path.join(root, 'escaped', 'collection'))).resolves.toBe(false);
   });
+
+  it('rejects a symlink whose real target is inside a .git directory', async () => {
+    const root = '/tmp/test-documents';
+    const gitDir = path.join(root, 'repo-with-git', '.git');
+    await mkdir(gitDir, { recursive: true });
+    await rm(path.join(root, 'innocent'), { force: true, recursive: true });
+    await symlink(gitDir, path.join(root, 'innocent'));
+
+    expect(isPathSafe(path.join(root, 'innocent', 'config'))).toBe(true);
+    await expect(isPathRealSafe(path.join(root, 'innocent', 'config'))).resolves.toBe(false);
+  });
 });
 
 describe('isPathSafe — tighter allowlist', () => {
@@ -184,6 +195,24 @@ describe('isPathSafe — tighter allowlist', () => {
   it('rejects sibling-of-allowed-root prefix attacks', () => {
     const u = app.getPath('userData');
     expect(isPathSafe(`${u}-evil/foo.json`)).toBe(false);
+  });
+
+  it('rejects anything inside a repository git dir (filter drivers, hooks live there)', () => {
+    const d = app.getPath('documents');
+    const home = app.getPath('home');
+    expect(isPathSafe(path.join(d, 'repo', '.git', 'config'))).toBe(false);
+    expect(isPathSafe(path.join(d, 'repo', '.git', 'hooks', 'pre-commit'))).toBe(false);
+    expect(isPathSafe(path.join(d, 'repo', '.git'))).toBe(false);
+    expect(isPathSafe(path.join(home, 'work', '.GIT', 'config'))).toBe(false);
+    expect(isPathSafe(path.join(d, 'repo', 'sub', '.git', 'info', 'attributes'))).toBe(false);
+  });
+
+  it('still allows look-alike names and working-tree files', () => {
+    const d = app.getPath('documents');
+    expect(isPathSafe(path.join(d, 'repo', '.github', 'workflows', 'ci.yml'))).toBe(true);
+    expect(isPathSafe(path.join(d, 'repo', '.gitignore'))).toBe(true);
+    expect(isPathSafe(path.join(d, 'repo', '.git-notes', 'a.json'))).toBe(true);
+    expect(isPathSafe(path.join(d, 'repo', 'requests', 'a.yml'))).toBe(true);
   });
 
   it('allows ~/Documents/notes.json (non-blocked subdir under home)', () => {
