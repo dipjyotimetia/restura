@@ -307,6 +307,70 @@ describe('importInsomniaCollection', () => {
   });
 });
 
+describe('importInsomniaCollection — v4 item identity', () => {
+  const allIds = (items: Array<{ id: string; items?: unknown[] }>): string[] =>
+    items.flatMap((it) => [
+      it.id,
+      ...allIds((it.items ?? []) as Array<{ id: string; items?: unknown[] }>),
+    ]);
+
+  const fixture = () =>
+    makeFixture([
+      { _id: 'wrk_1', _type: 'workspace', name: 'WS' },
+      { _id: 'fld_1', _type: 'request_group', name: 'Folder', parentId: 'wrk_1' },
+      {
+        _id: 'req_1',
+        _type: 'request',
+        name: 'Nested',
+        method: 'GET',
+        url: 'https://example.com',
+        parentId: 'fld_1',
+      },
+    ]);
+
+  it('generates fresh item ids so importing twice never collides', () => {
+    const first = importInsomniaCollection(fixture());
+    const second = importInsomniaCollection(fixture());
+    const a = allIds(first.collection.items);
+    const b = allIds(second.collection.items);
+    expect(a).toHaveLength(2);
+    expect(a).not.toContain('fld_1');
+    expect(a).not.toContain('req_1');
+    expect(a.filter((id) => b.includes(id))).toEqual([]);
+    // Parent linking still uses the source ids.
+    const folder = first.collection.items[0]!;
+    expect(folder.type).toBe('folder');
+    expect(folder.items?.map((i) => i.name)).toEqual(['Nested']);
+  });
+
+  it('attaches a self-parented folder to the root instead of nesting it into itself', () => {
+    const result = importInsomniaCollection(
+      makeFixture([
+        { _id: 'wrk_1', _type: 'workspace', name: 'WS' },
+        { _id: 'fld_self', _type: 'request_group', name: 'Self', parentId: 'fld_self' },
+      ])
+    );
+    expect(result.collection.items).toHaveLength(1);
+    expect(result.collection.items[0]!.name).toBe('Self');
+    expect(result.collection.items[0]!.items).toEqual([]);
+  });
+
+  it('breaks a parentId cycle by attaching to the root', () => {
+    const result = importInsomniaCollection(
+      makeFixture([
+        { _id: 'wrk_1', _type: 'workspace', name: 'WS' },
+        { _id: 'fld_a', _type: 'request_group', name: 'A', parentId: 'fld_b' },
+        { _id: 'fld_b', _type: 'request_group', name: 'B', parentId: 'fld_a' },
+      ])
+    );
+    // Every folder is reachable from the root, and the tree is finite.
+    const names = (items: typeof result.collection.items): string[] =>
+      items.flatMap((i) => [i.name, ...names(i.items ?? [])]);
+    expect(names(result.collection.items).sort()).toEqual(['A', 'B']);
+    expect(() => JSON.stringify(result.collection)).not.toThrow();
+  });
+});
+
 describe('getInsomniaVersion', () => {
   it('detects v4 by __export_format', () => {
     expect(getInsomniaVersion({ _type: 'export', __export_format: 4, resources: [] })).toBe(4);

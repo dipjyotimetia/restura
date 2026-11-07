@@ -319,18 +319,10 @@ function bodyToBruno(body: RequestBody): {
     case 'text':
       return { bodyJson: { text: body.raw ?? '' }, bodyDiscriminator: 'text' };
     case 'graphql': {
-      // Restura stores the GraphQL body as a JSON envelope `{query, variables}`.
-      const raw = body.raw ?? '';
-      let query = '';
-      let variables = '';
-      try {
-        const parsed = JSON.parse(raw) as { query?: unknown; variables?: unknown };
-        query = typeof parsed.query === 'string' ? parsed.query : '';
-        if (typeof parsed.variables === 'string') variables = parsed.variables;
-        else if (parsed.variables !== undefined) variables = JSON.stringify(parsed.variables);
-      } catch {
-        query = raw;
-      }
+      // Restura's model: `raw` is the query document, `graphqlVariables` the
+      // variables JSON. Bruno has no operation-name field, so
+      // `graphqlOperationName` has nowhere to go.
+      const { query, variables } = graphqlQueryAndVariables(body);
       return {
         bodyJson: { graphql: { query, variables } },
         bodyDiscriminator: 'graphql',
@@ -350,12 +342,19 @@ function bodyToBruno(body: RequestBody): {
     case 'form-data':
       return {
         bodyJson: {
-          multipartForm: (body.formData ?? []).map((f) => ({
-            name: f.key,
-            value: f.value,
-            enabled: f.enabled !== false,
-            type: f.type === 'file' ? 'file' : 'text',
-          })),
+          // A file row's `value` is the picked file's base64 bytes — never
+          // export them. Bruno references files by path (`@file(<path>)`, a
+          // path array in the JSON form); the file name is all we have.
+          multipartForm: (body.formData ?? []).map((f) =>
+            f.type === 'file'
+              ? {
+                  name: f.key,
+                  value: f.fileName ? [f.fileName] : [],
+                  enabled: f.enabled !== false,
+                  type: 'file',
+                }
+              : { name: f.key, value: f.value, enabled: f.enabled !== false, type: 'text' }
+          ),
         },
         bodyDiscriminator: 'multipartForm',
       };
@@ -364,6 +363,32 @@ function bodyToBruno(body: RequestBody): {
     default:
       return {};
   }
+}
+
+/**
+ * Read a graphql body as `{ query, variables }`. Falls back to a legacy
+ * `{query, variables}` JSON envelope in `raw` only when it parses as JSON with
+ * a string `query` (a bare query document never does).
+ */
+function graphqlQueryAndVariables(body: RequestBody): { query: string; variables: string } {
+  const raw = body.raw ?? '';
+  const native = { query: raw, variables: body.graphqlVariables ?? '' };
+  if (body.graphqlVariables !== undefined && body.graphqlVariables !== '') return native;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return native;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return native;
+  const envelope = parsed as { query?: unknown; variables?: unknown };
+  if (typeof envelope.query !== 'string') return native;
+  let variables = '';
+  if (typeof envelope.variables === 'string') variables = envelope.variables;
+  else if (envelope.variables !== undefined && envelope.variables !== null) {
+    variables = JSON.stringify(envelope.variables);
+  }
+  return { query: envelope.query, variables };
 }
 
 function authToBruno(

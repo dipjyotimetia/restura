@@ -271,4 +271,32 @@ GET https://api.example.com/unnamed
       expect(request.testScript).toBe("client.test('response', () => {});");
     });
   });
+
+  describe('file variables declared inside a block', () => {
+    it('collects an @var in a block prelude instead of dropping the request', () => {
+      const result = importHttpFile(
+        '###\n@token = abc\nGET https://x/y\nAuthorization: Bearer {{token}}'
+      );
+      expect(result.collection.items).toHaveLength(1);
+      const request = asHttpRequest(itemAt(result.collection.items, 0).request);
+      expect(request.url).toBe('https://x/y');
+      expect(request.headers.map((h) => [h.key, h.value])).toEqual([
+        ['Authorization', 'Bearer {{token}}'],
+      ]);
+      expect(result.environments?.[0]?.variables.map((v) => [v.key, v.value])).toEqual([
+        ['token', 'abc'],
+      ]);
+    });
+
+    it('keeps variables from a variables-only block', () => {
+      const result = importHttpFile(
+        '### Variables\n@baseUrl = https://a\n\n### Get\nGET {{baseUrl}}/x'
+      );
+      expect(result.collection.items).toHaveLength(1);
+      expect(asHttpRequest(itemAt(result.collection.items, 0).request).url).toBe('{{baseUrl}}/x');
+      expect(result.environments?.[0]?.variables.map((v) => [v.key, v.value])).toEqual([
+        ['baseUrl', 'https://a'],
+      ]);
+    });
+  });
 });
