@@ -55,6 +55,13 @@ interface McpDiscoveryPanelProps {
   events?: McpDiscoveryEvents;
   /** Omitted on web or when the server doesn't advertise `resources.subscribe`. */
   resourceSubscriptions?: McpResourceSubscriptionControls;
+  /** Whether a server is connected; picks the empty-state wording. */
+  connected?: boolean;
+}
+
+/** Empty list copy: "connect first" vs "this server has none". */
+function emptyHint(connected: boolean, noun: string): string {
+  return connected ? `This server exposes no ${noun}.` : `Connect to a server to list ${noun}.`;
 }
 
 /** MCP capability browser. Selection stays in the builder so the invoke form remains visible beside it. */
@@ -77,6 +84,7 @@ export function McpDiscoveryPanel({
   onTabChange,
   events,
   resourceSubscriptions,
+  connected = false,
 }: McpDiscoveryPanelProps) {
   return (
     <Floater
@@ -114,13 +122,19 @@ export function McpDiscoveryPanel({
       />
       <SubTabPanel tabKey={tab} className="flex-1 min-h-0 overflow-hidden">
         {tab === 'tools' && (
-          <ToolList tools={tools} selected={selectedToolName} onSelect={onToolSelect} />
+          <ToolList
+            tools={tools}
+            selected={selectedToolName}
+            onSelect={onToolSelect}
+            connected={connected}
+          />
         )}
         {tab === 'resources' && (
           <ResourceList
             resources={resources}
             onRead={onReadResource}
             subscriptions={resourceSubscriptions}
+            connected={connected}
           />
         )}
         {tab === 'templates' && (
@@ -131,7 +145,12 @@ export function McpDiscoveryPanel({
           />
         )}
         {tab === 'prompts' && (
-          <PromptList prompts={prompts} selected={selectedPromptName} onSelect={onPromptSelect} />
+          <PromptList
+            prompts={prompts}
+            selected={selectedPromptName}
+            onSelect={onPromptSelect}
+            connected={connected}
+          />
         )}
         {tab === 'log' && <LogList log={log} onClear={onClearLog} />}
         {tab === 'events' && events && (
@@ -150,13 +169,15 @@ function ToolList({
   tools,
   selected,
   onSelect,
+  connected,
 }: {
   tools: McpToolDescriptor[];
   selected: string | null;
   onSelect: (name: string) => void;
+  connected: boolean;
 }) {
   if (tools.length === 0) {
-    return <EmptyState title="No tools" hint="Connect to a server to discover tools." />;
+    return <EmptyState title="No tools" hint={emptyHint(connected, 'tools')} />;
   }
   return (
     <ScrollArea className="h-full">
@@ -213,10 +234,12 @@ function ResourceList({
   resources,
   onRead,
   subscriptions,
+  connected,
 }: {
   resources: McpResourceDescriptor[];
   onRead: (uri: string) => Promise<void>;
   subscriptions: McpResourceSubscriptionControls | undefined;
+  connected: boolean;
 }) {
   const [reading, setReading] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
@@ -239,7 +262,7 @@ function ResourceList({
   };
 
   if (resources.length === 0) {
-    return <EmptyState title="No resources" hint="The server exposes no resources." />;
+    return <EmptyState title="No resources" hint={emptyHint(connected, 'resources')} />;
   }
   return (
     <ScrollArea className="h-full">
@@ -318,13 +341,15 @@ function PromptList({
   prompts,
   selected,
   onSelect,
+  connected,
 }: {
   prompts: McpPromptDescriptor[];
   selected: string | null;
   onSelect: (name: string) => void;
+  connected: boolean;
 }) {
   if (prompts.length === 0) {
-    return <EmptyState title="No prompts" hint="The server exposes no prompts." />;
+    return <EmptyState title="No prompts" hint={emptyHint(connected, 'prompts')} />;
   }
   return (
     <ScrollArea className="h-full">

@@ -23,7 +23,6 @@ import { MCP_STDIO_WEB_ERROR } from '@/features/mcp/lib/mcpStdioLaunch';
 import type { McpConnection } from '@/features/mcp/store/useMcpStore';
 import { isCapableHere } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
-import { cn } from '@/lib/shared/utils';
 import type { AuthConfig, KeyValue, McpStdioConfig, McpTransportType } from '@/types';
 
 interface McpConnectionPanelProps {
@@ -48,9 +47,17 @@ interface McpConnectionPanelProps {
   onConformance?: () => void;
 }
 
-const remoteTransportOptions: Array<{ value: McpTransportType; label: string }> = [
-  { value: 'streamable-http', label: 'Streamable HTTP' },
-  { value: 'http-sse', label: 'HTTP + SSE' },
+const remoteTransportOptions: Array<{ value: McpTransportType; label: string; title?: string }> = [
+  {
+    value: 'streamable-http',
+    label: 'Streamable HTTP',
+    title: 'Streamable HTTP — the current MCP transport',
+  },
+  {
+    value: 'http-sse',
+    label: 'HTTP + SSE',
+    title: 'HTTP + SSE — the legacy MCP transport (2024-11-05); use only for older servers',
+  },
 ];
 const stdioTransportOption = { value: 'stdio' as const, label: 'stdio' };
 
@@ -204,10 +211,13 @@ export function McpConnectionPanel({
           <Segmented<McpTransportType>
             options={mcpTransportOptions(desktop)}
             value={connection.transport}
-            onChange={onTransportChange}
+            onChange={(next) => {
+              // The transport is fixed for a live connection: disconnect first.
+              if (!isConnected && !isBusy) onTransportChange(next);
+            }}
             size="sm"
             ariaLabel="MCP transport"
-            className={cn((isConnected || isBusy) && 'opacity-60 pointer-events-none')}
+            disabled={isConnected || isBusy}
           />
         </div>
         <Button

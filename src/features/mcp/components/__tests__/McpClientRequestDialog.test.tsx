@@ -82,7 +82,7 @@ describe('McpClientRequestDialog — elicitation', () => {
     expect(await screen.findByText('Required.')).toBeInTheDocument();
     expect(mcp.respondClientRequest).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByPlaceholderText('true / false'), { target: { value: 'true' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'confirm' }));
     fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
     await waitFor(() =>
       expect(mcp.respondClientRequest).toHaveBeenCalledWith({
@@ -126,7 +126,8 @@ describe('McpClientRequestDialog — elicitation', () => {
       />
     );
     queue('elicitation', params, ELICIT_ID);
-    fireEvent.change(screen.getByPlaceholderText('true / false'), { target: { value: 'false' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'confirm' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'confirm' }));
     fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
     expect(await screen.findByText('Must be true or false.')).toBeInTheDocument();
   });

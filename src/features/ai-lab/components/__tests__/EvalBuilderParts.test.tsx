@@ -374,6 +374,29 @@ describe('EvalBuilder parts', () => {
     expect(onRun).not.toHaveBeenCalled();
   });
 
+  it('announces run progress in a polite status region', () => {
+    render(
+      <EvalRunControls
+        running
+        progress={{ completed: 2, total: 5, cells: [], done: false }}
+        error={null}
+        persistenceError={null}
+        lastRunId={null}
+        hasPendingReport={false}
+        passCount={1}
+        runDisabledReason={null}
+        onRun={vi.fn()}
+        onStop={vi.fn()}
+        onRetrySave={vi.fn()}
+        onOpenReport={vi.fn()}
+      />
+    );
+    const status = screen.getByTestId('eval-run-status');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(status).toHaveTextContent('Eval running: 2 of 5 cells complete, 1 passed');
+  });
+
   it('offers Export for CLI when idle and enabled, and hides it while running (#1045)', () => {
     const onExportForCli = vi.fn();
     const props = {

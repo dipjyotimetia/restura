@@ -39,8 +39,8 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
         disabled={disabled}
         placeholder={
           disabled
-            ? 'Add an API key in Settings → AI to start chatting.'
-            : `Ask about the active request or response… (${modLabel('Enter')} to send)`
+            ? 'Chat is unavailable until an AI provider is set up.'
+            : 'Ask about the active request or response…'
         }
         rows={3}
         className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"
@@ -48,7 +48,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
       <div className="mt-2 flex items-center justify-between gap-2">
         <label
           htmlFor="composer-raw-mode"
-          className="flex items-center gap-2 text-[11px] text-muted-foreground"
+          className="flex items-center gap-2 text-sp-11 text-muted-foreground"
         >
           <Switch
             id="composer-raw-mode"
@@ -58,15 +58,29 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
           />
           Send raw (skip redaction)
         </label>
-        {streaming ? (
-          <Button size="sm" variant="outline" onClick={onStop}>
-            Stop
-          </Button>
-        ) : (
-          <Button size="sm" disabled={disabled || text.trim().length === 0} onClick={send}>
-            Send
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <span
+            data-testid="composer-shortcut-hint"
+            className="text-sp-11 text-muted-foreground"
+            aria-hidden="true"
+          >
+            {modLabel('Enter')} to send
+          </span>
+          {streaming ? (
+            <Button size="sm" variant="outline" onClick={onStop}>
+              Stop
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              disabled={disabled || text.trim().length === 0}
+              onClick={send}
+              aria-keyshortcuts="Meta+Enter Control+Enter"
+            >
+              Send
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

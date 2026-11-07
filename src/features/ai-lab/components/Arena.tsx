@@ -20,6 +20,7 @@ import { useModelSelection } from '../hooks/useModelSelection';
 import { computeElo, winRateMatrix } from '../lib/elo';
 import { newestFirst } from '../lib/newestFirst';
 import { plural } from '../lib/plural';
+import { METRIC_HELP } from '../lib/reliabilityFormat';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import { useArenaStore } from '../store/useArenaStore';
@@ -353,7 +354,11 @@ export function Arena() {
                     <tr className="border-b border-sp-line text-left text-sp-11 text-sp-muted">
                       <th className="py-2 pr-3 font-medium">#</th>
                       <th className="py-2 pr-3 font-medium">Model</th>
-                      <th className="py-2 pr-3 text-right font-medium">Elo</th>
+                      <th className="py-2 pr-3 text-right font-medium">
+                        <abbr title={METRIC_HELP.elo} className="cursor-help no-underline">
+                          Elo
+                        </abbr>
+                      </th>
                       <th className="py-2 pr-3 text-right font-medium">W</th>
                       <th className="py-2 pr-3 text-right font-medium">L</th>
                       <th className="py-2 pr-3 text-right font-medium">T</th>

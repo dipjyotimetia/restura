@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '@/features/ai/store';
 import { Message } from './Message';
+import { MessageList } from './MessageList';
 
 const reply = (usage: ChatMessage['usage']): ChatMessage =>
   ({
@@ -81,5 +82,56 @@ describe('Message states', () => {
     render(<Message message={message({ text: 'Answer' })} />);
     expect(screen.getByText(/AI can be wrong/)).toBeTruthy();
     expect(screen.queryByText(/tok ·/)).toBeNull();
+  });
+});
+
+describe('Message actions and markdown (M6)', () => {
+  const assistant = (fields: Partial<ChatMessage>): ChatMessage => ({
+    id: 'm3',
+    role: 'assistant',
+    text: 'Use **bold** and `code`.',
+    status: 'done',
+    createdAt: 0,
+    ...fields,
+  });
+
+  it('renders a finished assistant reply as markdown, with raw HTML escaped', () => {
+    const { container } = render(
+      <Message message={assistant({ text: '**bold** <img src=x onerror=alert(1)>' })} />
+    );
+    expect(container.querySelector('strong')?.textContent).toBe('bold');
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('copies the reply text', () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<Message message={assistant({})} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy reply' }));
+    expect(writeText).toHaveBeenCalledWith('Use **bold** and `code`.');
+  });
+
+  it('offers Retry when given onRetry, for a failed reply', () => {
+    const onRetry = vi.fn();
+    render(
+      <Message
+        message={assistant({ status: 'error', text: '', errorMessage: 'Boom' })}
+        onRetry={onRetry}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it('no Retry without onRetry', () => {
+    render(<Message message={assistant({})} />);
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+});
+
+describe('MessageList (M7)', () => {
+  it('is a polite live log', () => {
+    render(<MessageList messages={[]} />);
+    expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'polite');
   });
 });
