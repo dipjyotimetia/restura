@@ -149,6 +149,21 @@ function isUnderHomeBlocked(resolved: string, homePath: string): boolean {
   );
 }
 
+/**
+ * True when any path component is a `.git` directory/file. Repo-local git
+ * config can name programs (filter/merge/textconv drivers, hooks, credential
+ * helpers) that main later executes via runGit, so a renderer-reachable write
+ * there is code execution. Reads are refused too (`.git/config` may embed
+ * remote credentials). Trailing dots/spaces and 8.3 short names (`GIT~1`)
+ * alias `.git` on NTFS.
+ */
+export function hasGitMetadataSegment(resolved: string): boolean {
+  return resolved.split(/[\\/]/).some((raw) => {
+    const seg = foldSegment(raw).replace(/[. ]+$/, '');
+    return seg === '.git' || /^git~\d+$/.test(seg);
+  });
+}
+
 // Block access to sensitive system directories at the OS level (cheap
 // defense-in-depth — userData/documents/home are inside the user's profile
 // so these shouldn't be reachable anyway, but a misconfigured app.getPath()
@@ -288,6 +303,9 @@ export function isPathSafe(filePath: string): boolean {
     const insideHome = homePath !== path.parse(homePath).root && isWithin(resolved, homePath);
     if (!insideHome && isBlockedRoot(resolved)) return false;
 
+    // Never reach into a git dir (see hasGitMetadataSegment).
+    if (hasGitMetadataSegment(resolved)) return false;
+
     // Must sit under an allowed root, with path-sep guard against prefix-collision
     if (!allowedRoots().some((root) => isWithin(resolved, root))) return false;
 
@@ -330,6 +348,8 @@ export async function isPathRealSafe(filePath: string): Promise<boolean> {
       resolveFromExistingAncestor(path.resolve(filePath)),
     ]);
     if (!(realTarget === realRoot || realTarget.startsWith(realRoot + path.sep))) return false;
+    // A symlink must not land inside a git dir either.
+    if (hasGitMetadataSegment(path.relative(realRoot, realTarget))) return false;
     // A dialog-granted root is trusted for where it pointed when granted; if it
     // is a symlink later retargeted at a system path, refuse it now.
     if (getGrantedRoots().has(allowedRoot) && !isGrantableRoot(realRoot)) return false;
