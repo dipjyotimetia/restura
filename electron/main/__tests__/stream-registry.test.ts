@@ -555,6 +555,34 @@ describe('StreamRegistry claims', () => {
     expect(disposedEntries).toEqual([]);
   });
 
+  it('a reconnect commits when the captured entry removed itself meanwhile', () => {
+    // The old socket's graceful close can finish during the reconnect's DNS
+    // await and remove its own entry; the slot is then empty, not newer.
+    const { registry, disposedEntries, entry } = setup();
+    const { wc } = makeCountingWc(1);
+    registry.tryAdd('c1', wc as never, entry('original', 1));
+    const claim = registry.reserveClaim('c1', wc as never)!;
+    expect(claim.ownerEntry).toBeDefined();
+    registry.remove('c1', 1);
+
+    const replacement = entry('replacement', 1);
+    expect(registry.commitClaim(claim, wc as never, replacement)).toBe(true);
+    expect(registry.get('c1', 1)).toBe(replacement);
+    expect(disposedEntries).toEqual([]);
+  });
+
+  it('a reconnect whose claim was cancelled still cannot commit into an empty slot', () => {
+    const { registry, entry } = setup();
+    const { wc } = makeCountingWc(1);
+    registry.tryAdd('c1', wc as never, entry('original', 1));
+    const claim = registry.reserveClaim('c1', wc as never)!;
+    registry.remove('c1', 1);
+    registry.cancelClaim('c1', 1);
+
+    expect(registry.commitClaim(claim, wc as never, entry('late', 1))).toBe(false);
+    expect(registry.get('c1', 1)).toBeUndefined();
+  });
+
   it('does not capture another renderer’s entry as the owner entry', () => {
     const { registry, entry } = setup();
     registry.tryAdd('shared', makeCountingWc(1).wc as never, entry('theirs', 1));

@@ -13,6 +13,7 @@ Restura's security posture is **asymmetric** between platforms by virtue of capa
 
 - Encryption keys are persisted via Electron's `safeStorage`, which wraps them with the **OS keychain** — macOS Keychain, Windows Credential Manager, Linux libsecret.
 - Stored data (collections, history, environments, secrets) is encrypted with **AES-256-GCM** using a key derived from the keychain-wrapped key.
+- With no keychain the key falls back to a `0o600` plaintext file (with a startup warning); it is re-sealed — same key, no reset — once a keychain is available. A sealed key with the keychain unavailable fails closed: the store stays unopened that session rather than being reset. Linux `basic_text` storage is reported as plaintext.
 - Secret-bearing auth fields use the **`SecretRef` handle pattern** (ADR 0007): the plaintext lives in `electron/main/security/secret-handle-store.ts` and the renderer only ever sees a handle (`{ kind: 'handle', id, label? }`). Plaintext is resolved only at wire-signing time in the main process — never enters the Zustand store, persistence layer, or exported collections.
 
 ### Web

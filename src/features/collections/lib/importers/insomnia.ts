@@ -105,21 +105,38 @@ function importInsomniaV4(
         : [],
   }));
 
+  // Keyed by Insomnia `_id` for parent linking only; item ids are fresh UUIDs
+  // so importing the same export twice never yields colliding item ids.
   const folderMap = new Map<string, CollectionItem>();
+  const folderParent = new Map<string, string | undefined>();
   folders.forEach((folder) => {
     const item: CollectionItem = {
-      id: folder._id,
+      id: uuidv4(),
       name: folder.name || 'Unnamed Folder',
       type: 'folder',
       items: [],
     };
     folderMap.set(folder._id, item);
+    folderParent.set(folder._id, folder.parentId);
   });
+
+  // A folder whose parent chain leads back to itself (self-parent or cycle)
+  // would never be reachable from the root; attach it to the root instead.
+  const parentChainLoops = (folderId: string): boolean => {
+    const seen = new Set<string>([folderId]);
+    let current = folderParent.get(folderId);
+    while (current !== undefined && folderMap.has(current)) {
+      if (seen.has(current)) return current === folderId;
+      seen.add(current);
+      current = folderParent.get(current);
+    }
+    return false;
+  };
 
   requests.forEach((req) => {
     const request = convertRequest(req, warnings);
     const item: CollectionItem = {
-      id: req._id,
+      id: uuidv4(),
       name: req.name || 'Unnamed Request',
       type: 'request',
       request,
@@ -135,7 +152,7 @@ function importInsomniaV4(
   folders.forEach((folder) => {
     const item = folderMap.get(folder._id);
     if (!item) return;
-    if (folder.parentId && folderMap.has(folder.parentId)) {
+    if (folder.parentId && folderMap.has(folder.parentId) && !parentChainLoops(folder._id)) {
       folderMap.get(folder.parentId)!.items!.push(item);
     } else {
       collection.items.push(item);

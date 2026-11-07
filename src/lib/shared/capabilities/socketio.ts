@@ -8,6 +8,6 @@ export const SOCKETIO_CAPABILITIES = {
     web: true,
     desktop: true,
     notes:
-      'Desktop refuses a redirected handshake or polling request and reports it; on web, the browser handles polling redirects',
+      'Desktop refuses a redirected handshake or polling request and reports it; on web, the browser handles polling redirects. Every connect creates a fresh Manager (never multiplexed); the saved forceNew option has no effect',
   },
 } as const satisfies Record<string, CapabilityRow>;

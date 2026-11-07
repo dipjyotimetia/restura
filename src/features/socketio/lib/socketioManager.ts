@@ -431,7 +431,11 @@ class SocketIOManager {
         reconnectionDelayMax: config.reconnectionDelayMax,
         randomizationFactor: config.randomizationFactor,
         timeout: config.timeout,
-        forceNew: config.forceNew,
+        // Always a fresh Manager: each connection maps 1:1 to an io() call and
+        // owns its query/auth/headers/transports. A multiplexed Manager for a
+        // second namespace on the same host would silently ignore them, and
+        // disconnecting one tab could tear down the shared engine.
+        forceNew: true,
         autoConnect: true,
       });
     } catch (err) {

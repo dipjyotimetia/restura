@@ -136,6 +136,49 @@ describe('mcp handler', () => {
     expect(json.jsonRpc).toMatchObject({ id: 1, result: { tools: [] } });
   });
 
+  describe('application/json reply must be the reply to this request (SSE-branch parity)', () => {
+    const replyWith = (payload: unknown) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        )
+      );
+      return makeRequest({
+        url: 'https://api.example.com',
+        transport: 'streamable-http',
+        jsonRpc: { method: 'tools/list', id: 1 },
+      });
+    };
+
+    it.each([
+      ['a reply with a different id', { jsonrpc: '2.0', id: 2, result: {} }],
+      ['a batch array', [{ jsonrpc: '2.0', id: 1, result: {} }]],
+      ['a non-object', 42],
+      ['an object that is neither result nor error', { jsonrpc: '2.0', id: 1 }],
+      ['a server request', { jsonrpc: '2.0', id: 1, method: 'sampling/createMessage' }],
+    ])('returns 502 for %s', async (_label, payload) => {
+      const res = await replyWith(payload);
+      expect(res.status).toBe(502);
+      const json = (await res.json()) as Record<string, unknown>;
+      expect(json.error).toMatch(/JSON-RPC reply/);
+    });
+
+    it('accepts a null-id error reply (e.g. a parse error the server could not attribute)', async () => {
+      const res = await replyWith({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32700, message: 'Parse error' },
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as Record<string, unknown>;
+      expect(json.jsonRpc).toMatchObject({ id: null, error: { code: -32700 } });
+    });
+  });
+
   it('routes the upstream call through the injected Node pinned fetch', async () => {
     const mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);

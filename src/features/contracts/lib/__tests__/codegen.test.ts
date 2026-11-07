@@ -62,8 +62,9 @@ describe('inferTypeScriptFromSample — arrays', () => {
 
   it('infers element type from the first sample (and unions if mixed)', () => {
     const ts = inferTypeScriptFromSample([1, 'two', false]);
-    // Union with string, number, boolean.
-    expect(ts).toContain('number | string | boolean');
+    // Union with string, number, boolean — parenthesised so `[]` binds to the
+    // whole union, not just its last member.
+    expect(ts.trim()).toBe('export type Response = (number | string | boolean)[];');
   });
 
   it('emits unknown[] for empty arrays', () => {

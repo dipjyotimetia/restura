@@ -154,16 +154,16 @@ export class StreamRegistry<E extends StreamEntryBase, X extends object = object
    * Register the dialed entry, only through a live claim. A first connect may not
    * displace an entry that appeared meanwhile; a reconnect may replace only the exact
    * entry captured at reserve time, so stale work cannot replace a newer connection.
+   * If the captured entry removed itself meanwhile (its graceful close finished
+   * during the dial), the empty slot is committed like a first connect.
    * On false nothing was stored and the caller must tear the unregistered entry down.
    */
   commitClaim(claim: StreamClaim<E, X>, webContents: WebContents, entry: E): boolean {
     if (!this.isClaimLive(claim)) return false;
     const { connectionId, webContentsId, ownerEntry } = claim;
-    if (!ownerEntry) return this.tryAdd(connectionId, webContents, entry);
-    return (
-      this.get(connectionId, webContentsId) === ownerEntry &&
-      this.replaceForOwner(connectionId, webContentsId, entry)
-    );
+    const current = this.get(connectionId, webContentsId);
+    if (!ownerEntry || current === undefined) return this.tryAdd(connectionId, webContents, entry);
+    return current === ownerEntry && this.replaceForOwner(connectionId, webContentsId, entry);
   }
 
   /** Drop the claim WITHOUT `disposeClaim`. A stale claim cannot drop a newer one. */

@@ -1,3 +1,4 @@
+import { keyValueSchema } from '@shared/schemas/key-value';
 import { describe, expect, it } from 'vitest';
 import {
   importPostmanEnvironment,
@@ -226,5 +227,26 @@ describe('importPostmanEnvironment secret values (#1231)', () => {
       enabled: true,
     });
     expect(result.environment.variables[0]!.secret).toBeUndefined();
+  });
+});
+
+describe('importPostmanEnvironmentDetailed — non-string values', () => {
+  it('coerces number and boolean values (and keys) to strings', () => {
+    const { environment } = importPostmanEnvironmentDetailed({
+      id: 'e1',
+      name: 'Typed',
+      values: [
+        { key: 'port', value: 8080, enabled: true },
+        { key: 'debug', value: true, enabled: true },
+        { key: 42, value: 'x', enabled: true },
+      ],
+      _postman_variable_scope: 'environment',
+    });
+    expect(environment.variables.map((v) => [v.key, v.value])).toEqual([
+      ['port', '8080'],
+      ['debug', 'true'],
+      ['42', 'x'],
+    ]);
+    for (const v of environment.variables) expect(keyValueSchema.safeParse(v).success).toBe(true);
   });
 });

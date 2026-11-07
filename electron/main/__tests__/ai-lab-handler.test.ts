@@ -70,7 +70,34 @@ vi.mock('@shared/protocol/ai/model-discovery', () => ({
   testConnection: mockTestConnection,
 }));
 
-import { registerAiLabHandlers, unregisterAiLabHandlers } from '../handlers/ai-lab-handler';
+import {
+  registerAiLabHandlers,
+  resolveDesktopTelemetryCredential,
+  unregisterAiLabHandlers,
+} from '../handlers/ai-lab-handler';
+
+describe('resolveDesktopTelemetryCredential', () => {
+  afterEach(() => {
+    delete process.env.RESTURA_TEST_EXFIL_SECRET;
+  });
+
+  it('refuses renderer-chosen environment variable refs (no env exfiltration)', async () => {
+    process.env.RESTURA_TEST_EXFIL_SECRET = 'super-secret';
+    await expect(
+      resolveDesktopTelemetryCredential({ source: 'env', name: 'RESTURA_TEST_EXFIL_SECRET' })
+    ).rejects.toThrow(/not supported/i);
+  });
+
+  it('resolves secret-handle refs through the handle store', async () => {
+    mockResolveSecret.mockReturnValueOnce('handle-value');
+    await expect(
+      resolveDesktopTelemetryCredential({
+        source: 'secret-handle',
+        id: '11111111-1111-4111-8111-111111111111',
+      })
+    ).resolves.toBe('handle-value');
+  });
+});
 
 const TRUSTED = {
   sender: { id: 1, isDestroyed: () => false },

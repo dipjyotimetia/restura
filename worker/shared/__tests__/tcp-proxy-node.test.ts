@@ -357,6 +357,30 @@ describe('response framing parity with the Cloudflare twin', () => {
     await expect(viaHttp()).rejects.toThrow(/3 of 10 body bytes/);
   });
 
+  it('returns a HEAD response at its head, ignoring Content-Length (no wait for EOF)', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    // No 'end' is ever emitted: a reader waiting for 1234 body bytes would hang.
+    sock.onWrite = (s) =>
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 1234\r\n\r\n'));
+    const res = await viaHttp({ method: 'HEAD' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-length')).toBe('1234');
+    expect(res.body).toBeNull();
+  });
+
+  it('does not reject a HEAD response when the upstream closes right after the head', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 1234\r\n'));
+      s.emit('data', Buffer.from('\r\n'));
+      s.emit('end');
+    };
+    const res = await viaHttp({ method: 'HEAD' });
+    expect(res.status).toBe(200);
+  });
+
   it('skips 1xx interim heads and returns the final response', async () => {
     const sock = new FakeSocket();
     state.nextNetSocket = sock;

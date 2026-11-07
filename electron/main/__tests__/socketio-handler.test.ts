@@ -614,6 +614,29 @@ describe('socketio-handler', () => {
     });
   });
 
+  it('always asks io() for a fresh Manager so connections never share a pinned agent', async () => {
+    // With multiplexing, a second namespace on the same host would reuse the
+    // first connection's Manager (its headers, query, agent and DNS pin), and
+    // disposing the first would break the second.
+    const { event } = makeEvent();
+    await handlerFor(IPC.socketio.connect)(event, {
+      ...validConnect('c-a'),
+      namespace: '/a',
+      forceNew: false,
+    });
+    await handlerFor(IPC.socketio.connect)(event, {
+      ...validConnect('c-b'),
+      namespace: '/b',
+      extraHeaders: { 'x-tenant': 'b' },
+    });
+    expect(sioMock.io).toHaveBeenCalledTimes(2);
+    for (const call of sioMock.io.mock.calls) {
+      expect(call[1]).toMatchObject({ forceNew: true });
+    }
+    const [a, b] = sioMock.FakeSocket.instances;
+    expect((a!.opts as { agent: unknown }).agent).not.toBe((b!.opts as { agent: unknown }).agent);
+  });
+
   it('strips a server ack callback from IPC and answers it via socketio:reply-ack', async () => {
     const { event, senderId } = makeEvent();
     await handlerFor(IPC.socketio.connect)(event, validConnect('c-ack'));

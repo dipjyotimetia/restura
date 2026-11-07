@@ -27,6 +27,29 @@ describe('loadIterationData', () => {
     ]);
   });
 
+  // Parity with the app's `Papa.parse(text, { header: true, skipEmptyLines: true })`.
+  it.each([
+    ['semicolon', 'name;city\nAlice;Sydney\n'],
+    ['tab', 'name\tcity\nAlice\tSydney\n'],
+    ['pipe', 'name|city\nAlice|Sydney\n'],
+  ])('detects a %s-delimited CSV like the app', async (_label, text) => {
+    const file = join(dir, 'rows.csv');
+    await writeFile(file, text);
+    expect(await loadIterationData(file)).toEqual([{ name: 'Alice', city: 'Sydney' }]);
+  });
+
+  it('ignores delimiters inside quoted header fields', async () => {
+    const file = join(dir, 'rows.csv');
+    await writeFile(file, '"a;b",c\n"x;y",z\n');
+    expect(await loadIterationData(file)).toEqual([{ 'a;b': 'x;y', c: 'z' }]);
+  });
+
+  it('keeps surrounding whitespace in values, as the app does', async () => {
+    const file = join(dir, 'rows.csv');
+    await writeFile(file, 'name,token\nAlice,  padded \n');
+    expect(await loadIterationData(file)).toEqual([{ name: 'Alice', token: '  padded ' }]);
+  });
+
   it('loads JSON arrays of objects', async () => {
     const file = join(dir, 'rows.json');
     await writeFile(

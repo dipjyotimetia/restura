@@ -98,7 +98,7 @@ async function readConnectResponse(
 /**
  * Read a full HTTP/1.1 response — same resolution rule as the Node twin's
  * `readHttpResponseBody` (framing helpers shared in `http-framing`):
- *   - interim 1xx heads are skipped; 204 / 304 stop at the final head.
+ *   - interim 1xx heads are skipped; 204 / 304 and HEAD stop at the final head.
  *   - Content-Length present: read exactly N body bytes.
  *   - otherwise: read until the server closes the stream. Transfer-Encoding:
  *     chunked is not decoded; the raw framing is the body (Node parity).
@@ -106,7 +106,8 @@ async function readConnectResponse(
  */
 async function readHttpResponse(
   readable: ReadableStream<Uint8Array>,
-  signal: AbortSignal
+  signal: AbortSignal,
+  requestMethod: string
 ): Promise<FinalHead & { body: Uint8Array }> {
   const reader = readable.getReader();
   const chunks: Uint8Array[] = [];
@@ -129,7 +130,7 @@ async function readHttpResponse(
         const all = collect();
         chunks.length = 0;
         chunks.push(all);
-        head = findFinalHead(all);
+        head = findFinalHead(all, requestMethod);
       }
       if (head && isBodyComplete(head, totalBytes)) {
         return { ...head, body: sliceBody(collect(), head) };
@@ -193,8 +194,8 @@ export async function httpsViaConnectProxy(
     await tlsWriter.write(encodeRequest(method, target, targetUrl.host, headers, bodyBytes));
     tlsWriter.releaseLock();
 
-    const response = await readHttpResponse(tlsSocket.readable, signal);
-    return toResponse(response.statusLine, response.headerList, response.body);
+    const response = await readHttpResponse(tlsSocket.readable, signal, method);
+    return toResponse(response.statusLine, response.headerList, response.body, method);
   } finally {
     detachAbort();
     await closeQuietly(tlsSocket);
@@ -228,8 +229,8 @@ export async function httpViaProxy(
     );
     writer.releaseLock();
 
-    const response = await readHttpResponse(socket.readable, signal);
-    return toResponse(response.statusLine, response.headerList, response.body);
+    const response = await readHttpResponse(socket.readable, signal, method);
+    return toResponse(response.statusLine, response.headerList, response.body, method);
   } finally {
     detachAbort();
     await closeQuietly(socket);

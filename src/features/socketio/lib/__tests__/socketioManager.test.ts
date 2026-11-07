@@ -114,6 +114,14 @@ describe('socketioManager (browser)', () => {
     expect(socket().opts.query).toEqual({ token: 's3cr3t', room: 'lobby' });
   });
 
+  it('always forces a fresh Manager so per-connection query/auth are never multiplexed away', () => {
+    // socket.io-client reuses a cached Manager for a second namespace on the same
+    // host unless forceNew is set, silently dropping that connection's options.
+    useSocketIOStore.getState().updateConnectionField(id, 'forceNew', false);
+    connectWithVariables(id, scope);
+    expect(socket().opts.forceNew).toBe(true);
+  });
+
   it('passes reconnection tuning through to the client', () => {
     useSocketIOStore.getState().updateConnectionField(id, 'reconnectionDelayMax', 9_000);
     useSocketIOStore.getState().updateConnectionField(id, 'randomizationFactor', 0.2);

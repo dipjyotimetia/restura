@@ -64,6 +64,8 @@ From the AI Lab review ([#1057](https://github.com/dipjyotimetia/restura/issues/
 - **(d) Eval reports are capped:** newest 50 within 50 MiB; agent reports newest 20, 2 MiB each, 20 MiB total.
 - **(e) Invalid persisted records are quarantined, not reset.** Offenders are dropped, saved under a sibling `__invalid-<timestamp>` key, and offered through an "Export backup" action (a recovery aid via export, not an in-app restore).
 - **(f) Telemetry export is DNS-guarded and rate-limited** (120 calls per minute per window); OTLP is pinned to the validated address.
+- **(g) Desktop telemetry credentials are secret handles only (2026-11-07).** Electron main refuses a `source: "env"` credential ref, since the config is renderer-supplied; env refs stay CLI-only.
+- **(h) Scorers no longer use Ajv (2026-11-07).** `json-schema` and `tool-call` validate with the eval-free `shared/protocol/json-schema-check.ts` (Ajv's `new Function` is blocked by the renderer CSP, [ADR 0026](/architecture/adrs/0026-electron-csp-and-permission-hardening/)); it enforces a keyword subset and fails closed on an over-complex schema. The "(Ajv)" above is superseded.
 
 ## Related
 

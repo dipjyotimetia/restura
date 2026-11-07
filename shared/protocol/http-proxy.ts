@@ -440,7 +440,9 @@ export type StreamingExecuteResult =
  * - Returns StreamingResponseHandle (with body: ReadableStream) instead of NormalizedResponse.
  * - Does NOT enforce MAX_RESPONSE_SIZE — streaming is unbounded by design;
  *   consumers (renderer viewer, worker pipe) apply their own per-chunk budgets.
- * - The fetcher MUST provide response.body. Returns 502 if it doesn't.
+ * - The fetcher MUST provide response.body, except for a null-body status
+ *   (204/205/304) or a HEAD request, which get an empty stream. Returns 502
+ *   otherwise.
  *
  * The caller owns the stream lifecycle: read it to completion or call cancel()
  * to free upstream resources. The timeout protects only the headers/connect
@@ -549,7 +551,16 @@ export async function executeHttpProxyStreaming(
       digest
     );
 
-    if (!response.body) {
+    // fetch() gives no body for null-body statuses (204/205/304) and for HEAD
+    // (CF fetch; the self-host fetcher forces it). That is a complete response,
+    // not a broken upstream: hand back an empty stream (Electron passes these
+    // through). 502 only when a body was expected.
+    const bodyless =
+      method === 'HEAD' ||
+      response.status === 204 ||
+      response.status === 205 ||
+      response.status === 304;
+    if (!response.body && !bodyless) {
       detachCaller();
       return {
         ok: false,
@@ -562,7 +573,13 @@ export async function executeHttpProxyStreaming(
       status: response.status,
       statusText: response.statusText,
       headers: sanitizeResponseHeaders(response.headers),
-      body: response.body,
+      body:
+        response.body ??
+        new ReadableStream<Uint8Array>({
+          start(c) {
+            c.close();
+          },
+        }),
     };
     const streamSetCookies = extractSetCookies(response.headers);
     if (streamSetCookies.length > 0) handle.setCookies = streamSetCookies;

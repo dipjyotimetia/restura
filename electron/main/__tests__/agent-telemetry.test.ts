@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TelemetryTrace } from '../../../shared/agent-lab/telemetry';
-import { createAgentTelemetryService, type TelemetryPipeline } from '../lifecycle/agent-telemetry';
+import {
+  createAgentTelemetryService,
+  resolveEnvironmentCredential,
+  type TelemetryPipeline,
+} from '../lifecycle/agent-telemetry';
 
 const trace: TelemetryTrace = {
   id: 'trace',
@@ -93,5 +97,15 @@ describe('agent telemetry service', () => {
     expect(failed.status).toBe('failed');
     expect(recovered.status).toBe('sent');
     expect(createPipeline).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('default telemetry credential resolver', () => {
+  it('refuses environment-variable refs (no process.env read for a renderer-chosen name)', async () => {
+    process.env.RESTURA_TEST_TELEMETRY_SECRET = 'should-never-be-sent';
+    await expect(
+      resolveEnvironmentCredential({ source: 'env', name: 'RESTURA_TEST_TELEMETRY_SECRET' })
+    ).rejects.toThrow(/not supported on desktop/);
+    delete process.env.RESTURA_TEST_TELEMETRY_SECRET;
   });
 });

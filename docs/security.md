@@ -9,7 +9,18 @@ the `secureKey` IPC channel and cached in renderer memory.
 
 Plain text only when the OS reports
 `await safeStorage.isAsyncEncryptionAvailable() === false`, in which case the user is
-warned at startup.
+warned at startup and the key is written as a `0o600` hex file. Key-file
+lifecycle (`electron/main/security/encrypted-key.ts`):
+
+- A plaintext fallback key (64 hex characters) is re-sealed into the
+  keychain on the first start where one is available — the same key, so no
+  store is reset.
+- A key file that is already sealed while the keychain is unavailable (locked
+  or missing keyring) fails closed: that store stays unopened for the session
+  and is readable again once the keychain is back. The key is never reset or
+  regenerated in that state.
+- On Linux, a `safeStorage` backend of `basic_text` (a hard-coded password,
+  not a secret) is reported as plaintext in the keychain status.
 
 ## Web (Cloudflare Pages)
 
@@ -274,7 +285,11 @@ to the renderer.
 > the judge unredacted). The override is not part of portable suite
 > JSON. Provider error bodies have the resolved key and secret patterns removed
 > before they are surfaced. The telemetry export IPC is rate-limited per window
-> (120/min) and its collector host is DNS-validated and, for OTLP, pinned. See
+> (120/min) and its collector host is DNS-validated and, for OTLP, pinned.
+> Desktop telemetry credentials resolve only from secret handles: an
+> `env`-sourced credential ref is refused in Electron main, so a renderer-supplied
+> config cannot name a main-process environment variable to send as a Bearer
+> token (env refs stay CLI-only). See
 > `docs/adr/0020-ai-lab-eval-workbench.md` (Amendments 2026-10-31).
 
 ## Renderer lockdown (Electron)
@@ -303,6 +318,21 @@ The desktop renderer is sandboxed (`sandbox: true`, `contextIsolation: true`,
   main-frame documents) — and
   `electron/main/__tests__/security-hardening.test.ts` fails the build if the
   two ever diverge.
+
+## Git on desktop (Electron)
+
+Collection repositories are untrusted input: a cloned repo, or a renderer
+that could write into `.git/`, must not get main to execute a program.
+`runGit` (`electron/main/handlers/git-runtime.ts`) prefixes every command with
+`-c` overrides that beat any config file: `core.hooksPath` points at the null
+device (repo hooks never run), `diff.external`, `core.fsmonitor` and
+`core.sshCommand` are emptied, and `safe.bareRepository=explicit`. `GIT_*`
+variables are stripped from the environment. Filter/merge/textconv drivers
+have arbitrary names and cannot be disabled this way, so the renderer file
+API refuses any path with a `.git` segment, for reads and writes, including
+NTFS aliases (`.git.`, `GIT~1`) and symlinks that resolve into one
+(`hasGitMetadataSegment` in `electron/main/storage/file-operations.ts`). See
+ADR-0043.
 
 ## Long-lived connection cleanup (Electron)
 

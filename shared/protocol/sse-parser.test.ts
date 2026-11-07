@@ -77,6 +77,17 @@ describe('SseParser.feed', () => {
     expect(more[0]?.data).toBe('﻿y');
   });
 
+  it('strips a leading BOM whose bytes are split across reads', () => {
+    const p = new SseParser();
+    // An empty read and the first BOM bytes decode to ''; the streaming
+    // TextDecoder (ignoreBOM: false) still drops the BOM once it completes.
+    expect(p.feed(new Uint8Array(0))).toEqual([]);
+    expect(p.feed(new Uint8Array([0xef]))).toEqual([]);
+    expect(p.feed(new Uint8Array([0xbb]))).toEqual([]);
+    const events = p.feed(new Uint8Array([0xbf, ...enc('data: x\n\n')]));
+    expect(events).toEqual<SseEvent[]>([{ data: 'x' }]);
+  });
+
   it('handles a partial event split across feed() calls', () => {
     const p = new SseParser();
     const part1 = p.feed(enc('data: hel'));

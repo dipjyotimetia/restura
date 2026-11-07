@@ -102,14 +102,14 @@ reports.
 | `REQUIRE_CF_ACCESS`  | Yes¹            | `false`                     | Accept a verified Cloudflare Access assertion instead of a Bearer token. Needs the two variables below. |
 | `CF_ACCESS_TEAM_DOMAIN` | With Access  | —                           | Access team name, or `<team>.cloudflareaccess.com`.                                                  |
 | `CF_ACCESS_AUD`      | With Access     | —                           | Access application audience (AUD) tag.                                                               |
-| `ENVIRONMENT`        | No              | `production`                | Anything other than `development` enforces full auth + SSRF.                                        |
+| `ENVIRONMENT`        | No              | `production`                | Anything other than `development` enforces full auth + SSRF. `development` alone does not allow loopback upstreams; that needs `DEV_BYPASS_AUTH=true` as well. |
 | `ALLOWED_ORIGIN`     | No              | _(no cross-origin access)_  | Comma-separated CORS allow-list. Supports `*` inside hostnames. Unset = same-origin only.           |
 | `ALLOW_PRIVATE_IPS`  | No              | `false`                     | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below.                |
 | `RATE_LIMITER`       | No              | `map`                       | Always `map` in self-hosted (per-process limiter).                                                  |
 | `TRUST_PROXY`        | No              | `false`                     | `true` = honour client-IP forwarding headers for rate limiting. Set only behind a reverse proxy that overwrites them. See _Rate limiting_ below. |
 | `PORT` / `HOST`      | No              | `3000` / `0.0.0.0`          | Bind address inside the container.                                                                  |
 | `VITE_ECHO_*_URL`    | No              | _(public echo.restura.dev)_ | **Build-time `--build-arg` only.** Replace the SPA's placeholder URLs with internal echo endpoints. |
-| `DEV_BYPASS_AUTH`    | _Never in prod_ | _(unset)_                   | Local dev only. Bypasses auth + allows localhost SSRF.                                              |
+| `DEV_BYPASS_AUTH`    | _Never in prod_ | _(unset)_                   | Local dev only. With `ENVIRONMENT=development`, bypasses auth + allows localhost upstreams (HTTP, upstream proxy, WebSocket). Ignored without it. |
 
 ¹ At least one of `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true` MUST be
 set. The Worker fails-closed with HTTP 503 otherwise.

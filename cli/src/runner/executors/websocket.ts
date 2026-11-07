@@ -1,5 +1,6 @@
 import { validateURL } from '@shared/protocol/url-validation';
 import type { WebSocket } from 'ws';
+import { guardedLookup } from '../undiciFetcher';
 import type { ExecuteOptions, ExecuteOutcome, StreamEvent } from './types';
 
 /**
@@ -67,6 +68,9 @@ export async function executeWebSocket(
     const ws = new WebSocketCtor(spec.url, spec.protocols ?? [], {
       headers: spec.headers ?? {},
       handshakeTimeout: opts.timeoutMs,
+      // Validate every address the handshake actually dials (the string-level
+      // validateURL above cannot see what a name resolves to).
+      lookup: guardedLookup(opts.allowLocalhost) as never,
     });
     const timer = setTimeout(() => {
       try {

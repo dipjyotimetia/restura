@@ -11,7 +11,12 @@ vi.mock('node:dns/promises', () => ({
   lookup: mockLookup,
 }));
 
-import { assertHostnameSafe, assertUrlHostnameSafe } from '../security/dns-guard';
+import {
+  assertHostnameSafe,
+  assertUrlHostnameSafe,
+  resolveUrlHostnameSafe,
+  unbracketHost,
+} from '../security/dns-guard';
 
 describe('dns-guard', () => {
   beforeEach(() => {
@@ -168,6 +173,48 @@ describe('dns-guard', () => {
           allowLocalhost: false,
         })
       ).rejects.toThrow(/private address/);
+    });
+  });
+
+  describe('bracketed IPv6 literal URLs', () => {
+    it('never unbrackets a zone id (it would evade the private-range checks)', () => {
+      expect(unbracketHost('[fe80::1%eth0]')).toBe('[fe80::1%eth0]');
+      expect(unbracketHost('[fe80::1]')).toBe('fe80::1');
+      expect(unbracketHost('[1.2.3.4]')).toBe('[1.2.3.4]');
+    });
+
+    it('assertUrlHostnameSafe validates a public [v6] literal without DNS', async () => {
+      await expect(
+        assertUrlHostnameSafe('https://[2606:4700:4700::1111]/', { allowLocalhost: false })
+      ).resolves.toBeUndefined();
+      expect(mockLookup).not.toHaveBeenCalled();
+    });
+
+    it('resolveUrlHostnameSafe returns the bare literal as the record', async () => {
+      await expect(
+        resolveUrlHostnameSafe('https://[2606:4700:4700::1111]:50051/', { allowLocalhost: false })
+      ).resolves.toEqual([{ address: '2606:4700:4700::1111', family: 6 }]);
+      expect(mockLookup).not.toHaveBeenCalled();
+    });
+
+    it('accepts [::1] with allowLocalhost and refuses it without', async () => {
+      await expect(
+        resolveUrlHostnameSafe('http://[::1]:8080/', { allowLocalhost: true })
+      ).resolves.toEqual([{ address: '::1', family: 6 }]);
+      await expect(
+        resolveUrlHostnameSafe('http://[::1]:8080/', { allowLocalhost: false })
+      ).rejects.toThrow();
+      expect(mockLookup).not.toHaveBeenCalled();
+    });
+
+    it('refuses an IPv4-mapped metadata literal', async () => {
+      await expect(
+        assertUrlHostnameSafe('http://[::ffff:169.254.169.254]/', {
+          allowLocalhost: true,
+          allowPrivateIPs: true,
+        })
+      ).rejects.toThrow();
+      expect(mockLookup).not.toHaveBeenCalled();
     });
   });
 });

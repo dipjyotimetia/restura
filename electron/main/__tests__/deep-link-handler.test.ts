@@ -115,4 +115,20 @@ describe('DeepLinkController', () => {
     controller.ready(primary);
     expect(primary.send).toHaveBeenCalledTimes(2);
   });
+
+  it('binds one destroyed listener per webContents across renderer reloads', () => {
+    const controller = new DeepLinkController();
+    const primary = sender(1);
+    controller.ready(primary);
+    controller.ready(primary);
+    controller.ready(primary);
+    expect(primary.once).toHaveBeenCalledTimes(1);
+
+    // After destruction the id is forgotten, so a fresh sender rebinds.
+    const onDestroyed = vi.mocked(primary.once).mock.calls[0]![1] as () => void;
+    onDestroyed();
+    const next = sender(1);
+    controller.ready(next);
+    expect(next.once).toHaveBeenCalledTimes(1);
+  });
 });

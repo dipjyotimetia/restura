@@ -235,8 +235,14 @@ function emitTsType(node: TypeNode, readonly: boolean): string {
       return 'null';
     case 'unknown':
       return 'unknown';
-    case 'array':
-      return `${emitTsType(node.element, readonly)}[]`;
+    case 'array': {
+      // `[]` binds tighter than `|`: a union element needs parens, or
+      // `number | string[]` would mean something else entirely.
+      const elem = emitTsType(node.element, readonly);
+      return node.element.kind === 'union' && node.element.members.length > 1
+        ? `(${elem})[]`
+        : `${elem}[]`;
+    }
     case 'union':
       return node.members.map((m) => emitTsType(m, readonly)).join(' | ');
     case 'object': {

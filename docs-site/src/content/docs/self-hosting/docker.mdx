@@ -51,7 +51,7 @@ Every `POST /api/*` must carry `Content-Type: application/json`; other content t
 | `REQUIRE_CF_ACCESS` | If `true` (and `WORKER_PROXY_TOKEN` is unset), accept requests with a verified Cloudflare Access assertion | `false` |
 | `CF_ACCESS_TEAM_DOMAIN` | Access team name, or `<team>.cloudflareaccess.com`. Required with `REQUIRE_CF_ACCESS` | |
 | `CF_ACCESS_AUD` | Access application audience (AUD) tag. Required with `REQUIRE_CF_ACCESS` | |
-| `ENVIRONMENT` | `development` allows localhost upstream; anything else enforces SSRF guard | unset (treated as production) |
+| `ENVIRONMENT` | Anything other than `development` enforces the full SSRF guard. `development` alone does **not** allow localhost upstreams on Node: loopback targets (requests, upstream proxy, WebSocket) also need `DEV_BYPASS_AUTH=true` | unset (treated as production) |
 | `ALLOW_PRIVATE_IPS` | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata / credential endpoints and loopback) | `false` |
 | `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist (supports `*` wildcards). Under `DEV_BYPASS_AUTH` it is also the list of cross-origin browsers the bypass admits | unset = no cross-origin access (same-origin only) |
 | `RESTURA_STATIC_ROOT` | Path to the SPA bundle | `/app/dist/web` |

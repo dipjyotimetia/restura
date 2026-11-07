@@ -17,6 +17,7 @@
  */
 import { readStreamToBytes } from './binary';
 import type { GrpcReflectionRequestBody } from './grpc-schema';
+import { grpcMethodUrl } from './grpc-url';
 import { sanitizeRequestHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
 import type { Fetcher, FetcherResponse } from './types';
@@ -164,7 +165,8 @@ async function reflectOnce(
   spec: GrpcReflectionSpec,
   timeout: number
 ): Promise<Record<string, unknown>> {
-  const url = `${baseUrl.replace(/\/$/, '')}/${serviceName}/ServerReflectionInfo`;
+  // Via URL so a query/fragment in the base can't swallow the path (as the call proxies do).
+  const url = grpcMethodUrl(baseUrl, serviceName, 'ServerReflectionInfo');
   // Request metadata/auth (#887) first — hop-by-hop and proxy headers dropped —
   // then the protocol headers via set(), so a user-supplied `content-type`
   // can't merge into an `a, b` value and break the Connect negotiation.

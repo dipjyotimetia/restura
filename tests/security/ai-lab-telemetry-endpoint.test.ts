@@ -50,16 +50,31 @@ describe('AI Lab telemetry export endpoint guard (#1034)', () => {
     expect(mockLookup).not.toHaveBeenCalled();
   });
 
-  it.each(['[fd00::1]', '[fe80::1]', '[::]', '[::ffff:169.254.170.2]'])(
-    'resolveSafeAddress still refuses %s outside localRuntime, with allowLocalhost on or off',
+  it.each(['[fd00::1]', '[fe80::1]', '[::ffff:169.254.170.2]'])(
+    'refuses the bracketed non-loopback literal %s as a telemetry endpoint',
     async (literal) => {
-      for (const allowLocalhost of [true, false]) {
-        await expect(
-          resolveSafeAddress(`http://${literal}:4318/`, { allowLocalhost })
-        ).rejects.toThrow();
-      }
+      await expect(pinTelemetryEndpoint(`http://${literal}:4318/`)).rejects.toThrow();
+      expect(mockLookup).not.toHaveBeenCalled();
     }
   );
+
+  it.each(['[fd00::1]', '[fe80::1]', '[::]', '[::ffff:169.254.170.2]'])(
+    'resolveSafeAddress refuses the bracketed literal %s outside localRuntime without localhost',
+    async (literal) => {
+      await expect(
+        resolveSafeAddress(`http://${literal}:4318/`, { allowLocalhost: false })
+      ).rejects.toThrow();
+      expect(mockLookup).not.toHaveBeenCalled();
+    }
+  );
+
+  it('refuses an IPv4-mapped metadata literal via resolveSafeAddress even with localhost on', async () => {
+    // Bracketed literals follow the same literal-IP policy as IPv4 ones (a
+    // private literal is permitted with allowLocalhost); metadata never is.
+    await expect(
+      resolveSafeAddress('http://[::ffff:169.254.170.2]:4318/', { allowLocalhost: true })
+    ).rejects.toThrow(/metadata/);
+  });
 
   it('still refuses a bracketed non-loopback private literal', async () => {
     await expect(pinTelemetryEndpoint('http://[fd00::5]:4318/')).rejects.toThrow();

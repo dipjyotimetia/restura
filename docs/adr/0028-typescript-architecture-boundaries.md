@@ -50,3 +50,7 @@ Tooling is checked separately through `tsconfig.tooling.json` and the legacy-Jav
 - **IPC triple:** every `*_IPC` channel declared in `electron/shared/channels/` must be handled in Electron main and exposed by preload, and preload exports must be typed against `ElectronAPI`. Intentional exceptions live in `ipcTriplePolicy` allowlists, each with a reason.
 - **Forbidden config key:** `DEV_BYPASS_AUTH` in any `wrangler*.json*` fails.
 - **New ratchets:** direct `localStorage` use in renderer and `shared` code, and inline `ipcMain` handlers that do not go through `createValidated*`. Both may only decrease.
+
+### Amendment 2026-11-07
+
+- **New ratchet (max 0):** Ajv imports (`ajv`, `ajv-*`, subpaths; static, dynamic or `require`) in `src/` and `shared/` `.ts`/`.tsx` files. That code runs in the Electron renderer, whose CSP blocks Ajv's `new Function` codegen (ADR 0026); use `checkJsonSchema` from `shared/protocol/json-schema-check.ts`. Node-only code (Electron main, CLI, Worker) may keep Ajv.

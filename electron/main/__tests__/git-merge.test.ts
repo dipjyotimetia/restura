@@ -299,7 +299,28 @@ describe.skipIf(!gitAvailable)('git merge operations (temp repo)', () => {
     );
   });
 
-  it('leaves the merge recoverable when a commit hook rejects it', async () => {
+  it('leaves the merge recoverable when the merge commit fails', async () => {
+    git(['checkout', '-b', 'incoming']);
+    writeFileSync(path.join(directory, 'incoming.txt'), 'incoming\n');
+    commitAll('incoming');
+    const incomingSha = git(['rev-parse', 'incoming']);
+    git(['checkout', 'main']);
+    writeFileSync(path.join(directory, 'local.txt'), 'local\n');
+    commitAll('local');
+    await gitStartMerge(directory, 'incoming', incomingSha);
+    // Repo hooks never run under runGit (core.hooksPath is pinned to the null
+    // device), so fail the commit with a held index lock instead.
+    const lock = path.join(directory, '.git', 'index.lock');
+    writeFileSync(lock, '');
+
+    await expect(gitCompleteMerge(directory, 'Rejected merge')).rejects.toMatchObject({
+      code: 'git-error',
+    });
+    rmSync(lock, { force: true });
+    await expect(gitMergeState(directory)).resolves.toMatchObject({ phase: 'ready-to-commit' });
+  });
+
+  it('does not run repo hooks when completing a merge', async () => {
     git(['checkout', '-b', 'incoming']);
     writeFileSync(path.join(directory, 'incoming.txt'), 'incoming\n');
     commitAll('incoming');
@@ -312,10 +333,7 @@ describe.skipIf(!gitAvailable)('git merge operations (temp repo)', () => {
     writeFileSync(hook, '#!/bin/sh\nexit 1\n');
     chmodSync(hook, 0o755);
 
-    await expect(gitCompleteMerge(directory, 'Rejected merge')).rejects.toMatchObject({
-      code: 'git-error',
-    });
-    await expect(gitMergeState(directory)).resolves.toMatchObject({ phase: 'ready-to-commit' });
+    await expect(gitCompleteMerge(directory, 'Merged')).resolves.toBeDefined();
   });
 
   it('reports another in-progress Git operation instead of starting a merge', async () => {

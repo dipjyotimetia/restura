@@ -383,3 +383,114 @@ describe('runOwsWorkspaceWorkflow unresolvable variables', () => {
     expect(result.steps[0]?.error).toMatch(/Private variable "token" is unavailable/);
   });
 });
+
+describe('runOwsWorkspaceWorkflow variable layering (app parity)', () => {
+  async function createLayeredWorkspace(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), 'restura-ows-cli-vars-'));
+    roots.push(root);
+    await writeFile(
+      join(root, 'opencollection.yml'),
+      'opencollection: "1.0.0"\ninfo:\n  name: OWS CLI\n  version: "1.0.0"\n'
+    );
+    const taskPath = '/do/1/getBilling';
+    await saveOwsWorkflowArtifact(
+      root,
+      'billing',
+      {
+        document: { dsl: '1.0.3', namespace: 'restura', name: 'billing', version: '1.0.0' },
+        do: [
+          { prepare: { set: { stepValue: 'from-step', both: 'from-step' } } },
+          {
+            getBilling: {
+              if: '${.featureFlag}',
+              call: 'http',
+              with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+        ],
+      },
+      {
+        version: 1,
+        tasks: {
+          [taskPath]: { kind: 'saved-request', call: 'http', resourceId: 'get-billing.yaml' },
+        },
+      },
+      { version: 1, nodes: { '/do/0/prepare': { x: 0, y: 0 }, [taskPath]: { x: 0, y: 1 } } }
+    );
+    return root;
+  }
+
+  const layeredCollection: LoadedCollection = {
+    ...loadedCollection,
+    meta: {
+      name: 'OWS CLI',
+      variables: [
+        { key: 'featureFlag', value: 'on', enabled: true },
+        { key: 'region', value: 'collection-region', enabled: true },
+        { key: 'folderWins', value: 'collection', enabled: true },
+        { key: 'disabled', value: 'nope', enabled: false },
+      ],
+    },
+    requests: [{ ...request, folderVariables: { folderWins: 'folder', both: 'folder' } }],
+  };
+
+  const okOutcome = { status: 200, passed: true, durationMs: 1, bodyBytes: 2 };
+
+  it('seeds with --env < collection, then folder vars, then step-produced values', async () => {
+    const root = await createLayeredWorkspace();
+    const executeHttp = vi.fn().mockResolvedValue(okOutcome);
+
+    const result = await runOwsWorkspaceWorkflow(
+      root,
+      'billing',
+      {
+        variables: { region: 'env-region', envOnly: 'env' },
+        timeoutMs: 1_000,
+        allowLocalhost: false,
+      },
+      { loadCollection: vi.fn().mockResolvedValue(layeredCollection), executeHttp }
+    );
+
+    expect(result.status).toBe('success');
+    expect(executeHttp).toHaveBeenCalledTimes(1);
+    const vars = executeHttp.mock.calls[0]?.[1].vars as Record<string, string>;
+    expect(vars).toMatchObject({
+      envOnly: 'env',
+      // collection beats --env, as in `restura run` and the app
+      region: 'collection-region',
+      featureFlag: 'on',
+      // an ancestor folder beats the collection
+      folderWins: 'folder',
+      // a value a prior workflow step produced beats the folder
+      both: 'from-step',
+      stepValue: 'from-step',
+    });
+    expect(vars).not.toHaveProperty('disabled');
+  });
+
+  it('evaluates `if:` conditions against collection variables', async () => {
+    const root = await createLayeredWorkspace();
+    const executeHttp = vi.fn().mockResolvedValue(okOutcome);
+    const withoutFlag: LoadedCollection = {
+      ...layeredCollection,
+      meta: { name: 'OWS CLI', variables: [] },
+    };
+
+    const skipped = await runOwsWorkspaceWorkflow(
+      root,
+      'billing',
+      { variables: {}, timeoutMs: 1_000, allowLocalhost: false },
+      { loadCollection: vi.fn().mockResolvedValue(withoutFlag), executeHttp }
+    );
+    expect(skipped.steps.find((s) => s.taskPath === '/do/1/getBilling')?.status).toBe('skipped');
+    expect(executeHttp).not.toHaveBeenCalled();
+
+    await runOwsWorkspaceWorkflow(
+      root,
+      'billing',
+      { variables: {}, timeoutMs: 1_000, allowLocalhost: false },
+      { loadCollection: vi.fn().mockResolvedValue(layeredCollection), executeHttp }
+    );
+    expect(executeHttp).toHaveBeenCalledTimes(1);
+  });
+});

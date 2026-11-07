@@ -59,10 +59,25 @@ export function assertLocalRuntimeAddressAllowed(hostname: string, address: stri
   );
 }
 
+/**
+ * WHATWG `URL.hostname` keeps IPv6 literals bracketed (`[::1]`), but `net.isIP`
+ * and `dns.lookup` need them bare. Strip once so the literal is validated as an
+ * address instead of being sent to DNS. Anything that is not a bracketed IPv6
+ * literal is returned as-is.
+ */
+export function unbracketHost(hostname: string): string {
+  const bare = hostname.replace(/^\[(.*)\]$/, '$1');
+  // A zone id (`fe80::1%eth0`) passes net.isIP but not the private-range
+  // checks, so it is never unbracketed (it then fails DNS, closed).
+  return bare !== hostname && !bare.includes('%') && net.isIP(bare) === 6 ? bare : hostname;
+}
+
 export async function assertHostnameSafe(
-  hostname: string,
+  rawHostname: string,
   options: DnsGuardOptions
 ): Promise<LookupAddress[]> {
+  // Callers often pass `new URL(u).hostname`, which brackets IPv6 literals.
+  const hostname = unbracketHost(rawHostname);
   if (net.isIP(hostname) !== 0) {
     if (options.localRuntime) {
       assertLocalRuntimeAddressAllowed(hostname, hostname);

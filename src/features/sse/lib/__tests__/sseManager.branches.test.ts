@@ -161,6 +161,15 @@ describe('sseManager (web)', () => {
     expect(conn(id).status).toBe('disconnected');
   });
 
+  it('a 204 reply is a fatal stop-reconnecting signal, not a missing body', async () => {
+    mockExecute.mockResolvedValue(response([], { status: 204, noBody: true }));
+    sseManager.connect(id, URL_);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(messages(id).some((m) => m.includes('HTTP 204 No Content'))).toBe(true);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(conn(id).status).toBe('disconnected');
+  });
+
   it('retries a read error once the stream has opened, reporting the message', async () => {
     mockExecute
       .mockResolvedValueOnce(
