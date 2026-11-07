@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { incrementalPartsNotice, mergeIncrementalGraphQLResponse } from './incremental-response';
+import {
+  type IncrementalResponseLike,
+  incrementalPartsNotice,
+  mergeIncrementalGraphQLResponse,
+} from './incremental-response';
 
 const CONTENT_TYPE = 'multipart/mixed; boundary="-"';
 const part = (json: string) =>
@@ -14,7 +18,7 @@ describe('mergeIncrementalGraphQLResponse notice', () => {
       part('{"data":{"hello":"world"},"hasNext":true}') +
       part('{"incremental":[{"data":{"slow":"x"},"path":[]}],"hasNext":false}') +
       '\r\n-----\r\n';
-    const out = mergeIncrementalGraphQLResponse({
+    const out = mergeIncrementalGraphQLResponse<IncrementalResponseLike>({
       headers: { 'content-type': CONTENT_TYPE },
       body,
     });
@@ -24,7 +28,7 @@ describe('mergeIncrementalGraphQLResponse notice', () => {
 
   it('flags the result as incomplete when the stream ended while hasNext was still true', () => {
     const body = `\r\n---${part('{"data":{"hello":"world"},"hasNext":true}')}\r\n-----\r\n`;
-    const out = mergeIncrementalGraphQLResponse({
+    const out = mergeIncrementalGraphQLResponse<IncrementalResponseLike>({
       headers: { 'content-type': CONTENT_TYPE },
       body,
     });
