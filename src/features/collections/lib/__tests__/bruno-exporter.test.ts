@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { Collection, CollectionItem, Environment } from '@/types';
+import type { Collection, CollectionItem, Environment, HttpRequest, RequestBody } from '@/types';
 import { requestOf } from '../../../../../tests/helpers/requestOf';
 import { exportBrunoCollection, exportBrunoRequest } from '../bruno-exporter';
 import { importBrunoCollection } from '../importers/bruno';
@@ -341,6 +341,73 @@ describe('Bruno exporter — single request', () => {
     const item = reimported.collection.items[0];
     expect(item?.name).toBe('health');
     expect(item?.request?.type).toBe('http');
+  });
+});
+
+describe('Bruno exporter — graphql + multipart bodies', () => {
+  const httpRequest = (body: RequestBody): HttpRequest => ({
+    id: 'r-1',
+    name: 'req',
+    type: 'http',
+    method: 'POST',
+    url: 'https://example.com/graphql',
+    headers: [],
+    params: [],
+    body,
+    auth: { type: 'none' },
+  });
+
+  it('round-trips a native graphql body (raw = query, graphqlVariables)', async () => {
+    const text = await exportBrunoRequest(
+      httpRequest({
+        type: 'graphql',
+        raw: 'query Q($id: ID!) { user(id: $id) { id } }',
+        graphqlVariables: '{"id":"1"}',
+      })
+    );
+    expect(text).toContain('body:graphql:vars {');
+    const reimported = await importBrunoCollection({ kind: 'single', content: text });
+    expect((requestOf(reimported.collection.items[0]) as HttpRequest).body).toEqual({
+      type: 'graphql',
+      raw: 'query Q($id: ID!) { user(id: $id) { id } }',
+      graphqlVariables: '{"id":"1"}',
+    });
+  });
+
+  it('still exports a legacy {query, variables} envelope', async () => {
+    const text = await exportBrunoRequest(
+      httpRequest({
+        type: 'graphql',
+        raw: JSON.stringify({ query: '{ ping }', variables: '{"a":1}' }),
+      })
+    );
+    const reimported = await importBrunoCollection({ kind: 'single', content: text });
+    expect((requestOf(reimported.collection.items[0]) as HttpRequest).body).toEqual({
+      type: 'graphql',
+      raw: '{ ping }',
+      graphqlVariables: '{"a":1}',
+    });
+  });
+
+  it('exports multipart file rows by file name, never their base64 bytes', async () => {
+    const bytes = 'SGVsbG8sIGZpbGUgYnl0ZXM=';
+    const text = await exportBrunoRequest(
+      httpRequest({
+        type: 'form-data',
+        formData: [
+          { id: 'f1', key: 'title', value: 'hello', enabled: true, type: 'text' },
+          { id: 'f2', key: 'doc', value: bytes, fileName: 'a.pdf', enabled: true, type: 'file' },
+        ],
+      })
+    );
+    expect(text).not.toContain(bytes);
+    expect(text).toContain('doc: @file(a.pdf)');
+    const reimported = await importBrunoCollection({ kind: 'single', content: text });
+    const formData = (requestOf(reimported.collection.items[0]) as HttpRequest).body.formData;
+    expect(formData?.map((f) => [f.key, f.type, f.value, f.fileName])).toEqual([
+      ['title', 'text', 'hello', undefined],
+      ['doc', 'file', '', 'a.pdf'],
+    ]);
   });
 });
 

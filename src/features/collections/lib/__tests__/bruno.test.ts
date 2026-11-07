@@ -614,7 +614,7 @@ auth:oauth2 {
   });
 
   describe('body shapes', () => {
-    it('maps graphql body to a JSON envelope', async () => {
+    it('maps graphql body to the native query + graphqlVariables shape', async () => {
       const bru = `meta {
   name: GQ
   type: http
@@ -636,11 +636,29 @@ body:graphql:vars {
       const result = await importBrunoCollection({ kind: 'single', content: bru });
       const req = asHttpRequest(result.collection.items[0]!.request);
       expect(req.body.type).toBe('graphql');
-      expect(req.body.raw).toBeDefined();
-      const parsed = JSON.parse(req.body.raw!);
-      expect(parsed.query).toContain('user { id }');
-      // The .bru parser preserves variables verbatim — assert it's present.
-      expect(parsed).toHaveProperty('variables');
+      // `raw` is the query document itself, not a JSON envelope.
+      expect(req.body.raw).toBe('query Foo { user { id } }');
+      expect(req.body.graphqlVariables).toBe('{"id": 1}');
+    });
+
+    it('omits graphqlVariables when the bru file has no vars block', async () => {
+      const bru = `meta {
+  name: GQ
+  type: http
+}
+
+post {
+  url: https://example.com/graphql
+  body: graphql
+}
+
+body:graphql {
+  { ping }
+}
+`;
+      const result = await importBrunoCollection({ kind: 'single', content: bru });
+      const req = asHttpRequest(result.collection.items[0]!.request);
+      expect(req.body).toEqual({ type: 'graphql', raw: '{ ping }' });
     });
 
     it('maps multipart-form with file entries', async () => {
@@ -665,6 +683,38 @@ body:multipart-form {
       expect(req.body.formData).toHaveLength(2);
       expect(req.body.formData![0]).toMatchObject({ key: 'user', value: 'alice', type: 'text' });
       expect(req.body.formData![1]).toMatchObject({ key: 'file', type: 'file' });
+    });
+
+    it('never puts a @file path into a file row value (value holds base64 bytes)', async () => {
+      const bru = `meta {
+  name: Upload
+  type: http
+}
+
+post {
+  url: https://example.com/upload
+  body: multipartForm
+}
+
+body:multipart-form {
+  doc: @file(/tmp/dir/a.txt|/tmp/b.txt)
+}
+`;
+      const result = await importBrunoCollection({ kind: 'single', content: bru });
+      const req = asHttpRequest(result.collection.items[0]!.request);
+      expect(req.body.formData![0]).toMatchObject({
+        key: 'doc',
+        type: 'file',
+        value: '',
+        fileName: 'a.txt',
+      });
+      expect(result.warnings).toContainEqual(
+        expect.objectContaining({
+          kind: 'unmodelled-construct',
+          construct: 'form-file',
+          requestName: 'Upload',
+        })
+      );
     });
 
     it('maps form-urlencoded', async () => {

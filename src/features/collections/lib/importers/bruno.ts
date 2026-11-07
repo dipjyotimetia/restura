@@ -519,13 +519,17 @@ function bruToHttpRequest(
     url,
     headers: mergeInheritedHeaders(scope.headers, bruHeaders(bru.headers)),
     params,
-    body: bruBodyToInternal(bru.body),
+    body: bruBodyToInternal(bru.body, name, warnings),
     auth: bruAuthToInternal(authBlocks, declaredAuthType, name, warnings),
     ...bruScripts(bru),
   };
 }
 
-function bruBodyToInternal(body: unknown): RequestBody {
+function bruBodyToInternal(
+  body: unknown,
+  requestName: string,
+  warnings: ImportWarning[]
+): RequestBody {
   if (!isRecord(body)) return { type: 'none' };
   if (typeof body.json === 'string' || isRecord(body.json)) {
     const raw = typeof body.json === 'string' ? body.json : JSON.stringify(body.json);
@@ -534,13 +538,16 @@ function bruBodyToInternal(body: unknown): RequestBody {
   if (typeof body.xml === 'string') return { type: 'xml', raw: body.xml };
   if (typeof body.text === 'string') return { type: 'text', raw: body.text };
   if (isRecord(body.graphql)) {
-    // Bruno splits graphql into { query, variables }. Restura's GraphQLBodyEditor
-    // serializes both into a JSON envelope, so produce { query, variables } JSON.
+    // Bruno splits graphql into { query, variables }, matching Restura's model:
+    // `raw` holds the query document and `graphqlVariables` the variables JSON.
     const gq = body.graphql;
     const query = typeof gq.query === 'string' ? gq.query : '';
     const variables = typeof gq.variables === 'string' ? gq.variables : '';
-    const envelope = JSON.stringify({ query, variables });
-    return { type: 'graphql', raw: envelope };
+    return {
+      type: 'graphql',
+      raw: query,
+      ...(variables.trim() !== '' ? { graphqlVariables: variables } : {}),
+    };
   }
   if (Array.isArray(body.formUrlEncoded)) {
     const formData: FormDataItem[] = body.formUrlEncoded.filter(isRecord).map(
@@ -556,18 +563,28 @@ function bruBodyToInternal(body: unknown): RequestBody {
   }
   if (Array.isArray(body.multipartForm)) {
     const formData: FormDataItem[] = body.multipartForm.filter(isRecord).map((p): FormDataItem => {
-      const isFile = p.type === 'file';
-      let value = '';
-      if (typeof p.value === 'string') value = p.value;
-      else if (Array.isArray(p.value))
-        value = p.value.filter((v) => typeof v === 'string').join(',');
-      return {
-        id: uuid(),
-        key: typeof p.name === 'string' ? p.name : '',
-        value,
-        enabled: p.enabled !== false,
-        type: isFile ? 'file' : 'text',
-      };
+      const key = typeof p.name === 'string' ? p.name : '';
+      const common = { id: uuid(), key, enabled: p.enabled !== false };
+      if (p.type !== 'file') {
+        return { ...common, value: typeof p.value === 'string' ? p.value : '', type: 'text' };
+      }
+      // A file row's `value` holds the picked file's base64 bytes at send
+      // time, so a local `@file(...)` path must never go there (same rule as
+      // the Postman parser): arrive empty, named after the first path.
+      const paths = (Array.isArray(p.value) ? p.value : [p.value]).filter(
+        (v): v is string => typeof v === 'string' && v !== ''
+      );
+      const fileName = paths[0]?.split(/[\\/]/).pop();
+      if (paths.length > 0) {
+        warnings.push(
+          unmodelled(
+            'form-file',
+            requestName,
+            `Bruno form-data file field "${key}" (${paths.join(', ')}) was imported without its contents; re-pick the file`
+          )
+        );
+      }
+      return { ...common, value: '', type: 'file', ...(fileName ? { fileName } : {}) };
     });
     return { type: 'form-data', formData };
   }
