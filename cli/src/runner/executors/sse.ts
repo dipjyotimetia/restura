@@ -6,7 +6,7 @@ import { SseParser } from '@shared/protocol/sse-parser';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { SseRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
-import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
+import { createUndiciFetcher, guardedUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
@@ -117,7 +117,10 @@ export async function executeSse(
     timer = setTimeout(() => controller.abort(), durationMs);
     sent = true;
     const fetcher =
-      opts.fetcher ?? (opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher);
+      opts.fetcher ??
+      (opts.dispatcher
+        ? createUndiciFetcher(opts.dispatcher)
+        : guardedUndiciFetcher(opts.allowLocalhost));
     const authHeaders = authHeaderNames(resolvedAuth);
     const result = await executeHttpProxyStreaming(
       {

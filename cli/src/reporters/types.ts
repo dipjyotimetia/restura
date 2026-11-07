@@ -26,6 +26,13 @@ import type { GrpcStatusInfo, StreamEvent } from '../runner/executors/types.js';
 
 export type { GrpcStatusInfo, StreamEvent };
 
+/** One `console.*` line a pre-request or test script wrote. */
+export interface ScriptConsoleLine {
+  phase: 'pre-request' | 'test';
+  type: 'log' | 'error' | 'warn' | 'info';
+  message: string;
+}
+
 export interface RequestRunResult {
   request: LoadedRequest;
   status: number;
@@ -48,6 +55,8 @@ export interface RequestRunResult {
   notSent?: boolean;
   /** A pre-request script called `pm.execution.skipRequest()`: nothing was sent. */
   skipped?: boolean;
+  /** `console.*` output of this request's scripts, pre-request first; absent when none. */
+  consoleLogs?: ScriptConsoleLine[];
 }
 
 export interface RunResult {

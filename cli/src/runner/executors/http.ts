@@ -20,7 +20,7 @@ import {
 import type { RedirectPolicy } from '@shared/protocol/types';
 import type { HttpRequest, KeyValue } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
-import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
+import { createUndiciFetcher, guardedUndiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, oauth2TokenOptions, resolveOAuth2Token, toProtocolAuth } from './auth';
 import { materializeExternalSecretsInAuth } from './external-secret-materializer';
@@ -117,7 +117,7 @@ export async function executeHttp(
         ? createUndiciFetcher(requestOwnDispatcher)
         : opts.dispatcher
           ? createUndiciFetcher(opts.dispatcher)
-          : undiciFetcher);
+          : guardedUndiciFetcher(opts.allowLocalhost));
     // Auth that the renderer normally applies before hitting the proxy. Bearer
     // / Basic / API-key / OAuth2 are header-only; AWS SigV4 / OAuth1 / WSSE are
     // signed at the wire by executeHttpProxy. Resolved here (inside the try) so

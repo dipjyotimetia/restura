@@ -17,8 +17,8 @@ import type { RequestRunResult, RunResult } from './types.js';
  *    shared `CREDENTIAL_HEADER_NAMES` list plus the shared `x-*-token` /
  *    `x-*-key` / `x-*-secret` denylist (the same rule the app's run evidence
  *    uses, `shared/collection-run/evidence.ts`), plus `set-cookie2`;
- *  - error messages and assertion errors go through the shared
- *    `redactDiagnosticText` token scrubber.
+ *  - error messages, assertion errors and script `console.*` lines go through
+ *    the shared `redactDiagnosticText` token scrubber.
  * Still written as received: the status, timings, assertion names, every
  * other response header and SSE/WebSocket stream events.
  */
@@ -69,6 +69,14 @@ export function redactRunResult(result: RunResult): ReportedRunResult {
             assertions: r.assertions.map((a) =>
               a.error !== undefined ? { ...a, error: redactDiagnosticText(a.error) } : a
             ),
+          }
+        : {}),
+      ...(r.consoleLogs
+        ? {
+            consoleLogs: r.consoleLogs.map((l) => ({
+              ...l,
+              message: redactDiagnosticText(l.message),
+            })),
           }
         : {}),
       ...(r.setCookies ? { setCookies: r.setCookies.map(redactSetCookie) } : {}),

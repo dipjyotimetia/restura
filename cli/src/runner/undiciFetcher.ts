@@ -1,9 +1,60 @@
 import { randomUUID } from 'node:crypto';
+import { lookup as dnsLookup, type LookupAddress } from 'node:dns';
 import { Readable } from 'node:stream';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { checkHttpMethod } from '@shared/protocol/http-method';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
-import { Agent, type Dispatcher, ProxyAgent, request as undiciRequest } from 'undici';
+import { assertResolvedAddressAllowed } from '@shared/protocol/url-validation';
+import {
+  Agent,
+  type Dispatcher,
+  EnvHttpProxyAgent,
+  ProxyAgent,
+  request as undiciRequest,
+} from 'undici';
+
+type LookupCallback = (
+  err: NodeJS.ErrnoException | Error | null,
+  address: string | LookupAddress[],
+  family?: number
+) => void;
+
+/**
+ * The `lookup` every direct CLI connection dials through: every address a
+ * host name resolves to must pass the shared SSRF guard (cloud metadata and
+ * private ranges refused; loopback only with `--allow-localhost`) — the CLI
+ * side of self-host's `dns-guard-node.ts` and the desktop DNS guard. The check
+ * runs on the answer that is actually dialled, so a name such as
+ * `169.254.169.254.nip.io` cannot slip past the string-level `validateURL`.
+ * (Literal IPs never reach a lookup; `validateURL` already checked them.)
+ */
+export function guardedLookup(allowLocalhost: boolean) {
+  return (hostname: string, options: unknown, maybeCallback?: LookupCallback): void => {
+    const callback = (typeof options === 'function' ? options : maybeCallback) as LookupCallback;
+    const wantsAll = (options as { all?: boolean } | undefined)?.all === true;
+    dnsLookup(hostname, { all: true, verbatim: true }, (err, records) => {
+      if (err) return callback(err, wantsAll ? [] : '');
+      try {
+        if (records.length === 0) throw new Error(`Host ${hostname} did not resolve`);
+        for (const record of records) {
+          assertResolvedAddressAllowed(hostname, record.address, {
+            allowLocalhost,
+            loopbackNeedsLocalhost: true,
+          });
+        }
+      } catch (guardError) {
+        return callback(guardError as Error, wantsAll ? [] : '');
+      }
+      const first = records[0] as LookupAddress;
+      if (wantsAll) return callback(null, records);
+      return callback(null, first.address, first.family);
+    });
+  };
+}
+
+function envProxyConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.HTTP_PROXY || env.http_proxy || env.HTTPS_PROXY || env.https_proxy);
+}
 
 /**
  * Escape a field name or filename for a quoted `Content-Disposition` parameter
@@ -96,14 +147,49 @@ export function tlsConnectOptions(tls?: TlsOptions): Record<string, unknown> {
   return connect;
 }
 
-export function buildDispatcher(tls?: TlsOptions, proxy?: string): Dispatcher | undefined {
+export function buildDispatcher(
+  tls?: TlsOptions,
+  proxy?: string,
+  allowLocalhost = false
+): Dispatcher | undefined {
   const connect = tlsConnectOptions(tls);
   const hasTls = Object.keys(connect).length > 0;
+  // Through a proxy the proxy resolves the target, so no lookup applies here.
   if (proxy) {
     return new ProxyAgent({ uri: proxy, ...(hasTls ? { requestTls: connect } : {}) });
   }
-  if (hasTls) return new Agent({ connect });
+  if (hasTls) return new Agent({ connect: { ...connect, lookup: guardedLookup(allowLocalhost) } });
   return undefined;
+}
+
+const guardedDispatchers = new Map<boolean, Dispatcher>();
+const guardedFetchers = new Map<boolean, Fetcher>();
+
+/**
+ * The run-default dispatcher (no `--proxy` / TLS flags) with the SSRF-guarded
+ * lookup, one per `allowLocalhost` value for the process. It keeps the
+ * `HTTP(S)_PROXY` / `NO_PROXY` behaviour of the global dispatcher: proxied
+ * destinations are resolved by the proxy, and direct (NO_PROXY or no env
+ * proxy) destinations dial through the guarded lookup.
+ */
+export function guardedDefaultDispatcher(allowLocalhost: boolean): Dispatcher {
+  let dispatcher = guardedDispatchers.get(allowLocalhost);
+  if (!dispatcher) {
+    const connect = { lookup: guardedLookup(allowLocalhost) };
+    dispatcher = envProxyConfigured() ? new EnvHttpProxyAgent({ connect }) : new Agent({ connect });
+    guardedDispatchers.set(allowLocalhost, dispatcher);
+  }
+  return dispatcher;
+}
+
+/** `createUndiciFetcher` over `guardedDefaultDispatcher` (the executors' default). */
+export function guardedUndiciFetcher(allowLocalhost: boolean): Fetcher {
+  let fetcher = guardedFetchers.get(allowLocalhost);
+  if (!fetcher) {
+    fetcher = createUndiciFetcher(guardedDefaultDispatcher(allowLocalhost));
+    guardedFetchers.set(allowLocalhost, fetcher);
+  }
+  return fetcher;
 }
 
 /**
