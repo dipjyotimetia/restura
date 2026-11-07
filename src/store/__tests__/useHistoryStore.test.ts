@@ -171,6 +171,10 @@ describe('useHistoryStore — Set-Cookie persistence (#855)', () => {
     const persisted = JSON.parse(JSON.stringify(partialize(useHistoryStore.getState()))) as {
       history: Array<{ response?: ApiResponse }>;
     };
-    expect(persisted.history[0]?.response?.setCookies).toEqual(setCookies);
+    // Names and known attributes survive; values are redacted (#924).
+    expect(persisted.history[0]?.response?.setCookies).toEqual([
+      'session=[REDACTED]; Path=/',
+      'csrf=[REDACTED]; Expires=Wed, 21 Oct 2037 07:28:00 GMT',
+    ]);
   });
 });
