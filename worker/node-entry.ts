@@ -17,6 +17,7 @@ import { createApp } from './app';
 import type { Env } from './env';
 import { createNodeWebsocketHandler } from './handlers/websocket-node';
 import { socketClientIpMiddleware } from './middleware/rateLimiter';
+import { nodeDnsGuardOptions } from './shared/env';
 import { createNodeGuardedFetch } from './shared/guarded-fetch-node';
 import { createHttpsViaConnectProxy, createHttpViaProxy } from './shared/tcp-proxy-node';
 
@@ -92,10 +93,9 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 // DNS-guard configuration is a process-level concern (operator sets it via
 // .env), so snapshot it at startup and bake it into the adapter closures.
 // Changing it requires a container restart, which is the expected behaviour.
-const dnsGuardOpts = {
-  allowLocalhost: process.env.ENVIRONMENT === 'development',
-  allowPrivateIPs: process.env.ALLOW_PRIVATE_IPS === 'true',
-};
+// Same localhost gate as every handler (isLocalDevBypass): ENVIRONMENT=development
+// alone must not let an authenticated caller dial loopback via upstreamProxy/WS.
+const dnsGuardOpts = nodeDnsGuardOptions(process.env as unknown as Env);
 
 // Refuse to start in misconfigured rate-limit modes: 'binding' / 'binding-
 // shadow' both require the Cloudflare Rate-Limiting binding object, which
