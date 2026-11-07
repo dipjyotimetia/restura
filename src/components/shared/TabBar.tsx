@@ -1,5 +1,5 @@
-import { ChevronDown, Plus, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Plus, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,6 +55,7 @@ import { isConnectionMode } from '@/types';
 import { ARIA_DISABLED_CLASSES, DesktopOnlyBadge, desktopOnlyGateProps } from './DesktopOnlyBadge';
 import { carriesUrl, seedUrl, sourceUrlOf, tabMode } from './lib/openAs';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
+import { TabBarOverflowMenu, useOverflowing } from './TabBarOverflowMenu';
 
 type NewRequestMode = RequestMode;
 
@@ -177,30 +178,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const focusActiveOnSwitch = useRef(false);
   const fadeRef = useOverflowFade<HTMLDivElement>();
   // Track overflow so the "all tabs" dropdown only appears when tabs are cropped.
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const stripRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      const fadeCleanup = fadeRef(node);
-      if (!node) return;
-      const update = () => setIsOverflowing(node.scrollWidth > node.clientWidth + 1);
-      update();
-      let ro: ResizeObserver | null = null;
-      try {
-        ro = new ResizeObserver(update);
-        ro.observe(node);
-      } catch {
-        ro = null;
-      }
-      const mo = new MutationObserver(update);
-      mo.observe(node, { childList: true });
-      return () => {
-        if (typeof fadeCleanup === 'function') fadeCleanup();
-        ro?.disconnect();
-        mo.disconnect();
-      };
-    },
-    [fadeRef]
-  );
+  const [isOverflowing, stripRef] = useOverflowing(fadeRef);
   const liveIds = useLiveTabIds(tabs.map((t) => t.id));
 
   const openSaveDialog = onSaveToCollection ?? setLocalSaveDialogTabId;
@@ -636,43 +614,12 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
         </Floater>
 
         {isOverflowing && tabs.length > 1 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Show all tabs"
-                title="All tabs"
-                className={cn(
-                  'inline-flex items-center justify-center size-7 shrink-0',
-                  'rounded-sp-btn text-sp-muted',
-                  'hover:bg-sp-hover hover:text-sp-text transition-colors',
-                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
-                )}
-              >
-                <ChevronDown className="size-3.5" aria-hidden="true" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              sideOffset={10}
-              className="max-h-[60vh] overflow-y-auto"
-            >
-              {tabs.map((t) => (
-                <DropdownMenuItem
-                  key={t.id}
-                  className={cn('gap-2', t.id === activeTabId && 'bg-sp-active')}
-                  onClick={() => switchTab(t.id)}
-                >
-                  <ProtoChip
-                    protocol={t.modeOverride ?? t.request.type}
-                    className="w-12 justify-center"
-                  />
-                  <span className="truncate max-w-[240px]">{tabDisplayName(t)}</span>
-                  {t.isDirty && <span className="sr-only">, unsaved changes</span>}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <TabBarOverflowMenu
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelect={switchTab}
+            nameOf={tabDisplayName}
+          />
         )}
       </div>
 
