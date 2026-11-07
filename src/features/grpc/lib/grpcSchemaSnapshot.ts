@@ -153,8 +153,17 @@ export function clearReflectionFallbackCache(): void {
   reflectionCache.clear();
 }
 
+// W3C trace context carries no identity, and `reflectionCredentialsFor` adds
+// a fresh random `traceparent` to every call — counting it would mean the
+// cache never hits.
+const NON_CREDENTIAL_METADATA = new Set(['traceparent', 'tracestate']);
+
 function hasReflectionCredentials(credentials: ReflectionCredentials | undefined): boolean {
-  return Boolean(credentials && (credentials.auth || Object.keys(credentials.metadata).length > 0));
+  if (!credentials) return false;
+  if (credentials.auth) return true;
+  return Object.keys(credentials.metadata).some(
+    (k) => !NON_CREDENTIAL_METADATA.has(k.toLowerCase())
+  );
 }
 
 function actionableError(service: string, url: string, reason: string): Error {

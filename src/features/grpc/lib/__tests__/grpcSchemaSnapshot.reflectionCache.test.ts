@@ -43,6 +43,34 @@ describe('discoverDescriptorsForRequest reflection cache', () => {
     expect(discoverServices).toHaveBeenCalledTimes(1);
   });
 
+  it('still caches when the only metadata is W3C trace context (traceparent/tracestate)', async () => {
+    // reflectionCredentialsFor always adds a fresh random traceparent, so it
+    // must not count as a credential or the cache would never hit.
+    discoverServices.mockResolvedValue(ok('A='));
+    await discoverDescriptorsForRequest(URL, SERVICE, {
+      metadata: { traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01' },
+    });
+    await discoverDescriptorsForRequest(URL, SERVICE, {
+      metadata: {
+        Traceparent: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+        tracestate: 'vendor=x',
+      },
+    });
+    expect(discoverServices).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache when trace context accompanies a real credential', async () => {
+    discoverServices.mockResolvedValueOnce(ok('ALICE=')).mockResolvedValueOnce(ok('ANON='));
+    await discoverDescriptorsForRequest(URL, SERVICE, {
+      metadata: {
+        traceparent: '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01',
+        authorization: 'Bearer alice',
+      },
+    });
+    expect(await discoverDescriptorsForRequest(URL, SERVICE)).toEqual(['ANON=']);
+    expect(discoverServices).toHaveBeenCalledTimes(2);
+  });
+
   it('never caches or reuses a discovery made with metadata credentials', async () => {
     discoverServices.mockResolvedValueOnce(ok('ALICE=')).mockResolvedValueOnce(ok('BOB='));
     const alice = await discoverDescriptorsForRequest(URL, SERVICE, {
