@@ -312,9 +312,7 @@ export function useHttpRequestPage() {
       if (inFlightSends.get(originTabId) !== controller) return;
       inFlightSends.delete(originTabId);
       setLoading(false, originTabId);
-      // The in-flight bar is a single slot; leave another tab's send alone.
-      const ui = useUiStore.getState();
-      if (ui.inFlight?.tabId === originTabId) ui.setInFlight(null);
+      useUiStore.getState().clearInFlight(originTabId);
     };
     // Drop the previous run's script output so the Tests/Visualize tabs never
     // show stale results next to a send that ran no scripts or failed.

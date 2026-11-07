@@ -9,10 +9,10 @@ import { useUiStore } from '@/store/useUiStore';
  * own component so the 100ms tick doesn't re-render the response viewer.
  */
 export function InFlightBar() {
-  const inFlight = useUiStore((s) => s.inFlight);
   const activeTabId = useActiveTab()?.id;
+  const inFlight = useUiStore((s) => (activeTabId ? s.inFlightByTab[activeTabId] : undefined));
   const [now, setNow] = useState(() => Date.now());
-  const visible = inFlight !== null && inFlight.tabId === activeTabId;
+  const visible = inFlight !== undefined;
 
   useEffect(() => {
     if (!visible) return;

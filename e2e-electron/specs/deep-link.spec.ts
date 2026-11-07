@@ -23,10 +23,10 @@ test('cold-start restura settings deep link opens the reviewed settings section'
   try {
     const page = await app.firstWindow();
     await page.waitForLoadState('domcontentloaded');
-    // "Skip Tour" jumps to the final (privacy) step rather than dismissing, so
-    // finish with "Get Started". Each step is optional: onboarding may already
-    // be dismissed.
-    for (const name of ['Skip Tour', 'Get Started']) {
+    // "Skip to workspace" dismisses the first-run welcome; if the tour is open,
+    // "Skip Tour" jumps to its final (privacy) step, so finish with "Get
+    // Started". Each step is optional: onboarding may already be dismissed.
+    for (const name of ['Skip to workspace', 'Skip Tour', 'Get Started']) {
       try {
         await page.getByRole('button', { name }).click({ timeout: 5_000 });
       } catch {

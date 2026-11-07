@@ -30,3 +30,33 @@ describe('Segmented', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 });
+
+describe('Segmented — per-option disabled', () => {
+  const opts = [
+    { value: 'a', label: 'A' },
+    { value: 'b', label: 'B', disabled: true, title: 'Desktop only' },
+    { value: 'c', label: 'C' },
+  ] as const;
+
+  it('marks the option aria-disabled, keeps its tooltip and ignores clicks', () => {
+    const onChange = vi.fn();
+    render(<Segmented options={opts} value="a" onChange={onChange} ariaLabel="Pick" />);
+    const b = screen.getByRole('radio', { name: 'B' });
+    expect(b).toHaveAttribute('aria-disabled', 'true');
+    expect(b).toHaveAttribute('title', 'Desktop only');
+    fireEvent.click(b);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('arrow keys skip the disabled option in both directions', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <Segmented options={opts} value="a" onChange={onChange} ariaLabel="Pick" />
+    );
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'A' }), { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenLastCalledWith('c');
+    rerender(<Segmented options={opts} value="c" onChange={onChange} ariaLabel="Pick" />);
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'C' }), { key: 'ArrowLeft' });
+    expect(onChange).toHaveBeenLastCalledWith('a');
+  });
+});

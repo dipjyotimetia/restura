@@ -33,6 +33,7 @@ import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/shared/utils';
 import type { Collection, MockServerStatus } from '@/types';
+import { useRevealActiveCollection } from '../hooks/useRevealActiveCollection';
 import { addSampleCollection } from '../lib/addSampleCollection';
 import { countRequests } from '../lib/countRequests';
 import {
@@ -91,6 +92,12 @@ interface SidebarCollectionsPanelProps {
   onSetDropTarget: (id: string | null) => void;
 }
 
+function makeCollectionTabStop(row: HTMLElement): void {
+  const tree = row.closest('[role="tree"]');
+  if (!tree) return;
+  setRovingRow(Array.from(tree.querySelectorAll<HTMLElement>('[data-tree-row]')), row);
+}
+
 export function SidebarCollectionsPanel({
   collections,
   collapsedCollections,
@@ -141,6 +148,7 @@ export function SidebarCollectionsPanel({
     const rows = Array.from(tree.querySelectorAll<HTMLElement>('[data-tree-row]'));
     if (!rows.some((row) => row.tabIndex === 0)) setRovingRow(rows, rows[0]);
   });
+  useRevealActiveCollection(treeRef, makeCollectionTabStop);
   return (
     <TabsContent value="collections" className="flex-1 overflow-auto p-3 mt-0 min-h-0">
       <div className="flex flex-col gap-2">

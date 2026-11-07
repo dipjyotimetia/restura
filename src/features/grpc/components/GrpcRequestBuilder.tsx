@@ -394,7 +394,7 @@ function GrpcRequestBuilder() {
     }
 
     const runId = ++sendRunRef.current;
-    setLoading(true);
+    setLoading(true, originTabId);
     streamLog.reset();
     setScriptResultForTab(originTabId, null);
     const startTime = Date.now();
@@ -429,7 +429,7 @@ function GrpcRequestBuilder() {
         toast.error('Proto file or reflection required', {
           description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
         });
-        setLoading(false);
+        setLoading(false, originTabId);
         return;
       }
 
@@ -475,7 +475,7 @@ function GrpcRequestBuilder() {
           })
           .finally(() => {
             if (!current()) return;
-            setLoading(false);
+            setLoading(false, originTabId);
             setStreamControl(null);
           });
         return;
@@ -518,7 +518,7 @@ function GrpcRequestBuilder() {
     } catch (error: unknown) {
       console.error('gRPC request error:', error);
       // Always clear loading on error — stream never started if we're in catch
-      setLoading(false);
+      setLoading(false, originTabId);
       setStreamControl(null);
       const errorResponse = createErrorResponse(grpcRequest.id, error, startTime);
       setCurrentResponseForTab(originTabId, errorResponse);
@@ -532,7 +532,7 @@ function GrpcRequestBuilder() {
       }
     } finally {
       if (grpcRequest.methodType === 'unary') {
-        setLoading(false);
+        setLoading(false, originTabId);
       }
     }
   };

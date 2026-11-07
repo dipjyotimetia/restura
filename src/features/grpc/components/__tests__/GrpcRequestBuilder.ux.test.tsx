@@ -105,9 +105,11 @@ describe('GrpcRequestBuilder — web limits, shortcuts, codegen', () => {
   it('web: client/bidi are marked desktop-only and not selectable', () => {
     seed();
     render(<GrpcRequestBuilder />);
-    fireEvent.click(screen.getByRole('radio', { name: /Bidi/ }));
+    const bidi = screen.getByRole('radio', { name: /Bidi/ });
+    expect(bidi).toHaveAttribute('aria-disabled', 'true');
+    expect(bidi.getAttribute('title')).toMatch(/Desktop only/);
+    fireEvent.click(bidi);
     expect(active().methodType).toBe('unary');
-    expect(toast.info).toHaveBeenCalledWith('Desktop only', expect.anything());
   });
 
   it('web: the reflection-failure banner says native gRPC needs the desktop app', () => {

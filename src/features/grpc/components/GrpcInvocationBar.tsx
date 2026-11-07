@@ -55,12 +55,10 @@ function methodTypeOptions(web: boolean) {
     GRPC_DESKTOP_ONLY_TYPES.has(opt.value)
       ? {
           value: opt.value,
+          disabled: true,
+          title: `Desktop only — ${GRPC_DESKTOP_ONLY_HINT}`,
           label: (
-            <span
-              className="inline-flex items-center gap-1 opacity-60"
-              title={`Desktop only — ${GRPC_DESKTOP_ONLY_HINT}`}
-              aria-disabled="true"
-            >
+            <span className="inline-flex items-center gap-1">
               {opt.label}
               <Laptop className="size-2.5" aria-label="Desktop only" />
             </span>

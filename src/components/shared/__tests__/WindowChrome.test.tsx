@@ -75,12 +75,9 @@ describe('WindowChrome', () => {
     expect(fallback).toHaveBeenCalledWith(true);
   });
 
-  it('does NOT render an actionable AI assistant button without onToggleAi (regression guard)', () => {
+  it('does NOT render an "Open AI assistant" / Sparkles button (regression guard)', () => {
     render(<WindowChrome />);
-    // On web the only assistant affordance is the inert "Desktop only" hint.
-    for (const button of screen.queryAllByRole('button', { name: /assistant|ai chat/i })) {
-      expect(button).toHaveAttribute('aria-disabled', 'true');
-    }
+    expect(screen.queryByRole('button', { name: /assistant/i })).not.toBeInTheDocument();
   });
 
   it('reserves no traffic-light slot outside macOS Electron', () => {
@@ -98,23 +95,5 @@ describe('WindowChrome', () => {
     expect(screen.getByTestId('traffic-light-spacer')).toBeInTheDocument();
     const dots = container.querySelectorAll('span.block.size-3.rounded-full');
     expect(dots).toHaveLength(0);
-  });
-
-  it('shows the AI assistant on web as a focusable, inert "Desktop only" button', async () => {
-    const user = userEvent.setup();
-    vi.mocked(isElectron).mockReturnValue(false);
-    render(<WindowChrome />);
-    const ai = screen.getByRole('button', { name: /ai assistant/i });
-    expect(ai).toHaveAttribute('aria-disabled', 'true');
-    expect(ai.getAttribute('title')).toMatch(/desktop only/i);
-    await user.click(ai); // no-op, must not throw
-  });
-
-  it('keeps the live AI toggle on desktop', () => {
-    vi.mocked(isElectron).mockReturnValue(true);
-    const onToggleAi = vi.fn();
-    render(<WindowChrome onToggleAi={onToggleAi} />);
-    screen.getByRole('button', { name: 'Toggle AI chat' }).click();
-    expect(onToggleAi).toHaveBeenCalledOnce();
   });
 });

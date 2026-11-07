@@ -66,12 +66,12 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
       });
       await page.waitForLoadState('domcontentloaded');
 
-      // Fresh userData ⇒ the welcome onboarding shows. Dismiss it via its own
+      // Fresh userData ⇒ the first-run welcome shows. Dismiss it via its own
       // UI (addInitScript can't reach the already-loading first window).
-      // "Skip Tour" jumps to the final (privacy) step rather than dismissing, and
-      // the open modal hides the app from the a11y tree, so finish with "Get
-      // Started". Each step is optional: onboarding may not be shown at all.
-      for (const name of ['Skip Tour', 'Get Started']) {
+      // "Skip to workspace" dismisses the welcome screen; the tour no longer
+      // auto-opens, but if it is open "Skip Tour" jumps to the final (privacy)
+      // step, so finish with "Get Started". Each step is optional.
+      for (const name of ['Skip to workspace', 'Skip Tour', 'Get Started']) {
         try {
           await page.getByRole('button', { name }).click({ timeout: 5_000 });
         } catch {

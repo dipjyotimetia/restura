@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Code2,
   FlaskConical,
   PanelLeft,
   Play,
@@ -45,6 +46,8 @@ interface McpConnectionPanelProps {
   onRefresh: () => Promise<void>;
   /** Open the era/conformance report (#911). */
   onConformance?: () => void;
+  /** Open the "Generate code" dialog (cURL / TypeScript SDK). */
+  onCode?: () => void;
 }
 
 const remoteTransportOptions: Array<{ value: McpTransportType; label: string; title?: string }> = [
@@ -86,6 +89,7 @@ export function McpConnectionPanel({
   onDisconnect,
   onRefresh,
   onConformance,
+  onCode,
 }: McpConnectionPanelProps) {
   const [headersOpen, setHeadersOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
@@ -243,6 +247,18 @@ export function McpConnectionPanel({
           >
             <FlaskConical className="h-3.5 w-3.5" />
             Conformance
+          </Button>
+        )}
+        {onCode && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onCode}
+            title="Generate cURL / TypeScript SDK code for this server"
+            className="h-9 px-3 text-sp-12 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line"
+          >
+            <Code2 className="h-3.5 w-3.5" aria-hidden="true" />
+            Code
           </Button>
         )}
       </div>

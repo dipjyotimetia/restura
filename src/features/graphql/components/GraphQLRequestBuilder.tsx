@@ -279,7 +279,7 @@ function GraphQLRequestBuilder() {
     const wireHeaders = wireRequest.headers;
     const wireBody = JSON.stringify(envelope);
 
-    setLoading(true);
+    setLoading(true, originTabId);
     setScriptResultForTab(originTabId, null);
     const startedAt = Date.now();
     useUiStore.getState().setInFlight({ tabId: originTabId, startedAt, cancel: abortRun });
@@ -365,8 +365,8 @@ function GraphQLRequestBuilder() {
         toast.error('Request failed', { description: errorMessage });
       }
     } finally {
-      setLoading(false);
-      useUiStore.getState().setInFlight(null);
+      setLoading(false, originTabId);
+      useUiStore.getState().clearInFlight(originTabId);
     }
   };
 

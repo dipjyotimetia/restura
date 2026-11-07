@@ -5,6 +5,7 @@ import {
   displayHost,
   McpClientRequestDialog,
 } from '@/features/mcp/components/McpClientRequestDialog';
+import { McpCodeDialog } from '@/features/mcp/components/McpCodeDialog';
 import {
   McpConformanceDialog,
   type McpConformanceEndpoint,
@@ -106,6 +107,7 @@ export default function McpRequestBuilder() {
   const [showCatalog, setShowCatalog] = useState(false);
   const [selectedTemplateUri, setSelectedTemplateUri] = useState<string | null>(null);
   const [conformanceOpen, setConformanceOpen] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(false);
   const operation = request ? parseMcpOperation(request) : null;
   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
     discoveryTabFor(operation)
@@ -536,7 +538,9 @@ export default function McpRequestBuilder() {
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}
         onConformance={() => setConformanceOpen(true)}
+        onCode={() => setCodeOpen(true)}
       />
+      <McpCodeDialog open={codeOpen} onOpenChange={setCodeOpen} request={request} />
       <McpConformanceDialog
         open={conformanceOpen}
         onOpenChange={setConformanceOpen}

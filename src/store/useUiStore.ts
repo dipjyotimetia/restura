@@ -14,12 +14,14 @@ interface UiState {
   loadTestOpen: boolean;
   setLoadTestOpen: (open: boolean) => void;
   /**
-   * The request currently in flight, if any — drives the response panel's
-   * elapsed timer and Cancel button. Loading is global (one send at a time),
-   * so a single slot suffices; send paths set it and clear it when done.
+   * Requests in flight, keyed by the tab that sent them — drives the response
+   * panel's elapsed timer and Cancel button. Loading is per tab, so two tabs
+   * can be in flight at once; send paths set their entry and clear it when done.
    */
-  inFlight: InFlightRequest | null;
-  setInFlight: (inFlight: InFlightRequest | null) => void;
+  inFlightByTab: Readonly<Record<string, InFlightRequest>>;
+  setInFlight: (inFlight: InFlightRequest) => void;
+  /** Drop the tab's entry (no-op when it has none). */
+  clearInFlight: (tabId: string) => void;
 }
 
 export interface InFlightRequest {
@@ -33,6 +35,13 @@ export const useUiStore = create<UiState>((set) => ({
   setCodeGenOpen: (open) => set({ codeGenOpen: open }),
   loadTestOpen: false,
   setLoadTestOpen: (open) => set({ loadTestOpen: open }),
-  inFlight: null,
-  setInFlight: (inFlight) => set({ inFlight }),
+  inFlightByTab: {},
+  setInFlight: (inFlight) =>
+    set((state) => ({ inFlightByTab: { ...state.inFlightByTab, [inFlight.tabId]: inFlight } })),
+  clearInFlight: (tabId) =>
+    set((state) => {
+      if (!(tabId in state.inFlightByTab)) return state;
+      const { [tabId]: _removed, ...rest } = state.inFlightByTab;
+      return { inFlightByTab: rest };
+    }),
 }));

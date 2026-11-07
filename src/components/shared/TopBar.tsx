@@ -236,23 +236,12 @@ export function WindowChrome({
           <Kbd size="xs">{modLabel('K')}</Kbd>
         </button>
 
-        {onToggleAi ? (
+        {onToggleAi && (
           <ChromeIconButton
             label="Toggle AI chat"
             onClick={onToggleAi}
             icon={<Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
           />
-        ) : (
-          // The assistant is Electron-first (no /api/ai Worker route). Show it
-          // on web as an inert, focusable button so it stays discoverable and
-          // its tooltip explains why, instead of silently missing.
-          !isElectron() && (
-            <ChromeIconButton
-              label="AI assistant (desktop only)"
-              disabledReason="AI assistant — Desktop only. Available in the Restura desktop app."
-              icon={<Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
-            />
-          )
         )}
         {/* AI Lab is desktop-only; on web the button would dead-end on a
             "not available" page. */}
@@ -286,25 +275,21 @@ interface ChromeIconButtonProps {
   label: string;
   icon: React.ReactNode;
   onClick?: () => void;
-  /** Renders inert (`aria-disabled`, still focusable) with this as its tooltip. */
-  disabledReason?: string;
 }
 
 /**
  * Small icon-only chrome button (30×30) used in the right cluster.
  */
-function ChromeIconButton({ label, icon, onClick, disabledReason }: ChromeIconButtonProps) {
+function ChromeIconButton({ label, icon, onClick }: ChromeIconButtonProps) {
   return (
     <button
       type="button"
-      onClick={disabledReason ? undefined : onClick}
+      onClick={onClick}
       aria-label={label}
-      title={disabledReason ?? label}
-      {...(disabledReason && { 'aria-disabled': true })}
+      title={label}
       className={cn(
         'inline-flex items-center justify-center size-[30px] rounded-sp-btn',
         'text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors',
-        'aria-disabled:cursor-not-allowed aria-disabled:opacity-50',
         'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
       )}
     >
