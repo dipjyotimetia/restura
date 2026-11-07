@@ -82,6 +82,15 @@ const siblingNames = (collectionId: string, parentId?: string) => {
   return collection ? siblingNamesForParent(collection, parentId) : [];
 };
 
+/** Item ids in visible (rendered) order, skipping the children of collapsed folders. */
+function visibleItemIds(items: CollectionItem[], collapsed: Set<string>, out: string[] = []) {
+  for (const item of items) {
+    out.push(item.id);
+    if (item.items && !collapsed.has(item.id)) visibleItemIds(item.items, collapsed, out);
+  }
+  return out;
+}
+
 /** What the shared search box filters, per sidebar tab (for its label/placeholder). */
 const SEARCH_SCOPE_LABEL: Record<string, string> = {
   collections: 'collections',
@@ -345,7 +354,29 @@ function Sidebar({ activePanel }: SidebarProps) {
     });
   }, []);
 
+  // Shift-click range anchor: the last item toggled or range-selected.
+  const selectionAnchorRef = useRef<{ collectionId: string; itemId: string } | null>(null);
+  const collapsedFoldersRef = useRef(collapsedFolders);
+  collapsedFoldersRef.current = collapsedFolders;
+
+  const selectRange = useCallback((collectionId: string, itemId: string) => {
+    const anchor = selectionAnchorRef.current;
+    const collection = getCollectionById(collectionId);
+    if (!collection || !anchor || anchor.collectionId !== collectionId) {
+      selectionAnchorRef.current = { collectionId, itemId };
+      setSelectedKeys(new Set([selectionKey(collectionId, itemId)]));
+      return;
+    }
+    const order = visibleItemIds(collection.items, collapsedFoldersRef.current);
+    const from = order.indexOf(anchor.itemId);
+    const to = order.indexOf(itemId);
+    if (from === -1 || to === -1) return;
+    const [lo, hi] = from < to ? [from, to] : [to, from];
+    setSelectedKeys(new Set(order.slice(lo, hi + 1).map((id) => selectionKey(collectionId, id))));
+  }, []);
+
   const toggleSelect = useCallback((collectionId: string, itemId: string) => {
+    selectionAnchorRef.current = { collectionId, itemId };
     setSelectedKeys((prev) => {
       const key = selectionKey(collectionId, itemId);
       const next = new Set(prev);
@@ -468,6 +499,7 @@ function Sidebar({ activePanel }: SidebarProps) {
       renameInputRef: commands.itemRenameRef,
       toggleCollapse,
       toggleSelect,
+      selectRange,
       clearSelection,
       dragStart: handleItemDragStart,
       dragEnd: handleItemDragEnd,
@@ -486,6 +518,7 @@ function Sidebar({ activePanel }: SidebarProps) {
       commands.commitItemRename,
       toggleCollapse,
       toggleSelect,
+      selectRange,
       clearSelection,
       handleItemDragStart,
       handleItemDragEnd,
