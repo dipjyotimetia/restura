@@ -6,6 +6,14 @@ export interface ConnectionLifecycle {
   isLive?: (tabId: string) => boolean;
 }
 
+/** Status values that mean a connection is open or actively (re)connecting. */
+const LIVE_STATUSES: ReadonlySet<string> = new Set(['connecting', 'connected', 'reconnecting']);
+
+/** Shared `isLive` predicate for status-string connection stores. */
+export function isLiveStatus(status: string | undefined): boolean {
+  return status !== undefined && LIVE_STATUSES.has(status);
+}
+
 /**
  * Coordinates runtime teardown with pure store cleanup without making a store
  * depend on its manager. Disconnect is best-effort because close events may

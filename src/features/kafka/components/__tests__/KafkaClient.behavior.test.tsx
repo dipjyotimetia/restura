@@ -349,5 +349,9 @@ describe('KafkaClient orchestration', () => {
     mocks.isDesktop = false;
     render(<KafkaClient />);
     expect(screen.getByText('Kafka is a desktop-only feature')).toBeVisible();
+    expect(screen.getByRole('link', { name: /Download the desktop app/ })).toHaveAttribute(
+      'href',
+      'https://github.com/dipjyotimetia/restura/releases/latest'
+    );
   });
 });

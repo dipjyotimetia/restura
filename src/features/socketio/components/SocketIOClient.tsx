@@ -1,9 +1,11 @@
 import { Filter, Search, Send, Trash2, X } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import {
+  DroppedNotice,
   FreezeToggle,
+  JumpToLatestPill,
   LogExportMenu,
   useFrozenView,
 } from '@/components/shared/messageLog/MessageLogControls';
@@ -52,6 +54,7 @@ import {
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
 import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
 import {
@@ -274,15 +277,8 @@ function SocketIOClient() {
   const rapidStream = useRapidAppendFlag(rawEventsLength);
   const { visible: visibleEvents, newCount } = useFrozenView(filteredEvents, frozen);
 
-  const eventsScrollRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = eventsScrollRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distanceFromBottom < 80) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [filteredEvents.length]);
+  // Follow new events only while at the bottom; otherwise show "Jump to latest".
+  const stick = useStickToBottom<HTMLDivElement>(visibleEvents.length, 80);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -367,7 +363,9 @@ function SocketIOClient() {
     : connection.status === 'connecting'
       ? 'CONNECTING'
       : connection.status === 'reconnecting'
-        ? `RECONNECTING (${connection.reconnectAttemptCount})`
+        ? connection.reconnectionAttempts > 0 && Number.isFinite(connection.reconnectionAttempts)
+          ? `RECONNECTING (${connection.reconnectAttemptCount}/${connection.reconnectionAttempts})`
+          : `RECONNECTING (${connection.reconnectAttemptCount})`
         : 'DISCONNECTED';
 
   const transportLabel =
@@ -489,7 +487,6 @@ function SocketIOClient() {
           label="↓ Events"
           value={<span style={{ color: 'var(--color-success)' }}>{counts.received}</span>}
         />
-        <Stat label="Latency" value="—" />
         <Stat label="Transport" value={transportLabel} />
         <div className="flex-1" />
         <div className="flex items-center gap-2">
@@ -497,6 +494,8 @@ function SocketIOClient() {
           <ToggleField
             checked={connection.autoReconnect}
             onChange={(v) => updateConnectionField(activeConnectionId, 'autoReconnect', v)}
+            // Like WebSocket: the policy is read at connect time, so lock it while live.
+            disabled={connection.status !== 'disconnected'}
             ariaLabel="Auto-reconnect"
             size="sm"
           />
@@ -508,7 +507,7 @@ function SocketIOClient() {
         {/* Event log */}
         <Floater
           radius="panel"
-          className="flex flex-col min-h-0 overflow-hidden"
+          className="relative flex flex-col min-h-0 overflow-hidden"
           style={{ flex: 1.4 }}
         >
           <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
@@ -575,8 +574,12 @@ function SocketIOClient() {
             <span>PREVIEW</span>
           </div>
 
+          <DroppedNotice dropped={connection.droppedCount} />
           <div
-            ref={eventsScrollRef}
+            ref={stick.ref}
+            onScroll={stick.onScroll}
+            role="log"
+            aria-label="Socket.IO events"
             className="flex-1 min-h-0 overflow-auto font-mono"
             data-stream-rapid={rapidStream || undefined}
           >
@@ -630,6 +633,7 @@ function SocketIOClient() {
               })
             )}
           </div>
+          <JumpToLatestPill visible={stick.showJump} onClick={stick.jumpToLatest} />
         </Floater>
 
         {/* Right column */}

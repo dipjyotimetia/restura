@@ -58,8 +58,11 @@ export function MqttSubscriptionsPanel({
       <Floater radius="panel" className="p-3 space-y-3">
         <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 120px auto' }}>
           <div className="space-y-2">
-            <Label className="text-xs sp-label">Topic filter</Label>
+            <Label htmlFor="mqtt-sub-topic" className="text-xs sp-label">
+              Topic filter
+            </Label>
             <Input
+              id="mqtt-sub-topic"
               value={subTopic}
               onChange={(event) => onSubTopicChange(event.target.value)}
               placeholder="restura/+/temp  or  sensors/#"
@@ -67,8 +70,10 @@ export function MqttSubscriptionsPanel({
             />
           </div>
           <div className="space-y-2">
-            <Label className="text-xs sp-label">QoS</Label>
-            <QosSelect value={subQos} onChange={onSubQosChange} />
+            <Label htmlFor="mqtt-sub-qos" className="text-xs sp-label">
+              QoS
+            </Label>
+            <QosSelect id="mqtt-sub-qos" value={subQos} onChange={onSubQosChange} />
           </div>
           <div className="flex items-end">
             <Button onClick={onSubscribe} disabled={!isConnected || !subTopic.trim()}>

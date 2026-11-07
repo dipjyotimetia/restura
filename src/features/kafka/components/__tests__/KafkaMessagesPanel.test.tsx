@@ -80,7 +80,7 @@ describe('KafkaMessagesPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Freeze message view' }));
 
-    expect(screen.getByRole('button', { name: 'Resume live message view' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Resume live messages' })).toBeVisible();
   });
 
   it('pretty-prints JSON values in the inspector without rounding large integers', async () => {

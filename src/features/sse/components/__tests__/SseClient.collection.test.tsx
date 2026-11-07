@@ -82,7 +82,7 @@ describe('SseClient ↔ collections', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'SSE endpoint URL' }), {
       target: { value: 'https://stream.example.com/events' },
     });
-    await user.click(screen.getByRole('button', { name: /Headers/ }));
+    await user.click(screen.getByRole('button', { name: /Options/ }));
     await user.click(screen.getByRole('button', { name: 'Add header (0)' }));
     await user.click(screen.getByRole('button', { name: 'Add param (0)' }));
     await user.click(screen.getByRole('button', { name: 'Auth: none' }));

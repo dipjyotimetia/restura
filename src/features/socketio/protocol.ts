@@ -13,6 +13,7 @@
  * this stub gets replaced.
  */
 import type { ProtocolModule } from '@/features/registry/types';
+import { isLiveStatus } from '@/lib/shared/connection-lifecycle';
 import { socketioManager } from './lib/socketioManager';
 import { useSocketIOStore } from './store/useSocketIOStore';
 
@@ -32,5 +33,10 @@ export const socketioProtocol: ProtocolModule = {
     connectionIdForTab: (tabId) => useSocketIOStore.getState().connectionByTabId[tabId],
     disconnect: (connectionId) => socketioManager.disconnect(connectionId),
     removeConnectionForTab: (tabId) => useSocketIOStore.getState().cleanupConnectionForTab(tabId),
+    isLive: (tabId) => {
+      const state = useSocketIOStore.getState();
+      const id = state.connectionByTabId[tabId];
+      return isLiveStatus(id ? state.connections[id]?.status : undefined);
+    },
   },
 };

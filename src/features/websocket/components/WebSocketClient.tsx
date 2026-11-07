@@ -5,7 +5,9 @@ import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import {
+  DroppedNotice,
   FreezeToggle,
+  JumpToLatestPill,
   LogExportMenu,
   useFrozenView,
 } from '@/components/shared/messageLog/MessageLogControls';
@@ -48,6 +50,7 @@ import { wsExportName, wsToLogEntries } from '@/features/websocket/lib/wsLogExpo
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
+import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { resolveWebSocketConnect } from '@/lib/shared/connectSpec';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
@@ -258,6 +261,7 @@ function WebSocketClient() {
   const rapidStream = useRapidAppendFlag(connection?.messages.length ?? 0);
   const filteredMessages = activeConnectionId ? getFilteredMessages(activeConnectionId) : [];
   const { visible: visibleMessages, newCount } = useFrozenView(filteredMessages, frozen);
+  const stick = useStickToBottom<HTMLDivElement>(visibleMessages.length);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -437,7 +441,7 @@ function WebSocketClient() {
         {/* Event log (flex: 1.4) */}
         <Floater
           radius="panel"
-          className="flex flex-col min-h-0 overflow-hidden"
+          className="relative flex flex-col min-h-0 overflow-hidden"
           style={{ flex: 1.4 }}
         >
           {/* Header */}
@@ -507,8 +511,13 @@ function WebSocketClient() {
             <span>PREVIEW</span>
           </div>
 
+          <DroppedNotice dropped={connection.droppedCount} />
           {/* Rows */}
           <div
+            ref={stick.ref}
+            onScroll={stick.onScroll}
+            role="log"
+            aria-label="WebSocket messages"
             className="flex-1 min-h-0 overflow-auto font-mono"
             data-stream-rapid={rapidStream || undefined}
           >
@@ -550,6 +559,7 @@ function WebSocketClient() {
               })
             )}
           </div>
+          <JumpToLatestPill visible={stick.showJump} onClick={stick.jumpToLatest} />
         </Floater>
 
         {/* Right column */}

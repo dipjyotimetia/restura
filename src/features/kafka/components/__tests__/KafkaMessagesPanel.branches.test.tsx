@@ -251,16 +251,26 @@ describe('KafkaMessagesPanel branches', () => {
     install(conn);
     const { rerender } = render(<Panel connection={conn} />);
     await user.click(screen.getByRole('button', { name: 'Freeze message view' }));
-    expect(screen.getByText('Frozen')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Resume live messages' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
 
-    const grown = { ...conn, messages: [...conn.messages, received({ id: '2', value: 'second' })] };
+    const grown = {
+      ...conn,
+      messages: [
+        ...conn.messages,
+        received({ id: '2', value: 'second', timestamp: Date.now() + 60_000 }),
+      ],
+    };
     useKafkaStore.setState({ connections: { [conn.id]: grown } });
     rerender(<Panel connection={grown} />);
     expect(screen.getAllByRole('button', { name: /Kafka record/ })).toHaveLength(1);
 
-    await user.click(screen.getByRole('button', { name: 'Resume live message view' }));
+    expect(screen.getByText('1 new')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Resume live messages' }));
     expect(screen.getAllByRole('button', { name: /Kafka record/ })).toHaveLength(2);
-    expect(within(document.body).queryByText('Frozen')).not.toBeInTheDocument();
+    expect(within(document.body).queryByText('1 new')).not.toBeInTheDocument();
   });
 
   it('clears the selection when the connection changes', async () => {

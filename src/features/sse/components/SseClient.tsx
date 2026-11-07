@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { StreamSplit } from '@/components/shared/StreamSplit';
@@ -9,9 +9,11 @@ import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
+import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { resolveSseConnect } from '@/lib/shared/connectSpec';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
+import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { SseRequest } from '@/types';
 import SseAssembledOutput from './SseAssembledOutput';
@@ -21,6 +23,19 @@ import SseStatsRow from './SseStatsRow';
 import SseUrlBar from './SseUrlBar';
 
 const EMPTY_SUMMARY = createSseStreamSummary();
+
+/** What the Options panel holds that differs from a fresh request (headers, params, auth, reconnect). */
+export function countSseOptions(request: SseRequest): number {
+  const keyed = (rows: SseRequest['headers']) =>
+    rows.filter((r) => r.enabled !== false && r.key.trim()).length;
+  return (
+    keyed(request.headers) +
+    keyed(request.params) +
+    (request.auth.type !== 'none' ? 1 : 0) +
+    (request.reconnectOnResume === false ? 1 : 0) +
+    (request.autoReconnect === false ? 1 : 0)
+  );
+}
 
 /**
  * SSE view — Spatial Depth redesign.
@@ -41,64 +56,85 @@ const EMPTY_SUMMARY = createSseStreamSummary();
  * runtime stream state (status, log, Last-Event-ID).
  */
 export default function SseClient() {
-  const activeConnectionId = useSseStore((s) => s.activeConnectionId);
+  const activeTabId = useActiveTabId();
+  const activeConnectionId = useSseStore((s) =>
+    activeTabId ? (s.connectionByTabId[activeTabId] ?? null) : null
+  );
   const active = useSseStore((s) =>
     activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
   );
   const summary = useSseStore((s) =>
     activeConnectionId ? (s.summaries[activeConnectionId] ?? EMPTY_SUMMARY) : EMPTY_SUMMARY
   );
-  const hasConnections = useSseStore((s) => Object.keys(s.connections).length > 0);
-  const { createConnection, clearLog, setSearchQuery, searchQuery, getFilteredLog } = useSseStore(
-    useShallow((s) => ({
-      createConnection: s.createConnection,
-      clearLog: s.clearLog,
-      setSearchQuery: s.setSearchQuery,
-      searchQuery: s.searchQuery,
-      getFilteredLog: s.getFilteredLog,
-    }))
-  );
+  const { ensureConnectionForTab, clearLog, setSearchQuery, searchQuery, getFilteredLog } =
+    useSseStore(
+      useShallow((s) => ({
+        ensureConnectionForTab: s.ensureConnectionForTab,
+        clearLog: s.clearLog,
+        setSearchQuery: s.setSearchQuery,
+        searchQuery: s.searchQuery,
+        getFilteredLog: s.getFilteredLog,
+      }))
+    );
   const request = useActiveRequest('sse');
-  const activeTabId = useActiveTabId();
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const update = (patch: Partial<SseRequest>) => updateRequest(patch);
   const eventNameFilter = request?.eventFilter?.[0] ?? 'all';
 
-  // Auto-create a default connection on first mount if none exist
+  // Each SSE tab owns its own stream connection (created on first view).
   useEffect(() => {
-    if (!hasConnections) {
-      createConnection();
-    }
-  }, [hasConnections, createConnection]);
+    if (activeTabId) ensureConnectionForTab(activeTabId);
+  }, [activeTabId, ensureConnectionForTab]);
 
   const filtered = useMemo(
     () => (active ? getFilteredLog(active.id, eventNameFilter) : []),
     [active, getFilteredLog, eventNameFilter]
   );
 
-  // Tear down any open stream when the component unmounts or the user moves
-  // to another SSE tab — the stream was opened with the previous tab's config.
-  const activeIdForCleanup = active?.id;
-  useEffect(() => {
-    return () => {
-      if (activeIdForCleanup) sseManager.disconnect(activeIdForCleanup);
-    };
-  }, [activeIdForCleanup, activeTabId]);
+  // Streams keep running while their tab is in the background; closing the
+  // tab stops them (sseProtocol.connectionLifecycle).
 
   const [headersOpen, setHeadersOpen] = useState(false);
+  const cleartextGuard = useCleartextCredentialsGuard();
+
+  // History (S14): one entry per user-started stream, written when it first
+  // connects (not on every auto-reconnect). addHistoryItem redacts inline
+  // credentials and URL secrets the same way it does for HTTP.
+  const pendingHistory = useRef<{ connectionId: string; request: SseRequest; url: string } | null>(
+    null
+  );
+  const activeStatus = active?.status;
+  useEffect(() => {
+    const pending = pendingHistory.current;
+    if (activeStatus !== 'connected' || !pending || pending.connectionId !== active?.id) return;
+    pendingHistory.current = null;
+    useHistoryStore.getState().addHistoryItem(pending.request, undefined, pending.url);
+  }, [activeStatus, active?.id]);
 
   const isConnected = active?.status === 'connected';
   const isConnecting = active?.status === 'connecting' || active?.status === 'reconnecting';
   const isStreaming = isConnected || isConnecting;
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
     if (!active || !request) return;
     const spec = resolveSseConnect(request);
     if (!spec.ok) {
       useSseStore.getState().appendSystem(active.id, `Connection failed: ${spec.error}`);
       return;
     }
+    // http:// would carry the auth header / token in cleartext (#898), as for WS/SIO.
+    if (
+      cleartextGuard.needsConfirm(spec.url, {
+        url: spec.url,
+        headers: spec.headers,
+        force: request.auth.type !== 'none',
+      }) &&
+      !(await cleartextGuard.confirm())
+    ) {
+      return;
+    }
 
+    pendingHistory.current = { connectionId: active.id, request, url: spec.url };
     sseManager.connect(active.id, spec.url, spec.headers, {
       reconnectOnResume: request.reconnectOnResume ?? true,
       autoReconnect: request.autoReconnect ?? true,
@@ -200,6 +236,7 @@ export default function SseClient() {
           eventNames={eventNames}
           onClearLog={() => clearLog(active.id)}
           exportName={sseExportName(request.url)}
+          droppedCount={active.droppedCount}
         />
         <div className="flex flex-col gap-2.5 min-h-0">
           <SseAssembledOutput
@@ -221,14 +258,15 @@ export default function SseClient() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
+      <cleartextGuard.Dialog />
       <SseUrlBar
         url={request.url}
         onUrlChange={(url) => update({ url })}
         isStreaming={isConnected}
         isConnecting={isConnecting}
-        onStream={handleConnect}
+        onStream={() => void handleConnect()}
         onStop={handleDisconnect}
-        headerCount={request.headers.length}
+        optionCount={countSseOptions(request)}
         headersOpen={headersOpen}
         onToggleHeaders={() => setHeadersOpen((s) => !s)}
       />

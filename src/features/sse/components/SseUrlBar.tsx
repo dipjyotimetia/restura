@@ -12,7 +12,8 @@ export interface SseUrlBarProps {
   isConnecting: boolean;
   onStream: () => void;
   onStop: () => void;
-  headerCount: number;
+  /** Configured headers, params, auth and non-default reconnect settings. */
+  optionCount: number;
   headersOpen: boolean;
   onToggleHeaders: () => void;
 }
@@ -29,7 +30,7 @@ export function SseUrlBar({
   isConnecting,
   onStream,
   onStop,
-  headerCount,
+  optionCount,
   headersOpen,
   onToggleHeaders,
 }: SseUrlBarProps) {
@@ -55,8 +56,8 @@ export function SseUrlBar({
       />
 
       <CountToggle
-        label="Headers"
-        count={headerCount}
+        label="Options"
+        count={optionCount}
         expanded={headersOpen}
         onToggle={onToggleHeaders}
       />

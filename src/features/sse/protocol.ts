@@ -26,6 +26,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { isLiveStatus } from '@/lib/shared/connection-lifecycle';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { createSseDesktopAdapter } from '@/lib/shared/streaming/desktopStreamAdapter';
 import {
@@ -36,8 +37,9 @@ import {
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import type { Request, SseRequest } from '@/types';
 import { sseUnsupportedAuthError } from './lib/sseAuth';
-import { buildSseStreamSpec } from './lib/sseManager';
+import { buildSseStreamSpec, sseManager } from './lib/sseManager';
 import { type ParsedSseEvent, SseParser } from './lib/sseParser';
+import { useSseStore } from './store/useSseStore';
 
 function createDefaultSseRequest(): SseRequest {
   return {
@@ -317,4 +319,16 @@ export const sseProtocol: ProtocolModule = {
     );
   },
   startStream: sseStartStream,
+  // Each SSE tab owns its stream (it keeps running in background tabs);
+  // closing the tab stops it like closing a WebSocket tab disconnects.
+  connectionLifecycle: {
+    connectionIdForTab: (tabId) => useSseStore.getState().connectionByTabId[tabId],
+    disconnect: (connectionId) => sseManager.disconnect(connectionId),
+    removeConnectionForTab: (tabId) => useSseStore.getState().cleanupConnectionForTab(tabId),
+    isLive: (tabId) => {
+      const state = useSseStore.getState();
+      const id = state.connectionByTabId[tabId];
+      return isLiveStatus(id ? state.connections[id]?.status : undefined);
+    },
+  },
 };

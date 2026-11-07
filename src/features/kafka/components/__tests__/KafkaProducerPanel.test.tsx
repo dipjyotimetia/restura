@@ -77,6 +77,7 @@ describe('KafkaProducerPanel', () => {
       produceKeySchemaId?: string;
       produceError?: string | null;
       produceTombstone?: boolean;
+      onPublish?: () => void;
     } = {}
   ) => {
     const noop = vi.fn();
@@ -108,11 +109,30 @@ describe('KafkaProducerPanel', () => {
           produceError={overrides.produceError ?? null}
           produceTombstone={overrides.produceTombstone ?? false}
           setProduceTombstone={noop}
-          onPublish={noop}
+          onPublish={overrides.onPublish ?? noop}
         />
       </Tabs>
     );
   };
+
+  it('produces with Ctrl/Cmd+Enter from the value field only when it can (S10)', () => {
+    const onPublish = vi.fn();
+    const { unmount } = renderPanel({ onPublish });
+    const value = screen.getByRole('textbox', { name: 'Kafka message value' });
+    fireEvent.keyDown(value, { key: 'Enter' });
+    expect(onPublish).not.toHaveBeenCalled();
+    fireEvent.keyDown(value, { key: 'Enter', ctrlKey: true });
+    fireEvent.keyDown(value, { key: 'Enter', metaKey: true });
+    expect(onPublish).toHaveBeenCalledTimes(2);
+    unmount();
+    const offline = vi.fn();
+    renderPanel({ onPublish: offline, connection: { ...connection, status: 'disconnected' } });
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Kafka message value' }), {
+      key: 'Enter',
+      ctrlKey: true,
+    });
+    expect(offline).not.toHaveBeenCalled();
+  });
 
   it('serializes producer session operations while a native request is in flight', async () => {
     let finishBatch: ((result: { success: boolean }) => void) | undefined;

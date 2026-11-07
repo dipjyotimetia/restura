@@ -11,6 +11,7 @@
  * API (`MqttClient` + `mqttManager`). Mirrors the kafka stub.
  */
 import type { ProtocolModule } from '@/features/registry/types';
+import { isLiveStatus } from '@/lib/shared/connection-lifecycle';
 import { mqttManager } from './lib/mqttManager';
 import { useMqttStore } from './store/useMqttStore';
 
@@ -30,5 +31,10 @@ export const mqttProtocol: ProtocolModule = {
     connectionIdForTab: (tabId) => useMqttStore.getState().connectionByTabId[tabId],
     disconnect: (connectionId) => mqttManager.disconnect(connectionId),
     removeConnectionForTab: (tabId) => useMqttStore.getState().cleanupConnectionForTab(tabId),
+    isLive: (tabId) => {
+      const state = useMqttStore.getState();
+      const id = state.connectionByTabId[tabId];
+      return isLiveStatus(id ? state.connections[id]?.status : undefined);
+    },
   },
 };

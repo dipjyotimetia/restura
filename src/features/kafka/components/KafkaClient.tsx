@@ -1,6 +1,13 @@
 import { Plug, PlugZap, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import {
+  ConnectErrorBanner,
+  DesktopAppDownloadLink,
+  useConnectAttemptError,
+} from '@/components/shared/messageLog/MessageLogControls';
+import { MessageTemplateList } from '@/components/shared/messageTemplates/MessageTemplateList';
 import { Button } from '@/components/ui/button';
 import { ConnectionBadge, Floater, ProtoChip, VariableText } from '@/components/ui/spatial';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,13 +24,25 @@ import {
   warnUnresolved,
 } from '@/features/kafka/lib/kafkaVariables';
 import { getKafkaProduceDraft, setKafkaProduceDraft } from '@/lib/shared/streaming/composerDrafts';
+import { newTemplateId, nextTemplateName } from '@/lib/shared/streaming/messageTemplates';
 import { useKafkaConnection } from '../hooks/useKafkaConnection';
+import type { KafkaProduceTemplate } from '../lib/kafkaTemplates';
 import { KafkaAdminPanel } from './KafkaAdminPanel';
 import { KafkaConnectionForm } from './KafkaConnectionForm';
 import { type ConsumeMode, KafkaConsumerPanel } from './KafkaConsumerPanel';
 import { KafkaMessagesPanel } from './KafkaMessagesPanel';
 import { KafkaProducerPanel, type ProducePayloadMode } from './KafkaProducerPanel';
 import { KAFKA_PINK } from './shared';
+
+interface ProduceDraft {
+  key: string;
+  keyEncoding: ProducePayloadMode;
+  value: string;
+  valueEncoding: ProducePayloadMode;
+  tombstone: boolean;
+  headers: Array<{ id: string; key: string; value: string; enabled: boolean }>;
+  partition: string;
+}
 
 function DesktopOnlyPanel() {
   return (
@@ -34,6 +53,7 @@ function DesktopOnlyPanel() {
           The Kafka client opens raw TCP sockets to your brokers, which the browser cannot do.
           Download the Restura desktop app to publish and consume from Kafka.
         </p>
+        <DesktopAppDownloadLink />
       </Floater>
     </div>
   );
@@ -73,6 +93,32 @@ export function KafkaClient() {
   );
   const [produceKeySubject, setProduceKeySubject] = useState<KafkaSubjectSelection | null>(null);
   const [produceError, setProduceError] = useState<string | null>(null);
+  const connectError = useConnectAttemptError(
+    connection?.id,
+    connection?.messages,
+    connection?.status
+  );
+  const { confirm: confirmDelete, DialogComponent: DeleteDialog } = useConfirmDialog({
+    title: 'Delete Kafka connection?',
+    description:
+      'This disconnects from the cluster and removes the connection with its settings and message log.',
+    confirmText: 'Delete',
+    variant: 'destructive',
+  });
+  const handleConnect = (): void => {
+    connectError.markAttempt();
+    void kafkaConnection.connect();
+  };
+  const handleDelete = async (): Promise<void> => {
+    if (!connection) return;
+    const id = connection.id;
+    if (!(await confirmDelete())) return;
+    // Close the client first so no consumer outlives the connection.
+    if (connection.status !== 'disconnected') {
+      await Promise.resolve(kafkaConnection.disconnect()).catch(() => undefined);
+    }
+    removeConnection(id);
+  };
 
   useEffect(() => {
     setPaused(false);
@@ -133,7 +179,7 @@ export function KafkaClient() {
 
   if (!isDesktop) return <DesktopOnlyPanel />;
 
-  const handleProduce = async (): Promise<void> => {
+  const produceDraft = async (d: ProduceDraft): Promise<void> => {
     if (!connection?.defaultTopic) return;
     const valueSchema = connection.registry
       ? validateOptionalSchemaId(produceSchemaId, 'Value')
@@ -149,15 +195,15 @@ export function KafkaClient() {
       setProduceError(keySchema.error);
       return;
     }
-    if (!produceTombstone && produceValueEncoding === 'json') {
-      const json = validateJsonPayload(produceValue, 'Value');
+    if (!d.tombstone && d.valueEncoding === 'json') {
+      const json = validateJsonPayload(d.value, 'Value');
       if (!json.valid) {
         setProduceError(json.error);
         return;
       }
     }
-    if (produceKey && produceKeyEncoding === 'json') {
-      const json = validateJsonPayload(produceKey, 'Key');
+    if (d.key && d.keyEncoding === 'json') {
+      const json = validateJsonPayload(d.key, 'Key');
       if (!json.valid) {
         setProduceError(json.error);
         return;
@@ -165,20 +211,20 @@ export function KafkaClient() {
     }
     const valueSubject = connection.registry ? produceValueSubject : null;
     const keySubject = connection.registry ? produceKeySubject : null;
-    if (produceValueEncoding === 'base64' && (valueSchema.value !== undefined || valueSubject)) {
+    if (d.valueEncoding === 'base64' && (valueSchema.value !== undefined || valueSubject)) {
       setProduceError('A Base64 value cannot also use a Schema Registry schema.');
       return;
     }
-    if (produceKeyEncoding === 'base64' && (keySchema.value !== undefined || keySubject)) {
+    if (d.keyEncoding === 'base64' && (keySchema.value !== undefined || keySubject)) {
       setProduceError('A Base64 key cannot also use a Schema Registry schema.');
       return;
     }
-    const headers = validateKafkaHeaders(produceHeaders);
+    const headers = validateKafkaHeaders(d.headers);
     if (!headers.valid) {
       setProduceError(headers.error);
       return;
     }
-    const partition = producePartition.trim() ? Number(producePartition) : undefined;
+    const partition = d.partition.trim() ? Number(d.partition) : undefined;
     if (partition !== undefined && (!Number.isSafeInteger(partition) || partition < 0)) {
       setProduceError('Partition must be a non-negative safe integer.');
       return;
@@ -189,10 +235,10 @@ export function KafkaClient() {
       {
         connectionId: connection.id,
         topic: connection.defaultTopic,
-        ...(produceKey ? { key: produceKey } : {}),
-        ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
-        value: produceTombstone ? null : produceValue,
-        valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
+        ...(d.key ? { key: d.key } : {}),
+        ...(d.key ? { keyEncoding: d.keyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
+        value: d.tombstone ? null : d.value,
+        valueEncoding: d.valueEncoding === 'base64' ? 'base64' : 'utf8',
         acks: connection.acks,
         ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
         ...(Object.keys(headers.value).length > 0 ? { headers: headers.value } : {}),
@@ -202,11 +248,59 @@ export function KafkaClient() {
         ...(valueSubject ? { valueSubject } : {}),
         ...(keySubject ? { keySubject } : {}),
       },
-      { json: produceValueEncoding === 'json', keyJson: produceKeyEncoding === 'json' }
+      { json: d.valueEncoding === 'json', keyJson: d.keyEncoding === 'json' }
     );
     // The payload stays in the composer: it is the preset's template (#984).
     if (!result.ok) setProduceError(result.error);
   };
+  const handleProduce = (): Promise<void> =>
+    produceDraft({
+      key: produceKey,
+      keyEncoding: produceKeyEncoding,
+      value: produceValue,
+      valueEncoding: produceValueEncoding,
+      tombstone: produceTombstone,
+      headers: produceHeaders,
+      partition: producePartition,
+    });
+  const templates = connection?.templates ?? [];
+  const createTemplate = (): KafkaProduceTemplate | null =>
+    connection
+      ? {
+          id: newTemplateId(),
+          name: nextTemplateName(templates, 'Produce'),
+          key: produceKey,
+          keyEncoding: produceKeyEncoding,
+          value: produceValue,
+          valueEncoding: produceValueEncoding,
+          tombstone: produceTombstone,
+          headers: produceHeaders
+            .filter((h) => h.enabled && h.key)
+            .map(({ key, value }) => ({ key, value })),
+          partition: producePartition,
+        }
+      : null;
+  const loadTemplate = (t: KafkaProduceTemplate): void => {
+    setProduceKey(t.key);
+    setProduceKeyEncoding(t.keyEncoding);
+    setProduceValue(t.value);
+    setProduceValueEncoding(t.valueEncoding);
+    setProduceTombstone(t.tombstone);
+    setProduceHeaders(
+      t.headers.map((h) => ({ id: newTemplateId(), key: h.key, value: h.value, enabled: true }))
+    );
+    setProducePartition(t.partition);
+  };
+  const sendTemplate = (t: KafkaProduceTemplate): Promise<void> =>
+    produceDraft({
+      ...t,
+      headers: t.headers.map((h, i) => ({
+        id: String(i),
+        key: h.key,
+        value: h.value,
+        enabled: true,
+      })),
+    });
   const handleConsumeModeChange = (mode: ConsumeMode): void => {
     setConsumeMode(mode);
     if (!connection) return;
@@ -303,21 +397,24 @@ export function KafkaClient() {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => removeConnection(connection.id)}
+              onClick={() => void handleDelete()}
               title="Delete connection"
+              aria-label="Delete connection"
               className="h-7 w-7 p-0 rounded-sp-btn"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           )}
           {connection?.status !== 'connected' && connection && (
             <Button
               variant="cta"
               size="cta"
-              onClick={kafkaConnection.connect}
+              onClick={handleConnect}
+              disabled={connection.status === 'connecting'}
               className="min-w-[88px]"
             >
-              <Plug className="h-3.5 w-3.5" /> Connect
+              <Plug className="h-3.5 w-3.5" />{' '}
+              {connection.status === 'connecting' ? 'Connecting…' : 'Connect'}
             </Button>
           )}
           {connection?.status === 'connected' && (
@@ -332,6 +429,8 @@ export function KafkaClient() {
           )}
         </div>
       </Floater>
+      <ConnectErrorBanner error={connectError.error} />
+      <DeleteDialog />
       {!connection ? (
         <Floater
           radius="panel"
@@ -380,7 +479,24 @@ export function KafkaClient() {
             produceError={produceError}
             produceTombstone={produceTombstone}
             setProduceTombstone={setProduceTombstone}
-            onPublish={handleProduce}
+            onPublish={() => void handleProduce()}
+            templatesSlot={
+              <MessageTemplateList<KafkaProduceTemplate>
+                templates={templates}
+                onChange={(next) => updateConnection(connection.id, { templates: next })}
+                onLoad={loadTemplate}
+                onSend={(t) => void sendTemplate(t)}
+                createFromComposer={createTemplate}
+                canSend={connection.status === 'connected' && Boolean(connection.defaultTopic)}
+                describe={(t) =>
+                  `${t.tombstone ? 'tombstone' : t.valueEncoding}${t.key ? ` · key ${t.key}` : ''}${
+                    t.partition ? ` · P${t.partition}` : ''
+                  }`
+                }
+                noun="produce"
+                plural="produces"
+              />
+            }
           />
           <KafkaConsumerPanel
             connection={connection}
