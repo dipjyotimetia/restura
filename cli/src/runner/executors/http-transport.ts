@@ -26,7 +26,8 @@ type Refusal = { ok: false; error: string };
  * SSRF-guarded resolution as every direct CLI connection (`guardedLookup`), so
  * a DNS name cannot re-point the proxy at an internal address after a preflight.
  */
-export const guardedProxyLookup = guardedLookup;
+export const guardedProxyLookup = (allowLocalhost: boolean) =>
+  guardedLookup(allowLocalhost, 'Proxy host');
 
 /**
  * A collection's own proxy host is untrusted input: an absolute-form request

@@ -28,14 +28,14 @@ type LookupCallback = (
  * `169.254.169.254.nip.io` cannot slip past the string-level `validateURL`.
  * (Literal IPs never reach a lookup; `validateURL` already checked them.)
  */
-export function guardedLookup(allowLocalhost: boolean) {
+export function guardedLookup(allowLocalhost: boolean, label = 'Host') {
   return (hostname: string, options: unknown, maybeCallback?: LookupCallback): void => {
     const callback = (typeof options === 'function' ? options : maybeCallback) as LookupCallback;
     const wantsAll = (options as { all?: boolean } | undefined)?.all === true;
     dnsLookup(hostname, { all: true, verbatim: true }, (err, records) => {
       if (err) return callback(err, wantsAll ? [] : '');
       try {
-        if (records.length === 0) throw new Error(`Host ${hostname} did not resolve`);
+        if (records.length === 0) throw new Error(`${label} ${hostname} did not resolve`);
         for (const record of records) {
           assertResolvedAddressAllowed(hostname, record.address, {
             allowLocalhost,
