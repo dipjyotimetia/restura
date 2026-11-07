@@ -15,7 +15,9 @@ Restura has a built-in load runner for quick performance checks on a single HTTP
    - **Total requests** — how many times to fire (default 100).
    - **Concurrency** — how many in flight at once (default 10).
 
-Results land in the **Runs** panel, where each run is recorded so you can compare and re-run.
+   Total requests is capped at 100,000 and concurrency at 500; a larger value is clamped and the dialog says **Capped at …** under the field. The runner enforces the same limits.
+
+Results land in the **Runs** panel, where each run is recorded so you can compare and re-run. Export the recorded load runs as JSON or CSV (name, method, URL, completion time, req/s and the latency stats). The request itself — headers, auth, body — is not included, since it can carry credentials.
 
 ## What you get back
 

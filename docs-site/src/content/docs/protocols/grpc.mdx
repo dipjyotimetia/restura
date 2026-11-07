@@ -12,9 +12,10 @@ Restura speaks the **Connect protocol** on the web target and **native gRPC** ov
 
 ## Discovering the service
 
-- **Server reflection** — the fastest path. Hit the **Reflect** button and Restura lists available services and methods. Reflection sends the request's enabled **Metadata** and **Auth** (variables resolved), so servers that require credentials for reflection — API gateways, Envoy, Cloud Run with IAM — can be discovered. Automatic discovery, when a tab opens or its URL changes, sends the request's own auth only. **Reflect** also sends auth inherited from its folder or collection. Credentials stored as secret handles are resolved by the desktop app only; on the web, switch them to an inline value.
+- **Server reflection** — the fastest path. Hit **Discover** (next to the service/method picker) and Restura lists available services and methods. Reflection sends the request's enabled **Metadata** and **Auth** (variables resolved), so servers that require credentials for reflection — API gateways, Envoy, Cloud Run with IAM — can be discovered. Automatic discovery, when a tab opens or its URL changes, sends the request's own auth only. **Discover** also sends auth inherited from its folder or collection. Credentials stored as secret handles are resolved by the desktop app only; on the web, switch them to an inline value.
 - **Upload `.proto` files** — pick one file, several files, or a whole folder (the folder button) and Restura compiles them on the fly. Imports resolve against the other uploaded files (by import path, relative to the importing file, or by file name). The `google/protobuf/*` well-known types (`timestamp.proto`, `empty.proto`, `struct.proto`, …) and `google/api/annotations.proto` / `http.proto` / `field_behavior.proto` are built in. An import that can't be resolved fails the upload with an error naming the missing file.
 - **Upload a FileDescriptorSet** — for monorepos that already ship a compiled set (`.binpb`, `.protoset`, `.desc`, `.pb` — e.g. `buf build -o api.binpb` or `protoc --include_imports -o api.binpb`). Well-known types the set leaves out are filled in.
+- **One picker** — services from an uploaded `.proto` or FileDescriptorSet appear in the same service/method picker as reflected ones (uploads first). Picking a method fills the message editor with a request template; after an upload, its first method is selected for you.
 
 ### Saved requests keep their schema
 
@@ -55,11 +56,13 @@ Each snapshot records a content hash and the time it was captured. When you refl
 - **Unary** — request-response.
 - **Server streaming** — single request, streamed responses. Live updates land in the response panel.
 - **Client streaming** — multiple requests, single response. <Badge text="desktop only" variant="caution" /> — not available on the web target.
-- **Bidirectional streaming** — <Badge text="desktop only" variant="caution" /> — not available on the web target.
-- **Web Stream tab** — for any non-unary method the request builder adds a **Web Stream** tab with a message composer for streaming calls (send messages, end the client side, watch the log).
+- **Bidirectional streaming** — <Badge text="desktop only" variant="caution" /> — not available on the web target. On the web the **Client** and **Bidi** method-type options are disabled with a *Desktop only* tooltip.
+- **Sending stream messages** — while a client or bidirectional call is live on desktop, a message box next to **Invoke** sends messages and ends the client side. **Cmd/Ctrl+Enter** in the box sends the message; elsewhere, Cmd/Ctrl+Enter while a call is in flight cancels it.
+- **Stream tab** — appears once a call has streamed messages and holds the message log.
+- **Web Stream tab** — for any non-unary method the request builder adds a **Web Stream** tab with a separate message composer for streaming calls (send messages, end the client side, watch the log); Cmd/Ctrl+Enter there sends the message.
 - **Collection runs** — the collection runner runs streaming requests to completion. Server streams run on web and desktop. Client and bidirectional streams run on desktop only: the runner sends the request message (a top-level JSON array sends one message per element), then closes the client side. On the web they're skipped.
 - **Retries** — the **Settings** tab retry policy also applies to server streams: a stream that ends with a non-OK status (other than a cancel) runs again. Client and bidirectional streams aren't retried.
-- **Stream log** — streamed messages can be searched, filtered by direction, frozen, cleared, and exported as JSON or NDJSON.
+- **Stream log** — the Stream tab's messages can be searched, filtered by direction, frozen, cleared, and exported as JSON or NDJSON.
 - **Long streams** — a stream keeps its most recent 1,000 inbound messages (up to 10 MB of JSON). Older ones are dropped from the Stream tab, the response body and `pm.response.messages`, and a **N earlier messages dropped** notice shows how many.
 - **Response** — the **Body** tab offers Pretty / Raw / Tree views, a JSONPath query, find, copy, and download (a streamed response's frames appear as one JSON array, indexed by frame). **Headers** shows the server's leading metadata and **Trailers** the `grpc-status` / `grpc-message` and any trailing metadata.
 - **Rich error details** — when an error carries `google.rpc.Status` details (from the `grpc-status-details-bin` trailer or Connect's error JSON), an **Error details** tab decodes them: `BadRequest`, `ErrorInfo`, `RetryInfo`, `QuotaFailure`, `PreconditionFailure`, `DebugInfo`, `RequestInfo`, `ResourceInfo`, `Help` and `LocalizedMessage` as JSON, types from your loaded schema likewise, and anything else as its type plus raw base64 (Connect's `debug` rendering is shown too). Test scripts read the same list as `pm.response.statusDetails`. Works on web, self-hosted and desktop, unary and streaming, over every wire protocol (gRPC-Web included).
@@ -117,6 +120,10 @@ rs.test('trailer present', () => {
 // test, server stream
 rs.test('three updates', () => rs.expect(rs.response.messages.count()).to.equal(3));
 ```
+
+## Code export
+
+The **Code** button next to the method picker exports the call as a `grpcurl` or `buf curl` command (unary or streaming). It uses the enabled **Metadata** entries as typed — `{{variables}}` stay unresolved and **Auth**-tab credentials are not included.
 
 ## Tracing
 

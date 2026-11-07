@@ -31,6 +31,8 @@ Custom methods must be a valid HTTP method token (RFC 9110: letters, digits and 
 - **GraphQL** — query and variables editors that send a standard GraphQL JSON body (the dedicated [GraphQL](/protocols/graphql/) request type adds schema tooling).
 - **binary** — pick any file with **Choose file**; Restura sends its bytes as the body (`{{variables}}` are never substituted).
 
+Switching the body type to or from **binary** sets the other content aside: a toast offers **Undo**, and switching back restores it.
+
 **GET with a body:** a body you write on a `GET` is sent, not silently dropped — on desktop and with `restura run`. The hosted web app and self-hosted server send through `fetch()`, which forbids it, so the request fails with an explicit `400` ("This proxy cannot send a request body with GET"); remove the body, change the method, or use desktop/CLI. A `GET` whose body editor is empty sends no body. `HEAD` never sends one.
 
 There is no Protobuf body type: to send protobuf over HTTP use **binary**, or use the [gRPC](/protocols/grpc/) client.
@@ -39,10 +41,14 @@ There is no Protobuf body type: to send protobuf over HTTP use **binary**, or us
 
 - **Query parameters** — kept in sync with the URL. Type or paste `?a=1&b=2` into the URL bar and the rows appear in **Params**; edit a row and the URL updates. Disabled rows stay in the table and are left out of the URL. Values go out exactly as typed: `+`, `:`, `,`, `/` and existing `%XX` escapes are not rewritten (a pasted `%2B` stays `%2B`, a `+` stays `+`); only a space is encoded, as `%20`. Repeated keys (`?id=1&id=2`) are all sent, in order.
 - **Paste a cURL command** into the URL bar to fill in the method, URL, headers and body. A toast offers **Undo**.
+- **Removing a row** — deleting a param or header row names it in a toast with **Undo**, which puts it back where it was.
 - **Bulk edit** — switch params or headers to a text view with one `key: value` per line. Prefix a line with `//` to disable it.
-- **Variables** — hover a `{{variable}}` in the URL or a param value to see its value and where it comes from (environment, collection, folder, globals). Secret values are masked.
+- **Variables** — hover a `{{variable}}` in the URL or a param value to see its value and where it comes from (environment, collection, folder, globals). Secret values are masked. If the URL, params, headers or body reference a variable that won't resolve in the active environment, a **N unresolved** chip next to **Send** lists them (hover for the names); the request is still sent with the references as-is.
 - **Headers** — autocompletion for standard names + values where applicable. Repeated header rows are all kept: they combine into one header separated by `, ` (`; ` for `Cookie`) instead of the last row winning.
 - **Cookies** — per-request override, plus a session-wide cookie jar. When a response sends several `Set-Cookie` headers (a session cookie plus a CSRF token, say), every one is kept: the cookie jar stores each, the response **Headers** tab shows each on its own row, scripts see them all, and `restura run` results list them all. Streaming responses (SSE, NDJSON) have no **Headers** tab, but their cookies still reach the jar. On the web they travel in an `x-restura-set-cookies` header, so the browser never stores them for the Restura site. The network console lists each response cookie's name and attributes with the value redacted. The jar follows RFC 6265: `Max-Age` wins over `Expires` (zero or negative deletes the cookie), a `Domain` attribute must domain-match the host and may not be a public suffix, cookies without `Domain` are host-only, and the default path is derived per the RFC. A `Cookie` header you set yourself merges with the jar (your names win). On redirects, cookies set by each hop are sent on the later hops and stored against the URL that set them — on the web/self-hosted proxy and on desktop alike.
+
+- **URL problems** — an invalid URL disables **Send** and says what's wrong: an unsupported scheme, a missing host, spaces in the host, or a port outside 1–65535.
+- **Tab badges** — **Scripts** is badged with the phases that have code (*Pre*, *Test*, *Pre+Test*) and **Settings** with *Custom* when the request overrides the global settings.
 
 ## Authentication
 
@@ -86,7 +92,7 @@ Every send is recorded to history with status, timing, request hash, and a quick
   - syntax-highlighted XML
   - **Download**, saved under the request's name with the right extension
 - **Compare with previous**: once a request has an earlier response in history, a toolbar button diffs the two side by side.
-- **Cancel**: while a request runs, the response panel shows the elapsed time and a **Cancel** button. GraphQL can be cancelled too.
+- **Cancel**: while a request runs, the response panel shows the elapsed time and a **Cancel** button. GraphQL can be cancelled too. Loading and Cancel are per tab: you can switch tabs and send another request while one is in flight, and Cancel only stops the visible tab's send.
 
 ## Worth knowing
 

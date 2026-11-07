@@ -53,6 +53,13 @@ Anything you set on a folder cascades to every descendant unless that descendant
 - **Duplicate** with right-click → Duplicate.
 - **Rename** inline with double-click.
 - **Sort** by name or by drag order.
+- **Select several** — <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>-click toggles an item; <kbd>Shift</kbd>-click selects the range from the last selected item.
+- **Keyboard** — the sidebar is one tree across all collections: <kbd>↑</kbd>/<kbd>↓</kbd> move between rows (collection headers included), <kbd>Home</kbd>/<kbd>End</kbd> jump to the first and last row, <kbd>→</kbd>/<kbd>←</kbd> expand and collapse, <kbd>Enter</kbd>/<kbd>Space</kbd> open or toggle, <kbd>F2</kbd> renames and <kbd>Delete</kbd> asks to delete.
+- **Delete** — the confirm names what goes: the request, or the folder with how many items and requests it holds (or each selected item). Deleting a collection names it with its request count and any linked workflows; open tabs stay open as unsaved copies. An in-memory collection can be brought back with **Undo** on the toast. For a filesystem-backed collection the files stay on disk and Restura stops tracking them — that can't be undone in Restura.
+
+## History
+
+The **History** sidebar lists past sends grouped by time. Filter by HTTP method or by protocol (a chip appears for each non-HTTP protocol in your history), remove a single entry with its delete button, or **Clear history** — it asks first and says how many entries go, favorites included.
 
 ## Sharing
 
@@ -61,6 +68,8 @@ Restura imports and exports **OpenCollection** natively (see [reference](/refere
 On the desktop client, you can also point Restura at a **filesystem-backed workspace** and use Git on the directory.
 
 ## Collection-run evidence
+
+While a run is in progress the runner dialog can't be closed: it says **Stop the run to close this dialog** and offers **Stop & close**.
 
 The collection runner records status, timing, assertions, and a safe response-evidence summary in the Runs panel. Choose one retention mode when starting a run:
 
