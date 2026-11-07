@@ -113,6 +113,18 @@ export const architecturePolicy: ArchitecturePolicy = {
       max: 1,
       hint: 'use eventChannel(EVENT_PREFIX.<protocol>.<kind>, id) from electron/shared/channels',
     },
+    // Ajv compiles validators with `new Function`, which the packaged Electron
+    // renderer CSP blocks (no 'unsafe-eval', ADR-0026). src/ and shared/ run in
+    // the renderer, so they must not import Ajv at all. Node-only code
+    // (electron/main, cli, worker) may keep it.
+    {
+      name: 'Ajv imports in renderer-reachable code (src/ + shared/)',
+      pathPrefix: ['src/', 'shared/'],
+      extension: ['.ts', '.tsx'],
+      pattern: String.raw`(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"]ajv(?:-[\w-]+)?(?:/[^'"]*)?['"]`,
+      max: 0,
+      hint: 'use checkJsonSchema from shared/protocol/json-schema-check.ts (eval-free)',
+    },
   ],
 };
 

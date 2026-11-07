@@ -1,4 +1,4 @@
-import Ajv, { type ValidateFunction } from 'ajv';
+import { checkJsonSchema, schemaErrorsText } from '../protocol/json-schema-check';
 import { type ContextPacket, type GroundingSelection, renderContextPacket } from './grounding';
 import { evaluateToolPolicy, type PermissionClass } from './policy';
 import {
@@ -283,14 +283,14 @@ export class AgentRunner {
         ? policies.find((candidate) => candidate.id === agent.policyId)
         : undefined;
       const toolsByName = new Map(tools.map((tool) => [tool.definition.name, tool]));
-      const ajv = new Ajv({ allErrors: true, strict: false });
-      const toolValidators = new Map<string, ValidateFunction>();
+      // Eval-free validation (no Ajv): this runs in the Electron renderer, whose
+      // CSP forbids `new Function`. The schema is not meta-validated, so only a
+      // schema that is not a JSON object is rejected up front.
       for (const tool of tools) {
-        try {
-          toolValidators.set(tool.definition.name, ajv.compile(tool.definition.inputSchema));
-        } catch (cause) {
+        const schema: unknown = tool.definition.inputSchema;
+        if (typeof schema !== 'object' || schema === null || Array.isArray(schema)) {
           throw new Error(
-            `invalid input schema for tool ${tool.definition.name}: ${cause instanceof Error ? cause.message : String(cause)}`
+            `invalid input schema for tool ${tool.definition.name}: schema must be an object`
           );
         }
       }
@@ -481,9 +481,12 @@ export class AgentRunner {
           this.assertWithinLimits(agent, startedAt, toolCallCount, totalTokens, totalCostUSD);
           const tool = toolsByName.get(toolCall.name);
           if (!tool) throw new Error(`model requested unavailable tool: ${toolCall.name}`);
-          const validateArguments = toolValidators.get(toolCall.name)!;
-          if (!validateArguments(toolCall.arguments)) {
-            const validationError = `invalid arguments for tool ${toolCall.name}: ${ajv.errorsText(validateArguments.errors)}`;
+          // A `skipped` check (schema/arguments over the complexity budget) is
+          // inconclusive and lets the call through rather than block a
+          // legitimate run; the tool's own handler still rejects bad input.
+          const argumentsCheck = checkJsonSchema(tool.definition.inputSchema, toolCall.arguments);
+          if (!argumentsCheck.valid) {
+            const validationError = `invalid arguments for tool ${toolCall.name}: ${schemaErrorsText(argumentsCheck.errors)}`;
             emit({
               type: 'tool.failed',
               toolCallId: toolCall.id,

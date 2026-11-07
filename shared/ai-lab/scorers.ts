@@ -7,6 +7,8 @@
 // the deterministic scorers stay pure and unit-testable with no mocks.
 import type { JudgeCriterion, JudgeRequestInput, JudgeVerdict } from '../protocol/ai/judge';
 import type { ChatToolCall } from '../protocol/ai/types';
+import { checkJsonSchema } from '../protocol/json-schema-check';
+import { MCP_SCHEMA_TOO_COMPLEX } from '../protocol/mcp-output-schema';
 import type { DatasetCase, ModelRef, ScoreResult, ScorerConfig } from './types';
 
 export interface ScriptScoreResult {
@@ -195,36 +197,32 @@ async function scoreJsonSchema(
 }
 
 /**
- * Lazily load Ajv and validate `data` against a stringified JSON Schema. Shared
- * by the json-schema and tool-call scorers. Fails closed on any load/compile
- * error. Returns `{ ok:false }` for an unusable schema (distinct from a clean
- * `{ ok:true, valid:false }` "data didn't match").
+ * Validate `data` against a stringified JSON Schema (eval-free, see
+ * `protocol/json-schema-check.ts`). Shared by the json-schema and tool-call
+ * scorers. Fails closed on an unusable or over-complex schema: returns
+ * `{ ok:false }` (distinct from a clean `{ ok:true, valid:false }` "data
+ * didn't match").
  */
 async function validateAgainstSchema(
   data: unknown,
   schemaStr: string
 ): Promise<{ ok: true; valid: boolean } | { ok: false; error: string }> {
-  let schema: object;
+  let schema: unknown;
   try {
-    schema = JSON.parse(schemaStr) as object;
+    schema = JSON.parse(schemaStr);
   } catch {
     return { ok: false, error: 'scorer schema is not valid JSON' };
   }
-  try {
-    const mod = (await import('ajv')) as unknown as {
-      default?: new (opts?: object) => { compile: (s: object) => (d: unknown) => boolean };
-    } & { Ajv?: new (opts?: object) => { compile: (s: object) => (d: unknown) => boolean } };
-    const Ctor = mod.default ?? mod.Ajv;
-    if (!Ctor) return { ok: false, error: 'JSON-schema validator unavailable' };
-    const ajv = new Ctor({ allErrors: true, strict: false });
-    const validate = ajv.compile(schema);
-    return { ok: true, valid: validate(data) };
-  } catch (e) {
-    return {
-      ok: false,
-      error: `schema validation error: ${e instanceof Error ? e.message : String(e)}`,
-    };
+  const isObject = typeof schema === 'object' && schema !== null && !Array.isArray(schema);
+  if (!isObject && typeof schema !== 'boolean') {
+    return { ok: false, error: 'scorer schema must be a JSON object or boolean' };
   }
+  // Eval-free (the renderer CSP forbids Ajv's `new Function`). An inconclusive
+  // check fails closed, like any other unusable schema.
+  const check = checkJsonSchema(schema, data);
+  if (check.skipped)
+    return { ok: false, error: `schema validation error: ${MCP_SCHEMA_TOO_COMPLEX}` };
+  return { ok: true, valid: check.valid };
 }
 
 /**
