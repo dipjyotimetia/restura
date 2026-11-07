@@ -9,7 +9,8 @@ import type { ImportWarning } from './types';
 interface PostmanEnvFile {
   id?: string;
   name: string;
-  values: Array<{ key: string; value: string; enabled?: boolean; type?: string }>;
+  // Untrusted JSON: Postman writes numbers/booleans as-is.
+  values: Array<{ key?: unknown; value?: unknown; enabled?: boolean; type?: string }>;
   _postman_variable_scope?: 'environment' | 'globals';
   _postman_exported_at?: string;
   _postman_exported_using?: string;
@@ -99,8 +100,10 @@ export function importPostmanEnvironmentDetailed(
       variables: env.values.map(
         (v): KeyValue => ({
           id: uuid(),
-          key: v.key,
-          value: v.value ?? '',
+          // Postman exports can carry numeric/boolean values; KeyValue is
+          // string-only (keyValueSchema), so coerce like the collection parser.
+          key: String(v.key ?? ''),
+          value: String(v.value ?? ''),
           enabled: v.enabled !== false,
           ...(v.type === 'secret' ? { secret: true } : {}),
         })
