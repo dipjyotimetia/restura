@@ -17,7 +17,7 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 import { useMockStore } from '@/store/useMockStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
-import type { ActivePanel, CollectionItem } from '@/types';
+import type { ActivePanel, CollectionItem, RequestType } from '@/types';
 import { useCollectionSidebarCommands } from '../hooks/useCollectionSidebarCommands';
 import { copyBrokerPresetSecrets, DUPLICATE_CREDENTIALS_FAILED } from '../lib/brokerPresets';
 import { describeCollectionDeletion } from '../lib/deleteCollection';
@@ -31,7 +31,11 @@ import {
   uniqueName,
 } from '../lib/names';
 import { openCollectionItem } from '../lib/openCollectionItem';
-import { filterCollectionTree, historyItemMatches } from '../lib/sidebarSearch';
+import {
+  filterCollectionTree,
+  historyItemMatches,
+  historyItemMatchesFilter,
+} from '../lib/sidebarSearch';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { selectionKey, type TreeActions, type TreeState } from './CollectionTree';
 import { ConflictDialog } from './ConflictDialog';
@@ -234,18 +238,25 @@ function Sidebar({ activePanel }: SidebarProps) {
     }
 
     if (methodFilter) {
-      filtered = filtered.filter((item) => {
-        if (item.request.type === 'http') {
-          return item.request.method === methodFilter;
-        }
-        return false;
-      });
+      filtered = filtered.filter((item) => historyItemMatchesFilter(item, methodFilter));
     }
 
     return filtered;
   }, [allHistory, visibleHistory, searchQuery, methodFilter]);
 
   const hasMoreHistory = visibleHistoryCount < totalHistoryCount;
+
+  // Non-HTTP protocols present in history, offered as filter chips.
+  const historyProtocols = useHistoryStore(
+    useShallow((state) => {
+      const seen = new Set<RequestType>();
+      for (const item of state.history)
+        if (item.request.type !== 'http') seen.add(item.request.type);
+      return [...seen].sort();
+    })
+  );
+  const removeHistoryItem = useHistoryStore((state) => state.removeHistoryItem);
+  const clearHistory = useHistoryStore((state) => state.clearHistory);
 
   const handleLoadMore = useCallback(() => {
     setVisibleHistoryCount((prev) => prev + HISTORY_PAGE_SIZE);
@@ -647,6 +658,12 @@ function Sidebar({ activePanel }: SidebarProps) {
             onLoadMore={handleLoadMore}
             onMethodFilterChange={setMethodFilter}
             onToggleFavorite={toggleFavorite}
+            availableProtocols={historyProtocols}
+            onRemoveHistoryItem={removeHistoryItem}
+            onClearHistory={() => {
+              clearHistory();
+              setMethodFilter(null);
+            }}
           />
 
           <SidebarWorkflowsPanel

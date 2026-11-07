@@ -5,6 +5,7 @@ import {
   groupHistory,
   historyBucket,
   historyItemMatches,
+  historyItemMatchesFilter,
 } from './sidebarSearch';
 
 const http = (name: string, url = 'https://x.dev'): HttpRequest => ({
@@ -62,6 +63,30 @@ describe('filterCollectionTree', () => {
     expect(filterCollectionTree(collections, 'shop')[0]).toBe(collections[0]);
     expect(filterCollectionTree(collections, 'pay.dev').map((c) => c.name)).toEqual(['Billing']);
     expect(filterCollectionTree(collections, 'zzz')).toEqual([]);
+  });
+});
+
+describe('historyItemMatchesFilter', () => {
+  const entry = (request: HistoryItem['request']): HistoryItem => ({
+    id: 'h',
+    request,
+    timestamp: 0,
+  });
+  const ws = entry({ id: 'w', name: 'Feed', type: 'websocket', url: 'wss://x' } as never);
+  const get = entry(http('Get'));
+
+  it('keeps everything with no filter', () => {
+    expect(historyItemMatchesFilter(ws, null)).toBe(true);
+    expect(historyItemMatchesFilter(get, null)).toBe(true);
+  });
+
+  it('filters HTTP by method and other protocols by protocol', () => {
+    expect(historyItemMatchesFilter(get, 'GET')).toBe(true);
+    expect(historyItemMatchesFilter(get, 'POST')).toBe(false);
+    expect(historyItemMatchesFilter(ws, 'GET')).toBe(false);
+    expect(historyItemMatchesFilter(ws, 'protocol:websocket')).toBe(true);
+    expect(historyItemMatchesFilter(get, 'protocol:websocket')).toBe(false);
+    expect(historyItemMatchesFilter(get, 'protocol:http')).toBe(true);
   });
 });
 

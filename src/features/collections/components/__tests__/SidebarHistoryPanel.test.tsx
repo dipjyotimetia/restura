@@ -180,4 +180,43 @@ describe('SidebarHistoryPanel', () => {
     expect(onMethodFilterChange).toHaveBeenNthCalledWith(3, null);
     expect(onLoadMore).toHaveBeenCalledOnce();
   });
+
+  it('offers protocol filters, per-item delete, and a confirmed Clear history', () => {
+    const onMethodFilterChange = vi.fn();
+    const onRemoveHistoryItem = vi.fn();
+    const onClearHistory = vi.fn();
+    render(
+      <Tabs defaultValue="history">
+        <SidebarHistoryPanel
+          filteredHistory={[httpHistory('one', 'GET', 200)]}
+          favorites={[]}
+          hasMoreHistory={false}
+          methodFilter={null}
+          searchQuery=""
+          staggerInitial={false}
+          totalHistoryCount={2}
+          visibleHistoryCount={2}
+          availableProtocols={['grpc']}
+          onLoadHistoryItem={vi.fn()}
+          onLoadMore={vi.fn()}
+          onMethodFilterChange={onMethodFilterChange}
+          onToggleFavorite={vi.fn()}
+          onRemoveHistoryItem={onRemoveHistoryItem}
+          onClearHistory={onClearHistory}
+        />
+      </Tabs>
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'gRPC' }));
+    expect(onMethodFilterChange).toHaveBeenCalledWith('protocol:grpc');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from history' }));
+    expect(onRemoveHistoryItem).toHaveBeenCalledWith('one');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear history' }));
+    expect(onClearHistory).not.toHaveBeenCalled();
+    expect(screen.getByRole('alertdialog').textContent).toContain('2 history entries');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(onClearHistory).toHaveBeenCalledOnce();
+  });
 });
