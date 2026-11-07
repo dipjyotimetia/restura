@@ -2,6 +2,7 @@
 
 import {
   CheckCircle,
+  Code2,
   Download,
   FileUp,
   Loader2,
@@ -11,12 +12,17 @@ import {
   Send,
   Wand2,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
+import {
+  MessageLogToolbar,
+  useFrozenView,
+} from '@/components/shared/messageLog/MessageLogControls';
+import { ProtocolCodeDialog } from '@/components/shared/ProtocolCodeDialog';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
@@ -63,8 +69,10 @@ import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
+import { graphqlCodeGenerators } from '@/lib/shared/codeGenerators/graphql';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { filteredEmptyText, filterLog, type LogDirection } from '@/lib/shared/messageLog';
 import { cn } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
@@ -77,7 +85,10 @@ import { GraphQLSubscriptionErrors } from './GraphQLSubscriptionErrors';
 import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
 import { SubscriptionAuthNotice } from './SubscriptionAuthNotice';
-import { SubscriptionProtocolSelect } from './SubscriptionProtocolSelect';
+import {
+  SUBSCRIPTION_PROTOCOL_LABELS,
+  SubscriptionProtocolSelect,
+} from './SubscriptionProtocolSelect';
 
 const REPLACE_IMPORTED_CONFIRM = {
   title: 'Replace imported schema?',
@@ -93,6 +104,29 @@ const CodeEditor = lazyComponent(
 );
 
 type TabValue = 'query' | 'variables' | 'headers' | 'auth' | 'scripts' | 'subscription';
+
+/** Wait this long after the URL settles before auto-introspecting it. */
+const AUTO_INTROSPECT_DELAY_MS = 800;
+const SUBSCRIPTION_LOG_DIRECTIONS: ReadonlyArray<LogDirection> = ['in', 'error', 'system'];
+
+/** An endpoint worth introspecting unprompted: an absolute http(s) URL or a `{{var}}` one. */
+const isIntrospectableUrl = (url: string) =>
+  /^https?:\/\/[^\s/]+/i.test(url.trim()) || /^\{\{[^}]+\}\}\S*$/.test(url.trim());
+
+/** Variables as an object for code generation; invalid JSON → `{}`. */
+function parseVariablesOrEmpty(text: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(text || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+const errorDetail = (err: unknown): string | undefined =>
+  err instanceof Error ? err.message : typeof err === 'string' ? err : undefined;
 
 function GraphQLRequestBuilder() {
   // GraphQL is HTTP under the hood — narrow the active tab to an HttpRequest.
@@ -128,6 +162,48 @@ function GraphQLRequestBuilder() {
   const { confirm: confirmReplaceImported, DialogComponent: ReplaceImportedDialog } =
     useConfirmDialog(REPLACE_IMPORTED_CONFIRM);
   const cleartextGuard = useCleartextCredentialsGuard();
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [logQuery, setLogQuery] = useState('');
+  const [logDirection, setLogDirection] = useState<LogDirection | 'all'>('all');
+  const [logFrozen, setLogFrozen] = useState(false);
+  const logEntries = useMemo(
+    () =>
+      subscriptionLog.messages.map((msg) => {
+        const direction: LogDirection =
+          msg.type === 'data' ? 'in' : msg.type === 'error' ? 'error' : 'system';
+        return {
+          ...msg,
+          direction,
+          label: msg.protocol ? `${msg.type} · ${msg.protocol}` : msg.type,
+          body: msg.payloadText ?? msg.error ?? '',
+        };
+      }),
+    [subscriptionLog.messages]
+  );
+  const filteredLog = useMemo(
+    () => filterLog(logEntries, { query: logQuery, direction: logDirection }),
+    [logEntries, logQuery, logDirection]
+  );
+  const { visible: visibleLog, newCount: logNewCount } = useFrozenView(filteredLog, logFrozen);
+
+  // Auto-introspect (debounced) once a usable URL is set and nothing is known
+  // about it yet — so autocomplete works without hunting for the explorer's
+  // Refresh. Imported schemas and cached results (success or failure) win.
+  const hasSchemaEntry = useGraphQLSchemaStore((s) => (url ? s.schemas[url] !== undefined : false));
+  const autoAttempted = useRef(new Set<string>());
+  const autoRequestRef = useRef(currentRequest);
+  autoRequestRef.current = currentRequest;
+  useEffect(() => {
+    if (!url || importedSchema || hasSchemaEntry || schemaLoading) return;
+    if (!isIntrospectableUrl(url) || autoAttempted.current.has(url)) return;
+    const timer = setTimeout(() => {
+      const request = autoRequestRef.current;
+      if (!request || request.url !== url) return;
+      autoAttempted.current.add(url);
+      void fetchSchema(url, { request });
+    }, AUTO_INTROSPECT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [url, importedSchema, hasSchemaEntry, schemaLoading, fetchSchema]);
 
   const sendShortcut = useSendShortcut();
   // An errors panel asked to reveal a query location — show the editor.
@@ -180,8 +256,8 @@ function GraphQLRequestBuilder() {
     let variables: Record<string, unknown> = {};
     try {
       variables = JSON.parse(variablesText || '{}');
-    } catch {
-      toast.error('Invalid JSON in variables');
+    } catch (err) {
+      toast.error('Invalid JSON in variables', { description: errorDetail(err) });
       return;
     }
 
@@ -227,11 +303,13 @@ function GraphQLRequestBuilder() {
           subscriptionClientRef.current = null;
         }
       },
-      onError: () => {
+      onError: (err) => {
         if (subscriptionClientRef.current !== client) return;
         setIsSubscribed(false);
         subscriptionClientRef.current = null;
-        toast.error('Subscription error');
+        toast.error('Subscription error', {
+          description: errorDetail(err) ?? 'See the Messages tab for details.',
+        });
       },
     });
 
@@ -259,8 +337,8 @@ function GraphQLRequestBuilder() {
     let parsedVariables: Record<string, unknown>;
     try {
       parsedVariables = JSON.parse(variablesText || '{}');
-    } catch {
-      toast.error('Invalid JSON in variables');
+    } catch (err) {
+      toast.error('Invalid JSON in variables', { description: errorDetail(err) });
       return;
     }
 
@@ -444,8 +522,10 @@ function GraphQLRequestBuilder() {
     }
     // Introspection runs through the same executor as Send, seeded with this
     // tab's auth, headers and settings (see introspectSchema).
+    // An explicit Refresh always re-introspects — the cache TTL is for
+    // passive reads, not for the user asking again.
     if (!importedSchema) {
-      void fetchSchema(url, { request: httpRequest });
+      void fetchSchema(url, { request: httpRequest, force: true });
       return;
     }
     // An imported schema exists because introspection may be unavailable —
@@ -453,7 +533,7 @@ function GraphQLRequestBuilder() {
     // has actually produced a replacement.
     if (!(await confirmReplaceImported())) return;
     const originTabId = activeTabId;
-    const result = await fetchSchema(url, { request: httpRequest });
+    const result = await fetchSchema(url, { request: httpRequest, force: true });
     if (result?.success) {
       if (originTabId) {
         useRequestStore.getState().updateRequestForTab(originTabId, { graphqlSchema: undefined });
@@ -486,7 +566,7 @@ function GraphQLRequestBuilder() {
           size="cta"
           onClick={() => void handleSubscribe()}
           disabled={!httpRequest.url}
-          title="graphql-ws over WebSocket"
+          title={`Subscribe via ${SUBSCRIPTION_PROTOCOL_LABELS[httpRequest.graphqlSubscriptionProtocol ?? 'auto']}`}
           className="min-w-[100px] shrink-0"
         >
           <Plug className="h-3.5 w-3.5" />
@@ -515,7 +595,7 @@ function GraphQLRequestBuilder() {
         onClick={() => void handleSendRequest()}
         disabled={!httpRequest.url}
         aria-label={`Send GraphQL ${operationType === 'mutation' ? 'mutation' : 'query'}`}
-        title="HTTP POST"
+        title={`HTTP ${graphqlMethodOf(httpRequest)}`}
         className="min-w-[72px] shrink-0"
       >
         <Send className="h-3.5 w-3.5" />
@@ -548,7 +628,7 @@ function GraphQLRequestBuilder() {
         ? null
         : () => void handleSubscribe()
       : isLoading
-        ? null
+        ? abortRun // Cmd/Ctrl+Enter again cancels, like the HTTP builder.
         : () => void handleSendRequest();
 
   return (
@@ -601,6 +681,7 @@ function GraphQLRequestBuilder() {
             onClearImported={handleClearImportedSchema}
             loading={schemaLoading}
             loaded={Boolean(schemaResult?.success)}
+            error={schemaResult && !schemaResult.success ? schemaResult.error : undefined}
             importedFrom={importedSchema ? describeSchemaProvenance(importedSchema) : undefined}
           />
         )}
@@ -640,6 +721,16 @@ function GraphQLRequestBuilder() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setCodeOpen(true)}
+                    aria-label="Generate code"
+                    title="Export this operation as cURL / JavaScript / Python"
+                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors"
+                  >
+                    <Code2 className="h-3 w-3" />
+                    Code
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDownloadSDL}
                     disabled={!executableSchema}
                     className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -662,6 +753,44 @@ function GraphQLRequestBuilder() {
 
           {/* Tab content */}
           <SubTabPanel tabKey={activeTab} className="flex-1 min-h-0 overflow-hidden">
+            {activeTab === 'query' && !executableSchema && !schemaLoading && (
+              <div
+                role="status"
+                className="flex items-center gap-2 px-3 h-7 border-b border-sp-line text-sp-11 text-sp-muted"
+              >
+                <span className="truncate">
+                  {schemaResult && !schemaResult.success
+                    ? 'Introspection failed — autocomplete off'
+                    : 'No schema — autocomplete off'}
+                </span>
+                {schemaResult && !schemaResult.success && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSchema(true)}
+                    className="underline hover:text-sp-text"
+                  >
+                    Details
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleRefreshSchema()}
+                  disabled={!httpRequest.url}
+                  aria-label="Introspect schema"
+                  className="ml-auto underline hover:text-sp-text disabled:opacity-50 disabled:no-underline"
+                >
+                  Introspect
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLoadSchemaOpen(true)}
+                  aria-label="Load schema file"
+                  className="underline hover:text-sp-text"
+                >
+                  Load file
+                </button>
+              </div>
+            )}
             {activeTab === 'query' && (
               <GraphQLBodyEditor
                 query={query}
@@ -746,7 +875,28 @@ function GraphQLRequestBuilder() {
                   messages={subscriptionLog.messages}
                   tabId={activeTabId}
                 />
-                {subscriptionLog.messages.length === 0 ? (
+                <div className="-mx-3 mb-2">
+                  <MessageLogToolbar
+                    query={logQuery}
+                    onQueryChange={setLogQuery}
+                    direction={logDirection}
+                    onDirectionChange={setLogDirection}
+                    directions={SUBSCRIPTION_LOG_DIRECTIONS}
+                    frozen={logFrozen}
+                    newCount={logNewCount}
+                    onFrozenChange={setLogFrozen}
+                    exportEntries={() => filteredLog}
+                    exportName={`${operationState.operationName ?? 'graphql'}-subscription`}
+                    exportMeta={{ protocol: 'graphql', url: httpRequest.url }}
+                    onClear={() => setSubscriptionLog(emptySubscriptionLog)}
+                    hasEntries={subscriptionLog.messages.length > 0}
+                  />
+                </div>
+                {subscriptionLog.messages.length > 0 && visibleLog.length === 0 ? (
+                  <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
+                    {filteredEmptyText('message', logNewCount)}
+                  </div>
+                ) : subscriptionLog.messages.length === 0 ? (
                   <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
                     {isSubscribed
                       ? 'Waiting for messages...'
@@ -754,7 +904,7 @@ function GraphQLRequestBuilder() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {subscriptionLog.messages.map((msg) => (
+                    {visibleLog.map((msg) => (
                       <div
                         key={msg.id}
                         className={cn(
@@ -790,6 +940,22 @@ function GraphQLRequestBuilder() {
         open={loadSchemaOpen}
         onOpenChange={setLoadSchemaOpen}
         onLoad={handleSchemaLoaded}
+      />
+      <ProtocolCodeDialog
+        open={codeOpen}
+        onOpenChange={setCodeOpen}
+        title="Generate GraphQL code"
+        description="Uses the Headers tab entries as typed: {{variables}} stay unresolved and Auth-tab credentials are not included."
+        generators={graphqlCodeGenerators}
+        options={{
+          url: httpRequest.url,
+          query,
+          variables: parseVariablesOrEmpty(graphqlVariables),
+          headers: Object.fromEntries(
+            httpRequest.headers.filter((h) => h.enabled && h.key).map((h) => [h.key, h.value])
+          ),
+          ...(operationType ? { operationType } : {}),
+        }}
       />
       <ReplaceImportedDialog />
       <cleartextGuard.Dialog />

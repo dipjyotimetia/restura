@@ -66,6 +66,8 @@ interface SchemaExplorerProps {
    * Set only when the schema shown was imported by hand.
    */
   importedFrom?: string | undefined;
+  /** Why the last introspection failed (shown instead of the generic empty state). */
+  error?: string | undefined;
 }
 
 type Kind = 'OBJECT' | 'ENUM' | 'SCALAR' | 'INPUT' | 'INTERFACE';
@@ -120,6 +122,7 @@ export default function SchemaExplorer({
   loading = false,
   loaded = false,
   importedFrom,
+  error,
 }: SchemaExplorerProps) {
   const imported = importedFrom !== undefined;
   const [searchQuery, setSearchQuery] = useState('');
@@ -219,6 +222,7 @@ export default function SchemaExplorer({
             disabled={loading || !onRefresh}
             className="h-6 w-6 p-0 text-sp-muted hover:text-sp-text"
             aria-label="Refresh schema"
+            title="Re-run introspection against the endpoint"
           >
             {loading ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -255,6 +259,7 @@ export default function SchemaExplorer({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Filter types…"
+          aria-label="Filter schema types"
           leadingIcon={<Search className="h-3 w-3" />}
           className="w-full"
         />
@@ -262,12 +267,36 @@ export default function SchemaExplorer({
 
       {/* Empty state */}
       {!schema && (
-        <div className="flex-1 flex items-center justify-center px-4 py-8 text-center">
-          <p className="text-sp-12 text-sp-muted">
-            {loading
-              ? 'Loading schema…'
-              : 'No schema loaded. Hit refresh to introspect, or load an SDL / introspection JSON file if introspection is disabled.'}
-          </p>
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+          {loading ? (
+            <p className="text-sp-12 text-sp-muted">Loading schema…</p>
+          ) : error ? (
+            <div role="alert" className="flex flex-col gap-1.5 text-sp-12">
+              <p className="font-medium text-destructive">Introspection failed</p>
+              <p className="font-mono text-sp-11 text-sp-muted break-words">{error}</p>
+              <p className="text-sp-11 text-sp-muted">
+                Check the URL and Auth/Headers, then retry — or load an SDL / introspection JSON
+                file if the server disables introspection.
+              </p>
+              <div className="flex justify-center gap-1.5">
+                {onRefresh && (
+                  <Button type="button" variant="outline" size="sm" onClick={onRefresh}>
+                    Retry
+                  </Button>
+                )}
+                {onImport && (
+                  <Button type="button" variant="outline" size="sm" onClick={onImport}>
+                    Load file
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sp-12 text-sp-muted">
+              No schema loaded. Hit refresh to introspect, or load an SDL / introspection JSON file
+              if introspection is disabled.
+            </p>
+          )}
         </div>
       )}
 
@@ -299,6 +328,7 @@ export default function SchemaExplorer({
                     <button
                       type="button"
                       onClick={() => toggleType(row.name)}
+                      {...(hasFields ? { 'aria-expanded': isExpanded } : {})}
                       className="flex items-center gap-1.5 w-full text-left px-1.5 h-6 rounded-sp-chip hover:bg-sp-hover transition-colors"
                     >
                       {hasFields ? (
