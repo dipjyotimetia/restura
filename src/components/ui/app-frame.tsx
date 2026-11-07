@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useState } from 'react';
 
 /** id of the focus target the skip link jumps to (each route's `<main>`). */
 export const MAIN_CONTENT_ID = 'main-content';
@@ -9,15 +9,25 @@ export const MAIN_CONTENT_ID = 'main-content';
  * would replace the hash route (`#/…`).
  */
 export function SkipToMainLink() {
+  // Visibility follows React focus state rather than `focus:` utilities: the
+  // global unlayered `.sr-only` / utility cascade otherwise keeps it hidden.
+  const [focused, setFocused] = useState(false);
   return (
     <a
       href={`#${MAIN_CONTENT_ID}`}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
       onClick={(e) => {
         e.preventDefault();
         const target = document.getElementById(MAIN_CONTENT_ID);
         target?.focus();
       }}
-      className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-sp-btn focus:border focus:border-sp-line-strong focus:bg-sp-surface-hi focus:px-3 focus:py-2 focus:text-sp-12 focus:text-sp-text focus:outline-none focus:ring-2 focus:ring-sp-accent"
+      data-visible={focused || undefined}
+      className={
+        focused
+          ? 'fixed left-3 top-3 z-[100] rounded-sp-btn border border-sp-line-strong bg-sp-surface-hi px-3 py-2 text-sp-12 text-sp-text outline-none ring-2 ring-sp-accent'
+          : 'sr-only'
+      }
     >
       Skip to main content
     </a>

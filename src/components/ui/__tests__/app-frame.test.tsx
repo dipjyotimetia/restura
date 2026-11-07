@@ -35,8 +35,12 @@ describe('AppFrame (A9 banner slot, A15 skip link)', () => {
       </AppFrame>
     );
     const skip = screen.getByRole('link', { name: /skip to main content/i });
+    expect(skip).toHaveClass('sr-only');
     await user.tab();
     expect(skip).toHaveFocus();
+    // Visible while focused (the global `.sr-only` rule must not keep it hidden).
+    expect(skip).not.toHaveClass('sr-only');
+    expect(skip).toHaveClass('fixed');
     await user.keyboard('{Enter}');
     expect(screen.getByRole('main')).toHaveFocus();
     expect(window.location.hash).toBe('#/');

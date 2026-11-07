@@ -5,7 +5,6 @@ import { handleTreeKeyDown } from '../CollectionTree';
 function Tree() {
   const actions = { toggleCollapse: vi.fn(), startRename: vi.fn(), deleteItem: vi.fn() };
   return (
-    // biome-ignore lint/a11y/useFocusableInteractive: test harness for the container handler
     <div role="tree" onKeyDown={(e) => handleTreeKeyDown(e, actions, new Set())}>
       <div role="treeitem" data-tree-row data-item-id="a" data-item-type="collection" tabIndex={-1}>
         A
