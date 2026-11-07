@@ -12,7 +12,8 @@ import type { Reporter, RequestRunResult, RunMeta, RunResult } from './types.js'
  * output and CI fall back to the line-based {@link LiveReporter}.
  *
  * Rendering is split into a pure {@link renderFrame} (unit-tested) and this thin
- * imperative shell that owns the spinner timer, cursor, and SIGINT cleanup.
+ * imperative shell that owns the spinner timer, cursor, and SIGINT display
+ * teardown (cancellation itself belongs to `restura run`).
  */
 
 export type RowOutcome = 'running' | 'pass' | 'fail' | 'error';
@@ -189,10 +190,18 @@ export class TuiReporter implements Reporter {
   // Drive all spinner animation off interactivity; a forced `--reporter tui`
   // in a non-TTY renders a single final frame instead of spamming the log.
   private readonly animate = interactive;
+  /** Set on Ctrl-C: the dashboard stops redrawing while the run winds down. */
+  private interrupted = false;
+  /**
+   * Ctrl-C only tears the display down (stops the spinner, restores the
+   * cursor). It must not exit: `restura run` owns the signal and cancels
+   * cooperatively, so reporters still write their partial output and the run
+   * exits 1 (a second Ctrl-C there force-exits with 130).
+   */
   private readonly onSigint = (): void => {
+    this.interrupted = true;
     this.teardown();
     showCursor();
-    process.exit(130);
   };
 
   onStart(meta: RunMeta): void {
@@ -247,6 +256,7 @@ export class TuiReporter implements Reporter {
   }
 
   private render(): void {
+    if (this.interrupted) return;
     const width = Math.max(MIN_WIDTH, process.stdout.columns ?? 80);
     const height = process.stdout.rows ?? 24;
     const maxRows = Math.max(3, height - 6); // box chrome: top + mid + progress + bottom + margin

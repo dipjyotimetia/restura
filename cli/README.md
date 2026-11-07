@@ -278,7 +278,7 @@ The `live` reporter (also what CI logs get) prints one line per request:
 | Code | Meaning                                                                         |
 | ---- | ------------------------------------------------------------------------------- |
 | `0`  | Every request passed AND at least one request ran                               |
-| `1`  | One or more requests failed or errored (or no requests matched after filtering), or the run was interrupted: the first SIGINT / SIGTERM (Ctrl-C) cancels cooperatively — in-flight requests are aborted, no further request or retry starts, and reporters still write the partial result (`interrupted: true` in JSON); a second signal force-quits with `130` |
+| `1`  | One or more requests failed or errored (or no requests matched after filtering), or the run was interrupted: the first SIGINT / SIGTERM (Ctrl-C) cancels cooperatively — in-flight requests are aborted, no further request or retry starts, and reporters still write the partial result (`interrupted: true` in JSON; the interactive dashboard only restores the terminal and prints the partial summary); a second signal force-quits with `130` |
 | `2`  | Internal error: missing collection, bad reporter name, IO failure, a Postman input over the caps, `--strict-import` with a non-empty import report, … |
 
 ## Troubleshooting
