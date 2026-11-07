@@ -27,6 +27,7 @@ import SseClient from '@/features/sse/components/SseClient';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 
 function openSse(patch: Partial<SseRequest> = {}) {
@@ -328,5 +329,31 @@ describe('SseClient behaviour', () => {
     render(<SseClient />);
     await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
     expect(manager.connect).toHaveBeenCalled();
+  });
+
+  it('records one redacted history entry once the stream connects (S14)', async () => {
+    const user = userEvent.setup();
+    await useHistoryStore.persist.rehydrate();
+    useHistoryStore.setState({ history: [] });
+    openSse({
+      headers: [{ id: 'h1', key: 'Authorization', value: 'Bearer inline-secret', enabled: true }],
+    });
+    render(<SseClient />);
+    await user.click(screen.getByRole('button', { name: 'Start SSE stream' }));
+    expect(useHistoryStore.getState().history).toHaveLength(0);
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(activeId(), 'connected');
+    });
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(activeId(), 'reconnecting');
+    });
+    act(() => {
+      useSseStore.getState().updateConnectionStatus(activeId(), 'connected');
+    });
+    const history = useHistoryStore.getState().history;
+    expect(history).toHaveLength(1);
+    expect(history[0]?.request.type).toBe('sse');
+    expect(history[0]?.resolvedUrl).toBe('https://stream.example.com/events?topic=news');
+    expect(JSON.stringify(history[0])).not.toContain('inline-secret');
   });
 });

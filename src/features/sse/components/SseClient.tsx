@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { StreamSplit } from '@/components/shared/StreamSplit';
@@ -13,6 +13,7 @@ import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGua
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { resolveSseConnect } from '@/lib/shared/connectSpec';
 import { useActiveRequest, useActiveTabId } from '@/store/selectors';
+import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { SseRequest } from '@/types';
 import SseAssembledOutput from './SseAssembledOutput';
@@ -96,6 +97,20 @@ export default function SseClient() {
   const [headersOpen, setHeadersOpen] = useState(false);
   const cleartextGuard = useCleartextCredentialsGuard();
 
+  // History (S14): one entry per user-started stream, written when it first
+  // connects (not on every auto-reconnect). addHistoryItem redacts inline
+  // credentials and URL secrets the same way it does for HTTP.
+  const pendingHistory = useRef<{ connectionId: string; request: SseRequest; url: string } | null>(
+    null
+  );
+  const activeStatus = active?.status;
+  useEffect(() => {
+    const pending = pendingHistory.current;
+    if (activeStatus !== 'connected' || !pending || pending.connectionId !== active?.id) return;
+    pendingHistory.current = null;
+    useHistoryStore.getState().addHistoryItem(pending.request, undefined, pending.url);
+  }, [activeStatus, active?.id]);
+
   const isConnected = active?.status === 'connected';
   const isConnecting = active?.status === 'connecting' || active?.status === 'reconnecting';
   const isStreaming = isConnected || isConnecting;
@@ -119,6 +134,7 @@ export default function SseClient() {
       return;
     }
 
+    pendingHistory.current = { connectionId: active.id, request, url: spec.url };
     sseManager.connect(active.id, spec.url, spec.headers, {
       reconnectOnResume: request.reconnectOnResume ?? true,
       autoReconnect: request.autoReconnect ?? true,
