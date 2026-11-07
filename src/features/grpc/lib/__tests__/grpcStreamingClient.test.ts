@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Code, ConnectError, createRouterTransport, type Transport } from '@connectrpc/connect';
+import { createConnectTransport } from '@connectrpc/connect-web';
 import { registryFromProtoText } from '@shared/protocol/grpc-registry';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -8,6 +9,11 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import type { AuthConfig, GrpcRequest } from '@/types';
 import { GrpcStatusCode } from '@/types';
 import { createInteractiveGrpcStreamForTest, startGrpcStream } from '../grpcStreamingClient';
+
+vi.mock('@connectrpc/connect-web', async (importActual) => {
+  const actual = await importActual<typeof import('@connectrpc/connect-web')>();
+  return { ...actual, createConnectTransport: vi.fn(actual.createConnectTransport) };
+});
 
 const ECHO_PROTO = readFileSync(
   resolve(__dirname, '../../../../../e2e/mocks/proto/echo.proto'),
@@ -206,6 +212,24 @@ describe('startGrpcStream — validation', () => {
 });
 
 describe('startGrpcStream — web server-streaming via ConnectRPC', () => {
+  it('builds the Connect transport base URL without the query/fragment', async () => {
+    const transportFactory = vi.mocked(createConnectTransport);
+    transportFactory.mockImplementationOnce(() =>
+      echoTransport(async function* () {
+        yield { message: 'ok', index: 0 };
+      })
+    );
+    const handle = await startGrpcStream({
+      request: { ...baseRequest, url: 'https://echo.example.com/api/?env=stg#frag' },
+      resolveVariables: (s) => s,
+      protoContent: ECHO_PROTO,
+    });
+    for await (const _ of handle.messages) {
+      // drain
+    }
+    expect(transportFactory.mock.lastCall?.[0].baseUrl).toBe('https://echo.example.com/api');
+  });
+
   it('iterates server-streamed messages and resolves done with OK + headers + trailers', async () => {
     const transport = echoTransport(async function* (req, ctx) {
       ctx.responseHeader.set('x-server', 'test');

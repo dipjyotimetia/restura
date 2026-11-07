@@ -20,6 +20,7 @@
 import { isValidGrpcMethodName, isValidGrpcServiceName } from './grpc-names';
 import { GrpcStatusCode, GrpcStatusCodeName, grpcStatusFromHttpStatus } from './grpc-status';
 import { type GrpcStatusDetail, statusDetailsFromStatusBin } from './grpc-status-details';
+import { grpcMethodUrl } from './grpc-url';
 import {
   base64ToBytes,
   bytesToBase64,
@@ -244,11 +245,7 @@ export function executeGrpcWebProxy(
   const frame = encodeGrpcWebFrame(payload);
   const body = textMode ? bytesToBase64(frame) : frame;
   // Build via URL so a query/fragment in spec.url can't swallow the path.
-  const targetUrl = new URL(spec.url);
-  targetUrl.search = '';
-  targetUrl.hash = '';
-  targetUrl.pathname = `${targetUrl.pathname.replace(/\/+$/, '')}/${spec.service}/${spec.method}`;
-  const target = targetUrl.toString();
+  const target = grpcMethodUrl(spec.url, spec.service, spec.method);
 
   const controller = new AbortController();
   let cancelled = false;

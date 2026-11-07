@@ -142,6 +142,19 @@ describe('executeGrpcReflectionProxy', () => {
     expect(headers.get('connect-timeout-ms')).toBe('30000');
   });
 
+  it('keeps the service path ahead of a query/fragment in the base URL', async () => {
+    const { fetcher, calls } = versionedFetcher({ [REFLECTION_SERVICE_V1]: () => response() });
+    const r = await executeGrpcReflectionProxy(
+      { ...SPEC, url: 'https://grpc.example.com/prefix/?env=stg#x' },
+      fetcher,
+      OPTS
+    );
+    expect(r.ok).toBe(true);
+    expect(calls[0]?.url).toBe(
+      `https://grpc.example.com/prefix/${REFLECTION_SERVICE_V1}/ServerReflectionInfo`
+    );
+  });
+
   it('falls back to v1alpha when v1 fails and reads a Headers instance', async () => {
     const { fetcher, calls } = versionedFetcher({
       [REFLECTION_SERVICE_V1]: () => response({ status: 404, statusText: 'Not Found' }),

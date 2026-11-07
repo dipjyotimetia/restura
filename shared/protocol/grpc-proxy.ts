@@ -2,6 +2,7 @@ import { readBoundedText } from './binary';
 import { isValidGrpcMethodName, isValidGrpcServiceName } from './grpc-names';
 import { GrpcStatusCode, GrpcStatusCodeName, grpcStatusFromHttpStatus } from './grpc-status';
 import { type GrpcStatusDetail, statusDetailsFromConnectJson } from './grpc-status-details';
+import { grpcMethodUrl } from './grpc-url';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
 import { discardBody } from './redirect-follower';
@@ -164,14 +165,10 @@ export async function executeGrpcProxy(
     return { ok: false, status: 400, payload: { error: 'Invalid method name format' } };
   }
 
-  // Build via URL (as grpc-web-proxy does) so a query/fragment in spec.url
+  // Build via URL (shared grpc-url helper) so a query/fragment in spec.url
   // can't swallow the path. Both are dropped: a Connect/gRPC-Web route is
   // `/<service>/<method>` and gRPC carries no query, so web/desktop agree.
-  const target = new URL(spec.url);
-  target.search = '';
-  target.hash = '';
-  target.pathname = `${target.pathname.replace(/\/+$/, '')}/${spec.service}/${spec.method}`;
-  const connectUrl = target.toString();
+  const connectUrl = grpcMethodUrl(spec.url, spec.service, spec.method);
 
   const timeout =
     typeof spec.timeout === 'number' && Number.isFinite(spec.timeout) && spec.timeout > 0
