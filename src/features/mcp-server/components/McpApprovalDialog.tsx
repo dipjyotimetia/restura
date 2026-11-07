@@ -5,7 +5,7 @@
  * Approve button is not the initially focused control.
  */
 
-import { Bot, Send, ShieldAlert, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bot, Send, ShieldAlert, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useMcpServerSettings } from '../lib/settings';
 import { settleApproval, useMcpServerRuntimeStore } from '../store/useMcpServerRuntimeStore';
 
 const TIER_COPY = {
@@ -40,6 +41,8 @@ export const APPROVE_ARMING_MS = 600;
 
 export function McpApprovalDialog() {
   const approvals = useMcpServerRuntimeStore((s) => s.approvals);
+  // Must mirror executeTools.agentResponse: redaction is skipped when this is off.
+  const redactResponses = useMcpServerSettings().redactResponseBodies;
   const current = approvals[0];
   const [armedFor, setArmedFor] = useState<string | null>(null);
   const callId = current?.callId;
@@ -87,10 +90,33 @@ export function McpApprovalDialog() {
         {current.tier === 'execute' && (
           <p className="mt-2 flex items-start gap-1.5 text-sp-11-5 text-sp-muted">
             <ShieldAlert size={13} className="mt-0.5 shrink-0 text-amber-500" aria-hidden="true" />
-            It is sent with the request&rsquo;s saved credentials and the environment shown above
-            (if any). The agent receives the response, with credential headers and token-like fields
-            redacted.
+            {redactResponses ? (
+              <span>
+                It is sent with the request&rsquo;s saved credentials and the environment shown
+                above (if any). The agent receives the response, with credential headers and
+                token-like fields redacted.
+              </span>
+            ) : (
+              <span>
+                It is sent with the request&rsquo;s saved credentials and the environment shown
+                above (if any). The agent receives the full response.
+              </span>
+            )}
           </p>
+        )}
+
+        {current.tier === 'execute' && !redactResponses && (
+          <div
+            role="alert"
+            data-testid="mcp-approval-unredacted-warning"
+            className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-sp-12 font-medium text-amber-700 dark:text-amber-300"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <span>
+              Responses are sent to the agent unredacted — tokens and credentials may be exposed.
+              Turn on response redaction in Settings → MCP Server to hide them.
+            </span>
+          </div>
         )}
 
         <DialogFooter className="mt-4 flex items-center justify-between gap-2 sm:justify-between">

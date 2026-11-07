@@ -1,4 +1,4 @@
-import { isLocalProvider, type Usage } from '@shared/protocol/ai/types';
+import type { Usage } from '@shared/protocol/ai/types';
 import { Bot, Check, Plus, Square, Wand2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -11,9 +11,11 @@ import {
   onAgentTurnComplete,
   startAgentSession,
 } from '@/features/ai/agent/agentSession';
-import { agentToolDefs, runAgentTool } from '@/features/ai/agent/tools';
+import { applyAgentToolWithUndo, describeProposal } from '@/features/ai/agent/proposalPreview';
+import { agentToolDefs } from '@/features/ai/agent/tools';
 import { captureActive } from '@/features/ai/lib/contextSnapshot';
 import { buildMessages, SYSTEM_AGENT_PROMPT } from '@/features/ai/lib/promptBuilder';
+import { providerReadiness } from '@/features/ai/lib/providerReadiness';
 import { consumeStream } from '@/features/ai/lib/streamConsumer';
 import { type ChatMessage, useAiChatStore } from '@/features/ai/store';
 import { getElectronAPI } from '@/lib/shared/platform';
@@ -21,6 +23,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { Composer } from './Composer';
 import { ContextPill } from './ContextPill';
 import { MessageList } from './MessageList';
+import { ProviderSetupCard } from './ProviderSetupCard';
 
 interface PendingToolCall {
   id: string;
@@ -73,10 +76,7 @@ export function ChatPanel({ onClose }: Props) {
   // A cloud provider is ready once its API-key handle is set; a local
   // (openai-compatible) provider is ready once its base URL is set (no key).
   const apiKeyConfigured =
-    !!providerConfig &&
-    (isLocalProvider(providerConfig.provider)
-      ? !!providerConfig.baseUrlOverride
-      : !!providerConfig.apiKeyRef?.id);
+    !!providerConfig && providerReadiness(activeProvider, providerConfig) === 'ready';
 
   const [streamingId, setStreamingId] = useState<string | null>(null);
   // Tool calls proposed by the assistant, awaiting user approval ("propose &
@@ -323,9 +323,22 @@ export function ChatPanel({ onClose }: Props) {
       return;
     }
 
-    const res = runAgentTool(tc.name, tc.input);
-    if (res.ok) toast.success(res.summary);
-    else toast.error(res.error);
+    const { result: res, undo } = applyAgentToolWithUndo(tc.name, tc.input);
+    if (res.ok) {
+      toast.success(res.summary, {
+        ...(undo
+          ? {
+              action: {
+                label: 'Undo',
+                onClick: () => {
+                  undo();
+                  toast.info('Reverted the AI change');
+                },
+              },
+            }
+          : {}),
+      });
+    } else toast.error(res.error);
     setToolCalls((prev) => prev.filter((t) => t.id !== tc.id));
 
     // Agent Mode bookkeeping: advance the loop only on success; on failure end
@@ -388,6 +401,10 @@ export function ChatPanel({ onClose }: Props) {
   }, []);
 
   const agentBusy = isAgentActive(agentSession);
+  const activeHttpRequest = useRequestStore((s) => {
+    const req = s.tabs.find((t) => t.id === s.activeTabId)?.request;
+    return req?.type === 'http' ? req : null;
+  });
 
   return (
     <aside
@@ -447,24 +464,61 @@ export function ChatPanel({ onClose }: Props) {
       {toolCalls.length > 0 && (
         <div className="border-t border-border/40 p-2 space-y-2 max-h-60 overflow-auto">
           <div className="text-[10px] text-muted-foreground px-0.5">Proposed actions</div>
-          {toolCalls.map((tc) => (
-            <div key={tc.id} className="rounded-md border border-border/40 bg-muted/30 p-2">
-              <div className="flex items-center gap-1.5 text-xs font-medium">
-                <Wand2 className="h-3.5 w-3.5 text-sp-accent" /> {tc.name}
+          {toolCalls.map((tc) => {
+            const preview = describeProposal(tc.name, tc.input, activeHttpRequest);
+            return (
+              <div
+                key={tc.id}
+                className="rounded-md border border-border/40 bg-muted/30 p-2"
+                data-testid="ai-proposal-card"
+              >
+                <div className="flex items-center gap-1.5 text-xs font-medium">
+                  <Wand2 className="h-3.5 w-3.5 text-sp-accent" aria-hidden="true" />{' '}
+                  {preview.title}
+                </div>
+                {preview.changes.length > 0 && (
+                  <ul className="mt-1 max-h-32 space-y-1 overflow-auto text-[10px]">
+                    {preview.changes.map((c, i) => (
+                      // biome-ignore lint/suspicious/noArrayIndexKey: static per-render diff list
+                      <li key={`${c.label}-${i}`} className="break-words">
+                        <span className="font-medium text-sp-text">{c.label}</span>{' '}
+                        {c.before !== undefined && c.after === undefined && (
+                          <span className="text-red-600 dark:text-red-400">(removed)</span>
+                        )}
+                        {c.before === undefined && c.after !== undefined && (
+                          <span className="text-emerald-600 dark:text-emerald-400">(added)</span>
+                        )}
+                        {c.before !== undefined && (
+                          <pre className="mt-0.5 whitespace-pre-wrap rounded bg-red-500/10 px-1 text-red-700 line-through dark:text-red-300">
+                            {c.before}
+                          </pre>
+                        )}
+                        {c.after !== undefined && (
+                          <pre className="mt-0.5 whitespace-pre-wrap rounded bg-emerald-500/10 px-1 text-emerald-700 dark:text-emerald-300">
+                            {c.after}
+                          </pre>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <details className="mt-1 text-[10px] text-muted-foreground">
+                  <summary className="cursor-pointer select-none">Details ({tc.name})</summary>
+                  <pre className="mt-1 whitespace-pre-wrap break-words max-h-24 overflow-auto">
+                    {prettyInput(tc.input)}
+                  </pre>
+                </details>
+                <div className="mt-1.5 flex gap-1.5">
+                  <Button size="sm" onClick={() => applyToolCall(tc)}>
+                    <Check className="mr-1 h-3.5 w-3.5" /> Apply
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => dismissToolCall(tc.id)}>
+                    Dismiss
+                  </Button>
+                </div>
               </div>
-              <pre className="mt-1 text-[10px] text-muted-foreground whitespace-pre-wrap break-words max-h-24 overflow-auto">
-                {prettyInput(tc.input)}
-              </pre>
-              <div className="mt-1.5 flex gap-1.5">
-                <Button size="sm" onClick={() => applyToolCall(tc)}>
-                  <Check className="mr-1 h-3.5 w-3.5" /> Apply
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => dismissToolCall(tc.id)}>
-                  Dismiss
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {agentSession && (
@@ -519,6 +573,7 @@ export function ChatPanel({ onClose }: Props) {
           </div>
         </form>
       )}
+      {!apiKeyConfigured && <ProviderSetupCard />}
       <Composer
         // Disabled during an agent run: the agent owns the conversation, and a
         // manual send would both race its next turn and pollute the context the
