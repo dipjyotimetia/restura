@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { AnyOpenAPISpec, OperationMatch } from '../operationMatcher';
-import { pickMediaType, pickResponseKey, validateResponse } from '../validator';
+import {
+  normalizeOpenApi30Schema,
+  pickMediaType,
+  pickResponseKey,
+  validateResponse,
+} from '../validator';
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -333,6 +338,75 @@ describe('validateResponse — edge cases', () => {
       body: {},
     });
     expect(r.matchedResponseKey).toBe('2XX');
+    expect(r.valid).toBe(true);
+  });
+});
+
+describe('normalizeOpenApi30Schema', () => {
+  it('admits null for nullable typed schemas, nested', () => {
+    expect(
+      normalizeOpenApi30Schema({
+        type: 'object',
+        properties: { nick: { type: 'string', nullable: true, enum: ['a'] } },
+      })
+    ).toEqual({
+      type: 'object',
+      properties: { nick: { type: ['string', 'null'], enum: ['a', null] } },
+    });
+  });
+
+  it('wraps an untyped nullable schema in anyOf', () => {
+    expect(normalizeOpenApi30Schema({ nullable: true, minLength: 2 })).toEqual({
+      anyOf: [{ type: 'null' }, { minLength: 2 }],
+    });
+  });
+
+  it('converts boolean exclusive bounds to the numeric form', () => {
+    expect(
+      normalizeOpenApi30Schema({
+        type: 'number',
+        minimum: 1,
+        exclusiveMinimum: true,
+        maximum: 9,
+        exclusiveMaximum: false,
+      })
+    ).toEqual({ type: 'number', exclusiveMinimum: 1, maximum: 9 });
+  });
+
+  it('tolerates cyclic dereferenced schemas and does not mutate input', () => {
+    const node: Record<string, unknown> = { type: 'object', nullable: true, properties: {} };
+    (node.properties as Record<string, unknown>).self = node;
+    const out = normalizeOpenApi30Schema(node) as Record<string, unknown>;
+    expect(out.type).toEqual(['object', 'null']);
+    expect((out.properties as Record<string, unknown>).self).toBe(out);
+    expect(node.nullable).toBe(true);
+  });
+
+  it('a null in a nullable field validates end-to-end', async () => {
+    const match = {
+      operation: {
+        responses: {
+          '200': {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { nick: { type: 'string', nullable: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    } as unknown as OperationMatch;
+    const r = await validateResponse({
+      match,
+      schemaDialect: 'draft-07',
+      status: 200,
+      headers: {},
+      body: { nick: null },
+    });
+    expect(r.errors).toEqual([]);
     expect(r.valid).toBe(true);
   });
 });

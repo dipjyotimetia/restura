@@ -7,7 +7,8 @@
  *    (`shared/protocol/json-schema-check.ts`) — not Ajv, whose `new Function`
  *    codegen the Electron renderer CSP blocks. Its keyword subset is shared by
  *    draft-07 (OpenAPI 3.0) and 2020-12 (OpenAPI 3.1); unsupported keywords
- *    (e.g. `format`, `nullable`) are not enforced.
+ *    (e.g. `format`) are not enforced; OpenAPI 3.0 `nullable` and boolean
+ *    `exclusiveMinimum`/`exclusiveMaximum` are normalised first.
  *  - Validate the response body shape.
  *  - Verify the status code matches one of the declared response codes
  *    (exact, or by class like `2XX`).
@@ -63,6 +64,69 @@ export interface ValidateResponseArgs {
   body: unknown;
   /** Content-Type to pick the right `content/<media>` branch. Defaults to `application/json`. */
   contentType?: string;
+}
+
+// ---------------------------------------------------------------------------
+// OpenAPI 3.0 → JSON Schema keyword normalisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Rewrite the OpenAPI 3.0 Schema Object dialect into plain JSON Schema the
+ * eval-free checker understands: `nullable: true` admits `null`, and boolean
+ * `exclusiveMinimum` / `exclusiveMaximum` become the numeric form. Without
+ * this, a `null` in a `nullable` field would be reported as a type error.
+ * Copies (never mutates the dereferenced spec) and tolerates cyclic schemas.
+ */
+export function normalizeOpenApi30Schema(schema: unknown): unknown {
+  const seen = new WeakMap<object, unknown>();
+  const walk = (node: unknown): unknown => {
+    if (node === null || typeof node !== 'object') return node;
+    const cached = seen.get(node);
+    if (cached !== undefined) return cached;
+    if (Array.isArray(node)) {
+      const out: unknown[] = [];
+      seen.set(node, out);
+      for (const item of node) out.push(walk(item));
+      return out;
+    }
+    const src = node as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    seen.set(node, out);
+    for (const [key, value] of Object.entries(src)) out[key] = walk(value);
+
+    if (src.nullable === true) {
+      delete out.nullable;
+      if (typeof src.type === 'string') {
+        out.type = [src.type, 'null'];
+      } else if (Array.isArray(src.type)) {
+        if (!src.type.includes('null')) out.type = [...src.type, 'null'];
+      } else {
+        // No `type`: the constraints still apply to non-null values.
+        const { ...rest } = out;
+        for (const key of Object.keys(out)) delete out[key];
+        out.anyOf = [{ type: 'null' }, rest];
+      }
+      if (Array.isArray(out.enum) && !out.enum.includes(null)) out.enum = [...out.enum, null];
+    }
+    if (typeof src.exclusiveMinimum === 'boolean') {
+      if (src.exclusiveMinimum && typeof src.minimum === 'number') {
+        out.exclusiveMinimum = src.minimum;
+        delete out.minimum;
+      } else {
+        delete out.exclusiveMinimum;
+      }
+    }
+    if (typeof src.exclusiveMaximum === 'boolean') {
+      if (src.exclusiveMaximum && typeof src.maximum === 'number') {
+        out.exclusiveMaximum = src.maximum;
+        delete out.maximum;
+      } else {
+        delete out.exclusiveMaximum;
+      }
+    }
+    return out;
+  };
+  return walk(schema);
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +199,7 @@ export async function validateResponse(
 
   // Eval-free (the Electron renderer CSP forbids Ajv's `new Function`). An
   // inconclusive check is reported as an error, never as a silent pass.
-  const check = checkJsonSchema(schema, bodyToValidate);
+  const check = checkJsonSchema(normalizeOpenApi30Schema(schema), bodyToValidate);
   for (const err of check.errors) {
     errors.push({ path: err.pointer, message: err.message, keyword: err.keyword });
   }
