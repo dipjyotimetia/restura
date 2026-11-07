@@ -193,8 +193,18 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
     onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
     // A stream ending on its own frees the consumer slot before reporting it, or
     // the next subscribe is refused ("Already subscribed") while the UI is idle.
+    // Queued records drain first (browse: its queue goes idle; group: the drain
+    // window), and only this subscription's consumer is torn down.
     onClose: () => {
-      void closeConsumerAndStream(entry).finally(() => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}));
+      const consumer = entry.consumer;
+      void Promise.resolve(entry.browse?.idle)
+        .then(() =>
+          entry.consumer === consumer
+            ? closeConsumerAndStream(entry, UNSUBSCRIBE_DRAIN_MS)
+            : undefined
+        )
+        .catch((err) => log.warn('consumer teardown failed', { error: errorMessage(err) }))
+        .finally(() => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}));
     },
     onAssignment: (assigned) => pruneRevokedCommitTokens(entry, assigned),
   };
