@@ -1,15 +1,18 @@
 'use client';
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { X } from 'lucide-react';
+import { RotateCcw, X } from 'lucide-react';
 import type * as React from 'react';
 import { useEffect, useState } from 'react';
 import { CaptureBridgeCard } from '@/components/shared/CaptureBridgeCard';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Logo } from '@/components/shared/Logo';
+import { DESKTOP_RELEASES_URL } from '@/components/shared/WebNativeDownloadBanner';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, isMac } from '@/lib/shared/platform';
 import { shortcutSheet } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { SettingsNavigation } from './components/SettingsNavigation';
 import { AboutSection } from './sections/AboutSection';
 import { AppearanceSection } from './sections/AppearanceSection';
@@ -46,6 +49,8 @@ export default function SettingsDrawer({
   initialSection = 'general',
 }: SettingsDrawerProps) {
   const [activeSection, setActiveSection] = useState<SectionId>(initialSection);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
+  const resetSettings = useSettingsStore((s) => s.resetSettings);
 
   // Reset to the requested initial section whenever the drawer reopens.
   useEffect(() => {
@@ -95,22 +100,38 @@ export default function SettingsDrawer({
                 <span className="text-sp-11 text-sp-muted">Tune Restura to match how you work</span>
               </div>
             </div>
-            <DialogPrimitive.Close
-              aria-label="Close settings"
-              className={cn(
-                'inline-flex items-center justify-center w-9 h-9 rounded-sp-btn',
-                'bg-sp-surface-lo border border-sp-line text-sp-muted',
-                'hover:text-sp-text hover:bg-sp-hover hover:border-sp-line-strong',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
-                'transition-colors'
-              )}
-            >
-              <X size={14} />
-            </DialogPrimitive.Close>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmResetOpen(true)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 h-9 px-3 rounded-sp-btn',
+                  'bg-sp-surface-lo border border-sp-line text-sp-12 text-sp-muted',
+                  'hover:text-sp-text hover:bg-sp-hover hover:border-sp-line-strong',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+                  'transition-colors'
+                )}
+              >
+                <RotateCcw size={13} aria-hidden="true" />
+                Reset to defaults
+              </button>
+              <DialogPrimitive.Close
+                aria-label="Close settings"
+                className={cn(
+                  'inline-flex items-center justify-center w-9 h-9 rounded-sp-btn',
+                  'bg-sp-surface-lo border border-sp-line text-sp-muted',
+                  'hover:text-sp-text hover:bg-sp-hover hover:border-sp-line-strong',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+                  'transition-colors'
+                )}
+              >
+                <X size={14} />
+              </DialogPrimitive.Close>
+            </div>
           </div>
 
           {/* Body */}
-          <div className="flex flex-1 min-h-0">
+          <div className="flex flex-1 min-h-0 max-sm:flex-col">
             <SettingsNavigation activeSection={activeSection} onSectionChange={setActiveSection} />
 
             {/* Section content */}
@@ -130,7 +151,15 @@ export default function SettingsDrawer({
               )}
               {activeSection === 'ai' && !isElectron() && (
                 <div className="text-sm text-muted-foreground">
-                  AI features are available in the desktop app only.
+                  AI features are available in the desktop app only.{' '}
+                  <a
+                    href={DESKTOP_RELEASES_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sp-accent underline underline-offset-2"
+                  >
+                    Download the desktop app
+                  </a>
                 </div>
               )}
               {activeSection === 'mcp' && <McpServerSection />}
@@ -145,6 +174,15 @@ export default function SettingsDrawer({
               {activeSection === 'about' && <AboutSection />}
             </div>
           </div>
+          <ConfirmDialog
+            open={confirmResetOpen}
+            onOpenChange={setConfirmResetOpen}
+            title="Reset all settings?"
+            description="Every preference returns to its default. Collections, environments, history and secrets are not affected."
+            confirmText="Reset"
+            variant="destructive"
+            onConfirm={resetSettings}
+          />
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

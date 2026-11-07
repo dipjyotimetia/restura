@@ -29,4 +29,6 @@ export interface SettingsSectionDefinition {
   id: SectionId;
   label: string;
   icon: LucideIcon;
+  /** Extra terms the settings filter matches (what lives in the section). */
+  keywords?: readonly string[];
 }
