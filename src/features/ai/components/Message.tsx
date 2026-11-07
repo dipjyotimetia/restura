@@ -58,7 +58,7 @@ function MessageImpl({ message, onRetry }: Props) {
               onClick={copy}
               aria-label="Copy reply"
               title="Copy reply"
-              className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-sp-muted hover:bg-sp-hover hover:text-sp-text"
+              className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-sp-11 text-sp-muted hover:bg-sp-hover hover:text-sp-text"
             >
               {copied ? (
                 <Check className="h-3 w-3" aria-hidden="true" />
@@ -74,7 +74,7 @@ function MessageImpl({ message, onRetry }: Props) {
               onClick={onRetry}
               aria-label="Retry"
               title="Regenerate this reply"
-              className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-sp-muted hover:bg-sp-hover hover:text-sp-text"
+              className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-sp-11 text-sp-muted hover:bg-sp-hover hover:text-sp-text"
             >
               <RotateCcw className="h-3 w-3" aria-hidden="true" /> Retry
             </button>
@@ -82,7 +82,7 @@ function MessageImpl({ message, onRetry }: Props) {
         </div>
       )}
       {!isUser && message.status === 'done' && (
-        <div className="flex items-center gap-2 text-[10px] text-sp-muted">
+        <div className="flex items-center gap-2 text-sp-11 text-sp-muted">
           {message.usage && (
             <span>
               {message.usage.promptTokens}+{message.usage.completionTokens} tok ·{' '}

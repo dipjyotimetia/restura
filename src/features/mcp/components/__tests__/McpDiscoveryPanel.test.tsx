@@ -59,3 +59,38 @@ describe('McpDiscoveryPanel (#880, #868)', () => {
     expect(screen.getByText('OK')).toBeInTheDocument();
   });
 });
+
+describe('McpDiscoveryPanel empty states (M11)', () => {
+  function renderEmpty(tab: 'tools' | 'resources' | 'prompts', connected: boolean) {
+    return render(
+      <McpDiscoveryPanel
+        tools={[]}
+        resources={[]}
+        prompts={[]}
+        log={[]}
+        selectedToolName={null}
+        selectedPromptName={null}
+        onToolSelect={vi.fn()}
+        onPromptSelect={vi.fn()}
+        onReadResource={vi.fn()}
+        onClearLog={vi.fn()}
+        onHide={vi.fn()}
+        tab={tab}
+        onTabChange={vi.fn()}
+        connected={connected}
+      />
+    );
+  }
+
+  it.each([
+    ['tools', 'Connect to a server to list tools.', 'This server exposes no tools.'],
+    ['resources', 'Connect to a server to list resources.', 'This server exposes no resources.'],
+    ['prompts', 'Connect to a server to list prompts.', 'This server exposes no prompts.'],
+  ] as const)('%s: hint depends on connection status', (tab, disconnected, connected) => {
+    const { unmount } = renderEmpty(tab, false);
+    expect(screen.getByText(disconnected)).toBeInTheDocument();
+    unmount();
+    renderEmpty(tab, true);
+    expect(screen.getByText(connected)).toBeInTheDocument();
+  });
+});

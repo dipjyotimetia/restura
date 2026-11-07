@@ -341,7 +341,7 @@ export function ProviderSettings() {
                     Save
                   </Button>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-sp-11 text-muted-foreground">
                   Stored encrypted in the OS keychain. Never sent to Restura&apos;s servers.
                 </p>
               </div>
@@ -351,10 +351,10 @@ export function ProviderSettings() {
                 role={keyStatus[provider].kind === 'error' ? 'alert' : 'status'}
                 className={
                   keyStatus[provider].kind === 'error'
-                    ? 'text-[11px] text-destructive'
+                    ? 'text-sp-11 text-destructive'
                     : keyStatus[provider].kind === 'success'
-                      ? 'text-[11px] text-emerald-600 dark:text-emerald-400'
-                      : 'text-[11px] text-muted-foreground'
+                      ? 'text-sp-11 text-emerald-600 dark:text-emerald-400'
+                      : 'text-sp-11 text-muted-foreground'
                 }
               >
                 {keyStatus[provider].message}
@@ -398,7 +398,7 @@ export function ProviderSettings() {
           Save local provider
         </Button>
         {localCfg && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-sp-11 text-muted-foreground">
             Configured: {localCfg.baseUrlOverride} · {localCfg.defaultModel}
           </p>
         )}
@@ -407,7 +407,7 @@ export function ProviderSettings() {
       <div className="border-t border-border/40 pt-3 space-y-3">
         <div>
           <Label className="text-sm">Conversation history</Label>
-          <p className="text-[11px] text-muted-foreground mb-2">
+          <p className="text-sp-11 text-muted-foreground mb-2">
             All chats are stored locally (encrypted). Export redacts recognizable secrets to
             placeholders.
           </p>
@@ -422,7 +422,7 @@ export function ProviderSettings() {
         </div>
       </div>
 
-      <div className="text-[11px] text-muted-foreground">
+      <div className="text-sp-11 text-muted-foreground">
         Note: providers may retain prompts up to 30 days. See your provider&apos;s privacy policy.
       </div>
 

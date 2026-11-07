@@ -48,7 +48,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
       <div className="mt-2 flex items-center justify-between gap-2">
         <label
           htmlFor="composer-raw-mode"
-          className="flex items-center gap-2 text-[11px] text-muted-foreground"
+          className="flex items-center gap-2 text-sp-11 text-muted-foreground"
         >
           <Switch
             id="composer-raw-mode"
@@ -61,7 +61,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
         <div className="flex items-center gap-2">
           <span
             data-testid="composer-shortcut-hint"
-            className="text-[10px] text-muted-foreground"
+            className="text-sp-11 text-muted-foreground"
             aria-hidden="true"
           >
             {modLabel('Enter')} to send

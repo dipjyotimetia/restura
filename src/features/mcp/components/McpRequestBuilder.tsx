@@ -574,6 +574,7 @@ export default function McpRequestBuilder() {
       <div className="flex-1 flex gap-2.5 px-3 pb-3 overflow-hidden min-h-0">
         {showCatalog && (
           <McpDiscoveryPanel
+            connected={active.status === 'connected'}
             tools={tools}
             resources={resources}
             templates={templates}

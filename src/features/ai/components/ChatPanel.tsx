@@ -430,7 +430,7 @@ export function ChatPanel({ onClose }: Props) {
             (() => {
               const total = messages.reduce((sum, m) => sum + (m.usage?.estimatedCostUSD ?? 0), 0);
               return total > 0 ? (
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-sp-11 text-muted-foreground">
                   Conversation cost: ${total.toFixed(4)}
                 </span>
               ) : null;
@@ -478,7 +478,7 @@ export function ChatPanel({ onClose }: Props) {
       />
       {toolCalls.length > 0 && (
         <div className="border-t border-border/40 p-2 space-y-2 max-h-60 overflow-auto">
-          <div className="text-[10px] text-muted-foreground px-0.5">Proposed actions</div>
+          <div className="text-sp-11 text-muted-foreground px-0.5">Proposed actions</div>
           {toolCalls.map((tc) => {
             const preview = describeProposal(tc.name, tc.input, activeHttpRequest);
             return (
@@ -492,7 +492,7 @@ export function ChatPanel({ onClose }: Props) {
                   {preview.title}
                 </div>
                 {preview.changes.length > 0 && (
-                  <ul className="mt-1 max-h-32 space-y-1 overflow-auto text-[10px]">
+                  <ul className="mt-1 max-h-32 space-y-1 overflow-auto text-sp-11">
                     {preview.changes.map((c, i) => (
                       // biome-ignore lint/suspicious/noArrayIndexKey: static per-render diff list
                       <li key={`${c.label}-${i}`} className="break-words">
@@ -517,7 +517,7 @@ export function ChatPanel({ onClose }: Props) {
                     ))}
                   </ul>
                 )}
-                <details className="mt-1 text-[10px] text-muted-foreground">
+                <details className="mt-1 text-sp-11 text-muted-foreground">
                   <summary className="cursor-pointer select-none">Details ({tc.name})</summary>
                   <pre className="mt-1 whitespace-pre-wrap break-words max-h-24 overflow-auto">
                     {prettyInput(tc.input)}
@@ -537,7 +537,7 @@ export function ChatPanel({ onClose }: Props) {
         </div>
       )}
       {agentSession && (
-        <div className="border-t border-border/40 px-3 py-2 text-[11px]">
+        <div className="border-t border-border/40 px-3 py-2 text-sp-11">
           <div className="flex items-center justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1.5">
               <Bot className="h-3.5 w-3.5 shrink-0 text-sp-accent" />
@@ -557,7 +557,7 @@ export function ChatPanel({ onClose }: Props) {
               </Button>
             )}
           </div>
-          <div className="mt-0.5 text-[10px] text-muted-foreground">
+          <div className="mt-0.5 text-sp-11 text-muted-foreground">
             {agentStatusLabel(agentSession.status)} · step {agentSession.stepCount}/
             {agentSession.maxSteps}
           </div>

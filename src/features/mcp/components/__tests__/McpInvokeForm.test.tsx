@@ -67,7 +67,7 @@ describe('McpInvokeForm', () => {
         onToolArgumentsChange={onToolArgumentsChange}
       />
     );
-    expect(screen.getByPlaceholderText('integer')).toHaveValue('3');
+    expect(screen.getByPlaceholderText('integer')).toHaveValue(3);
     rerender(
       <McpInvokeForm
         tab="tools"
@@ -209,5 +209,95 @@ describe('McpInvokeForm', () => {
       finish();
     });
     expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+});
+
+describe('McpInvokeForm schema-aware fields (M8)', () => {
+  const richTool: McpToolDescriptor = {
+    name: 'search',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mode: { type: 'string', enum: ['fast', 'deep'], default: 'deep' },
+        verbose: { type: 'boolean' },
+        limit: { type: 'integer', minimum: 1, maximum: 50, default: 10 } as never,
+      },
+    },
+  };
+
+  it('renders enum as a select, boolean as a switch and prefills defaults', () => {
+    const onCall = vi.fn();
+    render(
+      <McpInvokeForm tab="tools" tool={richTool} prompt={null} onCall={onCall} onGet={vi.fn()} />
+    );
+    const mode = screen.getByRole('combobox', { name: 'mode' });
+    expect(mode).toHaveValue('deep');
+    fireEvent.change(mode, { target: { value: 'fast' } });
+    fireEvent.click(screen.getByRole('switch', { name: 'verbose' }));
+    expect(screen.getByRole('spinbutton', { name: 'limit' })).toHaveValue(10);
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
+    expect(onCall).toHaveBeenCalledWith(
+      richTool,
+      { mode: 'fast', verbose: true, limit: 10 },
+      expect.any(AbortSignal)
+    );
+  });
+
+  it('enforces number minimum/maximum', () => {
+    const onCall = vi.fn();
+    render(
+      <McpInvokeForm tab="tools" tool={richTool} prompt={null} onCall={onCall} onGet={vi.fn()} />
+    );
+    const limit = screen.getByRole('spinbutton', { name: 'limit' });
+    expect(limit).toHaveAttribute('min', '1');
+    expect(limit).toHaveAttribute('max', '50');
+    fireEvent.change(limit, { target: { value: '99' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
+    expect(onCall).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('at most 50');
+  });
+
+  it('can switch to raw JSON arguments', () => {
+    const onCall = vi.fn();
+    render(
+      <McpInvokeForm tab="tools" tool={richTool} prompt={null} onCall={onCall} onGet={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('switch', { name: 'Raw JSON' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Arguments (JSON)' }), {
+      target: { value: '{"mode":"fast","extra":[1]}' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke' }));
+    expect(onCall).toHaveBeenCalledWith(
+      richTool,
+      { mode: 'fast', extra: [1] },
+      expect.any(AbortSignal)
+    );
+  });
+
+  it('offers raw JSON (not "no arguments") for a schema without properties', () => {
+    render(
+      <McpInvokeForm
+        tab="tools"
+        tool={{ name: 'free', inputSchema: { type: 'object', additionalProperties: true } }}
+        prompt={null}
+        onCall={vi.fn()}
+        onGet={vi.fn()}
+      />
+    );
+    expect(screen.queryByText('This tool takes no arguments.')).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'Arguments (JSON)' })).toBeInTheDocument();
+  });
+
+  it('still says "no arguments" for an explicitly empty schema', () => {
+    render(
+      <McpInvokeForm
+        tab="tools"
+        tool={{ name: 'none', inputSchema: { type: 'object', properties: {} } }}
+        prompt={null}
+        onCall={vi.fn()}
+        onGet={vi.fn()}
+      />
+    );
+    expect(screen.getByText('This tool takes no arguments.')).toBeInTheDocument();
   });
 });
