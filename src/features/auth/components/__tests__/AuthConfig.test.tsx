@@ -207,6 +207,44 @@ describe('AuthConfiguration — new auth variants', () => {
       expect(oauth2.fetchClientCredentialsToken).not.toHaveBeenCalled();
     });
 
+    it('cancels a pending device-code poll on unmount and never applies its token', async () => {
+      const user = userEvent.setup();
+      vi.mocked(oauth2.fetchDeviceCode).mockResolvedValueOnce({
+        device_code: 'dc',
+        user_code: 'ABCD-EFGH',
+        verification_uri: 'https://auth.example.com/device',
+        expires_in: 600,
+        interval: 5,
+      });
+      let finishPoll: (value: { access_token: string }) => void = () => {};
+      let pollSignal: AbortSignal | undefined;
+      vi.mocked(oauth2.pollForDeviceToken).mockImplementationOnce((_c, _d, _i, _m, options) => {
+        pollSignal = options?.signal;
+        return new Promise((resolve) => (finishPoll = resolve));
+      });
+      const onChange = vi.fn();
+      const device = {
+        type: 'oauth2',
+        oauth2: {
+          grantType: 'device_code',
+          clientId: 'client-id',
+          tokenUrl: 'https://auth.example.com/token',
+          deviceAuthorizationUrl: 'https://auth.example.com/device_authorization',
+          accessToken: '',
+        },
+      } as AuthConfigType;
+      const { unmount } = render(<AuthConfiguration auth={device} onChange={onChange} />);
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+      await vi.waitFor(() => expect(oauth2.pollForDeviceToken).toHaveBeenCalled());
+
+      unmount();
+      expect(pollSignal?.aborted).toBe(true);
+      // A poll that still settles after the abort must not write a token.
+      finishPoll({ access_token: 'late' });
+      await Promise.resolve();
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
     it('sends the token request through the app HTTP transport', async () => {
       const user = userEvent.setup();
       vi.mocked(oauth2.fetchClientCredentialsToken).mockClear();

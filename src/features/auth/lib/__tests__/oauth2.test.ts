@@ -587,6 +587,24 @@ describe('pollForDeviceToken timing (RFC 8628 §3.5)', () => {
     }
   });
 
+  it('never polls with a signal that is already aborted', async () => {
+    const fetchMock = vi.fn();
+    const { pollForDeviceToken } = await import('../oauth2');
+    await expect(
+      pollForDeviceToken(
+        { grantType: 'device_code', clientId: 'client', tokenUrl: 'https://auth.example/token' },
+        'device-code-abc',
+        5,
+        10,
+        {
+          fetch: fetchMock as unknown as typeof fetch,
+          signal: AbortSignal.abort(new Error('gone')),
+        }
+      )
+    ).rejects.toThrow('gone');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('stops waiting as soon as the signal aborts', async () => {
     const fetchMock = vi.fn();
     const controller = new AbortController();
