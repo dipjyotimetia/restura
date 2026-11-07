@@ -10,6 +10,7 @@ import {
   getFieldTypeDescription,
   validateRequestAgainstSchema,
 } from '../grpcReflection';
+import { messageSchemaCache } from '../reflection/protoParser';
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -471,6 +472,51 @@ describe('generateRequestTemplate', () => {
 
     // Empty should be empty object
     expect(parsed.empty).toEqual({});
+  });
+  it('does not apply well-known-type templates to user types sharing a short name', () => {
+    const msg = (name: string): MessageSchema => ({
+      name,
+      fullName: `acme.v1.${name}`,
+      fields: [
+        {
+          name: 'label',
+          jsonName: 'label',
+          number: 1,
+          type: 'TYPE_STRING',
+          label: 'LABEL_OPTIONAL',
+        },
+      ],
+    });
+    const field = (n: number, name: string, typeName: string) => ({
+      name,
+      jsonName: name,
+      number: n,
+      type: 'TYPE_MESSAGE' as const,
+      typeName,
+      label: 'LABEL_OPTIONAL' as const,
+    });
+    messageSchemaCache.set('.acme.v1.Duration', msg('Duration'));
+    messageSchemaCache.set('acme.v1.Timestamp', msg('Timestamp'));
+    messageSchemaCache.set('.acme.v1.Value', msg('Value'));
+    messageSchemaCache.set('.acme.v1.ListValue', msg('ListValue'));
+    const schema: MessageSchema = {
+      name: 'Holder',
+      fullName: 'acme.v1.Holder',
+      fields: [
+        field(1, 'duration', '.acme.v1.Duration'),
+        field(2, 'timestamp', 'acme.v1.Timestamp'),
+        field(3, 'value', '.acme.v1.Value'),
+        field(4, 'list', '.acme.v1.ListValue'),
+        field(5, 'wkt', 'google.protobuf.Duration'),
+      ],
+    };
+    const parsed = JSON.parse(generateRequestTemplate(schema));
+    expect(parsed.duration).toEqual({ label: '<label>' });
+    expect(parsed.timestamp).toEqual({ label: '<label>' });
+    expect(parsed.value).toEqual({ label: '<label>' });
+    expect(parsed.list).toEqual({ label: '<label>' });
+    // Unprefixed google.protobuf names still get the WKT template.
+    expect(parsed.wkt).toBe('0s');
   });
 });
 
