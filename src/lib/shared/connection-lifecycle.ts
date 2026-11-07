@@ -2,6 +2,8 @@ export interface ConnectionLifecycle {
   connectionIdForTab: (tabId: string) => string | undefined;
   disconnect: (connectionId: string) => void | Promise<void>;
   removeConnectionForTab: (tabId: string) => void;
+  /** True while the tab's connection is open or (re)connecting — used to confirm before closing the tab. */
+  isLive?: (tabId: string) => boolean;
 }
 
 /**
