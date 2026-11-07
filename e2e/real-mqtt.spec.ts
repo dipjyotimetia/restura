@@ -34,12 +34,17 @@ webTest.describe('MQTT — web build gating', () => {
     }
   );
 
-  webTest('is not offered in the web command palette', async ({ app: page }) => {
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
-    await page.getByPlaceholder('Search requests, actions, settings...').fill('MQTT');
-    await webExpect(page.getByText('New MQTT client')).toHaveCount(0);
-    await page.keyboard.press('Escape');
-  });
+  webTest(
+    'is listed as desktop-only (not runnable) in the web command palette',
+    async ({ app: page }) => {
+      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
+      await page.getByPlaceholder('Search requests, actions, settings...').fill('MQTT');
+      const option = page.getByRole('option', { name: /New MQTT client/ });
+      await webExpect(option).toHaveAttribute('aria-disabled', 'true');
+      await webExpect(option).toContainText('Desktop only');
+      await page.keyboard.press('Escape');
+    }
+  );
 });
 
 test.describe('MQTT — full flow (mocked Electron bridge)', () => {
