@@ -37,7 +37,7 @@ describe('history redaction (#924)', () => {
       .getState()
       .addHistoryItem(httpRequest, response, 'https://user:pw@api.test/x?api_key=abc&q=1');
     const item = useHistoryStore.getState().history[0];
-    if (!item || item.request.type !== 'http') throw new Error('missing history item');
+    if (item?.request.type !== 'http') throw new Error('missing history item');
     expect(item.request.headers.find((h) => h.key === 'Authorization')?.value).toBe('');
     expect(item.request.headers.find((h) => h.key === 'Accept')?.value).toBe('application/json');
     expect(item.request.url).not.toContain('pw@');
