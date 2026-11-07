@@ -569,6 +569,36 @@ describe('executeHttpProxyStreaming', () => {
     }
   });
 
+  it.each([
+    ['GET', 204],
+    ['GET', 205],
+    ['GET', 304],
+    ['HEAD', 200],
+  ])(
+    'treats a null body as an empty stream for %s %i (fetch gives no body)',
+    async (method, status) => {
+      const fetcher: Fetcher = async () => ({
+        status,
+        statusText: '',
+        headers: { 'content-length': '1234' },
+        text: async () => '',
+        contentLengthHeader: '1234',
+        body: null,
+      });
+      const r = await executeHttpProxyStreaming(
+        { method, url: 'https://example.com/', timeout: 1000 },
+        fetcher,
+        { allowLocalhost: false }
+      );
+      expect(r.ok).toBe(true);
+      if (r.ok) {
+        expect(r.response.status).toBe(status);
+        const { done } = await r.response.body.getReader().read();
+        expect(done).toBe(true);
+      }
+    }
+  );
+
   it('forwards sanitized headers in the streaming response', async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {

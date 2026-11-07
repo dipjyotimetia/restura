@@ -309,7 +309,15 @@ export function createProxyHandler(tcpProxy: TcpProxyAdapter, nodeFetch?: NodeGu
       if (upstream.statusText) {
         c.header(PROXY_UPSTREAM_STATUS_TEXT_HEADER, encodeURIComponent(upstream.statusText));
       }
-      c.status((isBrowserActionableStatus(upstream.status) ? 200 : upstream.status) as StatusCode);
+      const wireStatus = isBrowserActionableStatus(upstream.status) ? 200 : upstream.status;
+      c.status(wireStatus as StatusCode);
+
+      // Null-body statuses: the Response constructor rejects any body (even an
+      // empty stream), so reply with the status and headers only.
+      if (wireStatus === 204 || wireStatus === 205) {
+        await upstream.body.cancel().catch(() => {});
+        return c.body(null);
+      }
 
       // Pipe upstream body through Hono's streaming helper. Hono's stream() takes
       // care of stream lifecycle (close, abort propagation) for us.
