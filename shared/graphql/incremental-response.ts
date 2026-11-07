@@ -60,10 +60,18 @@ export function withJsonContentType<T extends GraphQLResponseHeaders>(headers: T
   return out as T;
 }
 
-export function incrementalPartsNotice(parts: number, done: boolean): string {
+/**
+ * `done` = the server signalled `hasNext: false`. `streamEnded` = the body is
+ * fully buffered: a stream that ended while `hasNext` was still true is
+ * incomplete (deferred/streamed parts never arrived), not "more on the way".
+ */
+export function incrementalPartsNotice(parts: number, done: boolean, streamEnded = false): string {
   const noun = parts === 1 ? 'part' : 'parts';
-  return done
-    ? `Incremental delivery: merged ${parts} multipart/mixed ${noun} (@defer / @stream) into one JSON result.`
+  if (done) {
+    return `Incremental delivery: merged ${parts} multipart/mixed ${noun} (@defer / @stream) into one JSON result.`;
+  }
+  return streamEnded
+    ? `Incremental delivery incomplete: the response ended after ${parts} multipart/mixed ${noun} while the server still signalled more (hasNext) — deferred/streamed parts are missing from this result.`
     : `Incremental delivery: ${parts} ${noun} received so far — more on the way…`;
 }
 
@@ -83,7 +91,7 @@ export function mergeIncrementalGraphQLResponse<T extends IncrementalResponseLik
       ...rest,
       headers: withJsonContentType(response.headers),
       body: JSON.stringify(merged.result, null, 2),
-      bodyNotice: incrementalPartsNotice(merged.parts, true),
+      bodyNotice: incrementalPartsNotice(merged.parts, !merged.hasNext, true),
     } as T;
   } catch {
     // A pathological body (e.g. nesting too deep to serialise): keep it raw.
