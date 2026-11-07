@@ -832,6 +832,92 @@ describe('useHttpRequestPage — clearing a settings override key', () => {
   });
 });
 
+describe('useHttpRequestPage — removing a param / header', () => {
+  beforeEach(() => vi.resetModules());
+
+  it('offers Undo that puts the removed row back in place on the tab it came from', async () => {
+    const toastSuccess = vi.fn();
+    vi.doMock('sonner', () => ({
+      toast: Object.assign(vi.fn(), {
+        success: toastSuccess,
+        error: vi.fn(),
+        info: vi.fn(),
+        loading: vi.fn(),
+        dismiss: vi.fn(),
+        warning: vi.fn(),
+      }),
+    }));
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const headers = [
+      { id: 'h1', key: 'Accept', value: 'a', enabled: true },
+      { id: 'h2', key: 'X-Two', value: 'b', enabled: true },
+    ];
+    const params = [{ id: 'p1', key: 'q', value: '1', enabled: true }];
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab1',
+          isDirty: false,
+          request: {
+            id: 'req-rows',
+            name: 'Rows',
+            type: 'http',
+            method: 'GET',
+            url: 'https://x.dev',
+            headers,
+            params,
+            body: { type: 'none' },
+            auth: { type: 'none' },
+          },
+        },
+        {
+          id: 'tab2',
+          isDirty: false,
+          request: {
+            id: 'req-other',
+            name: 'Other',
+            type: 'http',
+            method: 'GET',
+            url: 'https://y.dev',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+          },
+        },
+      ],
+      activeTabId: 'tab1',
+      isLoading: false,
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    const req = (id: string) =>
+      useRequestStore.getState().tabs.find((t) => t.id === id)?.request as {
+        headers: { id: string }[];
+        params: { id: string }[];
+      };
+    type UndoToast = [string, { action: { label: string; onClick: () => void } }];
+
+    act(() => result.current.handlers.removeHeader('h1'));
+    expect(req('tab1').headers.map((h) => h.id)).toEqual(['h2']);
+    const [message, options] = toastSuccess.mock.calls.at(-1) as UndoToast;
+    expect(message).toMatch(/Accept/);
+    expect(options.action.label).toBe('Undo');
+    // Undo after switching tabs still restores on the originating tab.
+    act(() => useRequestStore.getState().switchTab('tab2'));
+    act(() => options.action.onClick());
+    expect(req('tab1').headers.map((h) => h.id)).toEqual(['h1', 'h2']);
+    expect(req('tab2').headers).toEqual([]);
+
+    act(() => useRequestStore.getState().switchTab('tab1'));
+    act(() => result.current.handlers.removeParam('p1'));
+    expect(req('tab1').params).toEqual([]);
+    const [, paramUndo] = toastSuccess.mock.calls.at(-1) as UndoToast;
+    act(() => paramUndo.action.onClick());
+    expect(req('tab1').params.map((p) => p.id)).toEqual(['p1']);
+  });
+});
+
 describe('useHttpRequestPage — body type switch across binary', () => {
   beforeEach(() => vi.resetModules());
 

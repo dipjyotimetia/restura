@@ -127,6 +127,38 @@ const crossBinaryStash = new Map<string, string>();
 const stashKey = (requestId: string, binary: boolean) =>
   `${requestId}:${binary ? 'binary' : 'text'}`;
 
+/**
+ * Remove a params / headers row with an Undo toast. Undo re-inserts the row at
+ * its old position in the tab it was removed from (even after a tab switch),
+ * keeping any edits made to the other rows since.
+ */
+function removeRowWithUndo(field: 'params' | 'headers', id: string, noun: string): void {
+  const store = useRequestStore.getState();
+  const tabId = store.activeTabId;
+  const request = store.tabs.find((tab) => tab.id === tabId)?.request;
+  if (!tabId || request?.type !== 'http') return;
+  const rows = request[field];
+  const index = rows.findIndex((row) => row.id === id);
+  const removed = rows[index];
+  if (!removed) return;
+  if (!store.updateRequestForTab(tabId, { [field]: rows.filter((row) => row.id !== id) })) return;
+  const name = removed.key.trim();
+  toast.success(name ? `Removed ${noun} ${name}` : `Removed ${noun}`, {
+    action: {
+      label: 'Undo',
+      onClick: () => {
+        const current = useRequestStore.getState().tabs.find((tab) => tab.id === tabId)?.request;
+        if (current?.type !== 'http') return;
+        const list = current[field];
+        if (list.some((row) => row.id === id)) return;
+        const next = [...list];
+        next.splice(Math.min(index, next.length), 0, removed);
+        useRequestStore.getState().updateRequestForTab(tabId, { [field]: next });
+      },
+    },
+  });
+}
+
 const isStreamTerminal = (event: HttpStreamEvent) => event.type === 'end' || event.type === 'error';
 
 type ScriptOutcome = Pick<
@@ -210,17 +242,17 @@ export function useHttpRequestPage() {
   const globalSettings = useSettingsStore((s) => s.settings);
   const addEntry = useConsoleStore((s) => s.addEntry);
 
-  const {
-    handleAdd: addParam,
-    handleUpdate: updateParam,
-    handleDelete: removeParam,
-  } = useKeyValueCollection(httpRequest?.params ?? [], (params) => updateRequest({ params }));
+  const { handleAdd: addParam, handleUpdate: updateParam } = useKeyValueCollection(
+    httpRequest?.params ?? [],
+    (params) => updateRequest({ params })
+  );
+  const removeParam = useCallback((id: string) => removeRowWithUndo('params', id, 'parameter'), []);
 
-  const {
-    handleAdd: addHeader,
-    handleUpdate: updateHeader,
-    handleDelete: removeHeader,
-  } = useKeyValueCollection(httpRequest?.headers ?? [], (headers) => updateRequest({ headers }));
+  const { handleAdd: addHeader, handleUpdate: updateHeader } = useKeyValueCollection(
+    httpRequest?.headers ?? [],
+    (headers) => updateRequest({ headers })
+  );
+  const removeHeader = useCallback((id: string) => removeRowWithUndo('headers', id, 'header'), []);
 
   const getEffectiveSettings = useCallback(
     (): RequestSettings => resolveEffectiveSettings(httpRequest?.settings, globalSettings),

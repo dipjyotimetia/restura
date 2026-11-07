@@ -20,8 +20,29 @@ describe('ParamRow', () => {
     expect(onChange).toHaveBeenLastCalledWith({ ...row, description: 'd2' });
     fireEvent.click(screen.getByRole('switch'));
     expect(onChange).toHaveBeenLastCalledWith({ ...row, enabled: false });
-    fireEvent.click(screen.getByRole('button', { name: 'Remove row' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove parameter q' }));
     expect(onRemove).toHaveBeenCalledWith('r1');
+  });
+
+  it('names the remove button after the row key, with a generic fallback for an empty key', () => {
+    const { rerender } = render(
+      <ParamRow
+        row={{ ...row, key: 'Accept' }}
+        onChange={vi.fn()}
+        onRemove={vi.fn()}
+        itemLabel="header"
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Remove header Accept' })).toBeInTheDocument();
+    rerender(
+      <ParamRow
+        row={{ ...row, key: '' }}
+        onChange={vi.fn()}
+        onRemove={vi.fn()}
+        itemLabel="header"
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Remove empty header' })).toBeInTheDocument();
   });
 
   it('overlays {{vars}} in the value with their resolution status', () => {

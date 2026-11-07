@@ -7,14 +7,16 @@ import {
   KNOWN_HTTP_METHODS,
 } from '@shared/protocol/http-method';
 import { Code2, Link2, Loader2, Send } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
-import { Floater, hasVariableToken, Kbd, MethodChip } from '@/components/ui/spatial';
+import { Floater, Kbd, MethodChip } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import type { HttpMethod, KnownHttpMethod } from '@/types';
+import { describeUrlProblem } from '../lib/urlProblem';
 import { looksLikeCurl } from '../lib/urlQuery';
 
 // The preset list is the shared method policy's well-known set (#857) —
@@ -63,36 +65,30 @@ export function UrlBar({
   onCancel,
   onOpenCodeGen,
 }: UrlBarProps) {
-  const [urlError, setUrlError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   // While focused, show exactly what the user typed: the store copy is
   // re-derived from url + params, which would drop a trailing "?" or "&"
   // mid-edit. The draft is discarded on blur.
   const [draft, setDraft] = useState<string | null>(null);
   const shownUrl = draft ?? url;
-
-  const validateUrl = (newUrl: string) => {
-    if (!newUrl) {
-      setUrlError(null);
-      return;
-    }
-    if (hasVariableToken(newUrl)) {
-      setUrlError(null);
-      return;
-    }
-    try {
-      const candidate = newUrl.startsWith('http') ? newUrl : `https://${newUrl}`;
-      new URL(candidate);
-      setUrlError(null);
-    } catch {
-      setUrlError('Invalid URL format');
-    }
-  };
+  // Derived from what's shown, so a URL that arrives invalid (opened from a
+  // collection, imported, restored) is flagged on mount too, not only while
+  // typing — with a specific reason rather than a generic "invalid".
+  const urlError = useMemo(() => describeUrlProblem(shownUrl), [shownUrl]);
 
   const handleUrlChange = (next: string) => {
     setDraft(next);
     onUrlChange(next);
-    validateUrl(next);
+  };
+
+  const copyUrl = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('URL copied');
+    } catch {
+      toast.error('Couldn’t copy the URL');
+    }
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -101,7 +97,6 @@ export function UrlBar({
     if (onPasteCurl(text)) {
       e.preventDefault();
       setDraft(null);
-      setUrlError(null);
     }
   };
 
@@ -204,10 +199,7 @@ export function UrlBar({
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (!url) return;
-                void navigator.clipboard?.writeText(url);
-              }}
+              onClick={() => void copyUrl()}
               disabled={!url}
               aria-label="Copy URL"
               className={cn(
