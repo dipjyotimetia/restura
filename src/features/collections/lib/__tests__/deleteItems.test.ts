@@ -87,3 +87,75 @@ describe('describeItemDeletion', () => {
     });
   });
 });
+
+describe('deleteItems edge cases', () => {
+  const small: Collection = {
+    id: 's',
+    name: 'Small',
+    items: [
+      { id: 'empty', name: 'Empty', type: 'folder', items: [] },
+      { id: 'bare', name: 'Bare', type: 'folder' },
+      {
+        id: 'one',
+        name: 'One',
+        type: 'folder',
+        items: [{ id: 'only', name: 'Only', type: 'request', request: request('r9') }],
+      },
+      { id: 'leaf', name: 'Leaf', type: 'request', request: request('r8') },
+    ],
+  };
+
+  beforeEach(() => {
+    useCollectionStore.setState({ collections: [small] });
+    useRequestStore.setState({ tabs: [tab('t1', 'leaf')], activeTabId: 't1' });
+  });
+
+  it('falls back to generic copy for unknown items or collections', () => {
+    const generic = {
+      title: 'Delete item',
+      description: 'Delete this item? This action cannot be undone.',
+    };
+    expect(describeItemDeletion('s', ['missing'])).toEqual(generic);
+    expect(describeItemDeletion('nope', ['leaf'])).toEqual(generic);
+  });
+
+  it('describes empty folders without an inside clause', () => {
+    expect(describeItemDeletion('s', ['empty']).description).toBe(
+      'Delete the folder "Empty"? This action cannot be undone.'
+    );
+    expect(describeItemDeletion('s', ['bare']).description).toBe(
+      'Delete the folder "Bare"? This action cannot be undone.'
+    );
+  });
+
+  it('uses singular nouns for a single descendant', () => {
+    expect(describeItemDeletion('s', ['one']).description).toBe(
+      'Delete the folder "One" and the 1 item inside it (1 request)? This action cannot be undone.'
+    );
+    expect(describeItemDeletion('s', ['one', 'empty']).description).toBe(
+      'Delete 2 selected items ("One", "Empty") and the 1 item inside them? This action cannot be undone.'
+    );
+  });
+
+  it('omits the inside clause for a multi-selection with no descendants', () => {
+    expect(describeItemDeletion('s', ['leaf', 'empty', 'missing'])).toEqual({
+      title: 'Delete 2 items',
+      description: 'Delete 2 selected items ("Leaf", "Empty")? This action cannot be undone.',
+    });
+  });
+
+  it('leaves tabs alone when nothing matched', () => {
+    deleteCollectionItems('s', ['missing']);
+    deleteCollectionItems('unknown-collection', ['leaf']);
+    expect(useRequestStore.getState().tabs[0]).toMatchObject({ savedRequestId: 'leaf' });
+    expect(useCollectionStore.getState().collections[0]?.items).toHaveLength(4);
+  });
+
+  it('removes a nested request found by deep search', () => {
+    deleteCollectionItems('s', ['only', 'leaf']);
+    const items = useCollectionStore.getState().collections[0]?.items ?? [];
+    expect(items.map((i) => i.id)).toEqual(['empty', 'bare', 'one']);
+    expect(items[2]?.items).toEqual([]);
+    expect(useRequestStore.getState().tabs[0]).not.toHaveProperty('savedRequestId');
+  });
+});
