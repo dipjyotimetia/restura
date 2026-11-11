@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. It holds only invariants and routing; detail loads on demand from `docs/agents/` and `.claude/skills/` (progressive disclosure — keep it that way: new subsystem prose goes in a reference doc, not here).
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository. It holds only invariants and routing; detail loads on demand from `docs/agents/` and `.agents/skills/` (progressive disclosure — keep it that way: new subsystem prose goes in a reference doc, not here). `.claude/skills/` links to these shared workflow sources.
 
 ## Project Overview
 

@@ -253,7 +253,7 @@ const GH_VALUE_FLAGS = new Set(['-R', '--repo', '--hostname']);
 const expandHome = (p) => (p === '~' || p.startsWith('~/') ? homedir() + p.slice(1) : p);
 const resolveDir = (base, target) => path.resolve(base || '/', expandHome(target));
 const inWorktree = (dir) =>
-  /(^|\/)\.claude\/worktrees\/[^/]+/.test(String(dir).replace(/\\/g, '/'));
+  /(^|\/)(?:\.claude|\.codex)\/worktrees\/[^/]+/.test(String(dir).replace(/\\/g, '/'));
 
 const isShortFlags = (a) => /^-[a-zA-Z]+$/.test(a);
 function isAddAllArg(a) {

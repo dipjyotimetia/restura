@@ -3,7 +3,8 @@
 // machines (epic #1283 → #1298). skills-lock.json records a `computedHash` per
 // imported skill; this check fails when a checked-in skill folder no longer
 // matches its recorded hash, so a vendored skill can't change without the lock
-// changing too (and that lock diff is what a reviewer checks upstream).
+// changing too. First-party skills are listed separately in
+// scripts/first-party-skills.json and are checked for completeness and links.
 //
 // The hash mirrors the `skills` CLI's computeSkillFolderHash: SHA-256 over
 // every file under the skill folder (skipping .git and node_modules), sorted by
@@ -60,9 +61,24 @@ export function computeSkillFolderHash(skillDir) {
   return hash.digest('hex');
 }
 
-export function checkSkillsLock(lock, skillsRoot) {
+export function checkSkillsLock(lock, skillsRoot, firstParty = []) {
   const findings = [];
   const locked = lock.skills ?? {};
+  const firstPartyNames = new Set(firstParty);
+  for (const name of firstPartyNames) {
+    const dir = join(skillsRoot, name);
+    if (Object.hasOwn(locked, name)) {
+      findings.push({ name, problem: 'listed as both imported and first-party' });
+      continue;
+    }
+    if (!existsSync(join(dir, 'SKILL.md'))) {
+      findings.push({ name, problem: 'first-party skill is missing SKILL.md' });
+      continue;
+    }
+    for (const link of findSymlinks(dir, dir, []).sort()) {
+      findings.push({ name, problem: `contains a symlink: ${link}` });
+    }
+  }
   for (const [name, entry] of Object.entries(locked)) {
     const dir = join(skillsRoot, name);
     if (!existsSync(dir)) {
@@ -84,7 +100,11 @@ export function checkSkillsLock(lock, skillsRoot) {
     for (const entry of readdirSync(skillsRoot, { withFileTypes: true })) {
       if (entry.isSymbolicLink()) {
         findings.push({ name: entry.name, problem: 'symlink in the skills folder' });
-      } else if (entry.isDirectory() && !Object.hasOwn(locked, entry.name)) {
+      } else if (
+        entry.isDirectory() &&
+        !Object.hasOwn(locked, entry.name) &&
+        !firstPartyNames.has(entry.name)
+      ) {
         findings.push({
           name: entry.name,
           problem: 'skill folder is not recorded in skills-lock.json',
@@ -97,7 +117,10 @@ export function checkSkillsLock(lock, skillsRoot) {
 
 function main() {
   const lock = JSON.parse(readFileSync(join(REPO_ROOT, 'skills-lock.json'), 'utf8'));
-  const findings = checkSkillsLock(lock, join(REPO_ROOT, SKILLS_DIR));
+  const firstParty = JSON.parse(
+    readFileSync(join(REPO_ROOT, 'scripts/first-party-skills.json'), 'utf8')
+  ).skills;
+  const findings = checkSkillsLock(lock, join(REPO_ROOT, SKILLS_DIR), firstParty);
   for (const f of findings) console.error(`${SKILLS_DIR}/${f.name}: ${f.problem}`);
   if (findings.length > 0) {
     console.error(
@@ -106,7 +129,9 @@ function main() {
     );
     process.exit(1);
   }
-  console.log(`Skills lock OK (${Object.keys(lock.skills ?? {}).length} imported skill(s)).`);
+  console.log(
+    `Skills OK (${Object.keys(lock.skills ?? {}).length} imported, ${firstParty.length} first-party).`
+  );
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

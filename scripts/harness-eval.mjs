@@ -56,6 +56,7 @@ export const HARNESS_REMOVE_PATHS = [
   '.claude/commands',
   '.claude/hooks',
   '.claude/settings.json',
+  '.codex',
   '.agents/skills',
 ];
 /**
@@ -67,9 +68,14 @@ export const HARNESS_OVERLAY_PATHS = [
   '.claude/agents',
   '.claude/hooks',
   '.claude/settings.json',
+  '.codex',
   '.agents',
   'CLAUDE.md',
   'AGENTS.md',
+  'scripts/codex-hook.mjs',
+  'scripts/check-skills-lock.mjs',
+  'scripts/first-party-skills.json',
+  '.gitignore',
   'REVIEW.md',
   'docs/agents',
   'skills-lock.json',
