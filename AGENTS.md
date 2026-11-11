@@ -2,8 +2,9 @@
 
 This file provides guidance to Codex when working with code in this repository.
 It mirrors `CLAUDE.md` for the Codex runtime. Both hold only invariants and
-routing; detail loads on demand from `docs/agents/` and the skill files under
-`.claude/skills/*/SKILL.md` (plain markdown — read them directly). Keep the two
+routing; detail loads on demand from `docs/agents/` and the portable skill files
+under `.agents/skills/*/SKILL.md`. Claude Code reaches the same workflow skills
+through `.claude/skills/` links. Keep the two
 in sync: an architectural change documented in one should be reflected in the
 other.
 
@@ -47,13 +48,13 @@ Full catalogue (e2e, desktop e2e, echo stacks, Docker, deploy): `docs/agents/arc
 
 | Area | Load |
 |---|---|
-| Any feature / new protocol / auth / importer | `.claude/skills/restura-feature-dev/SKILL.md` (+ `references/`) |
+| Any feature / new protocol / auth / importer | `.agents/skills/restura-feature-dev/SKILL.md` (+ `references/`) |
 | Architecture tour, subsystem notes, full commands | `docs/agents/architecture.md` |
-| Verifying / shipping / release gates | `.claude/skills/restura-production-checks/SKILL.md`, `.claude/skills/ship-check/SKILL.md` |
-| Reviewing a diff / PR | `.claude/skills/code-review/SKILL.md`, `REVIEW.md` (what failure looks like per area, evidence rule, caps, depth, rounds) |
-| UI change | `.claude/skills/verify-ui-change/SKILL.md` — compiling is not verified |
-| Multi-PR / parallel agent delivery | `docs/agents/delivery.md`, `.claude/skills/batch-ship/SKILL.md` |
-| Security boundary (SSRF, IPC, secrets, sandboxes) | `.claude/agents/restura-security-auditor.md`, `tests/security/` |
+| Verifying / shipping / release gates | `.agents/skills/restura-production-checks/SKILL.md`, `.agents/skills/ship-check/SKILL.md` |
+| Reviewing a diff / PR | `.agents/skills/code-review/SKILL.md`, `REVIEW.md` (what failure looks like per area, evidence rule, caps, depth, rounds); use `restura-parity-checker` for transport/protocol changes and `restura-docs-steward` for doc parity |
+| UI change | `.agents/skills/verify-ui-change/SKILL.md` — compiling is not verified |
+| Multi-PR / parallel agent delivery | `docs/agents/delivery.md`, `.agents/skills/batch-ship/SKILL.md` |
+| Security boundary (SSRF, IPC, secrets, sandboxes) | `.agents/skills/restura-security-auditor/SKILL.md`, `tests/security/` |
 | Domain terms, ADRs | `CONTEXT.md`, `docs/adr/`, `docs/agents/domain.md` |
 | CLI | `cli/README.md` (canonical) |
 
@@ -98,7 +99,23 @@ The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do
 
 ## Agent skills
 
-Codex does not load `.claude/skills/`; read these files directly instead.
+Codex discovers the first-party workflows under `.agents/skills/`; the matching
+`.claude/skills/` paths are kept as links for Claude Code. Use `$skill-name` to
+invoke a workflow. The three Restura reviewer skills map to the detailed briefs
+under `.claude/agents/` and are available to Codex as skills.
+
+`.codex/config.toml` sets the workspace sandbox and approval defaults, enables
+multi-agent support, pins Chrome DevTools MCP, and configures the repository
+hooks. Codex asks you to review and trust project hooks before running them;
+open `/hooks` in Codex to inspect the definitions. Codex has no direct
+equivalent to Claude's per-tool `permissions.allow` / `permissions.deny` lists;
+the Bash policy and generated-file guard are enforced by hooks, while filesystem
+and network scope remain governed by Codex's sandbox and approvals.
+
+Claude's `Skill` tool usage logger has no Codex equivalent because Codex loads
+skills through discovery rather than a tool call. `skill-report` therefore
+continues to report Claude skill invocation metrics; Codex subagent and
+compaction metadata is written separately under the ignored `.codex/metrics/`.
 
 ### Issue tracker
 

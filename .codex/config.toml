@@ -1,3 +1,62 @@
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+[features]
+multi_agent = true
+
 [mcp_servers.chrome-devtools]
-args = ["chrome-devtools-mcp@latest"]
 command = "npx"
+args = ["-y", "chrome-devtools-mcp@1.13.0"]
+
+[[hooks.SessionStart]]
+matcher = "^(startup|resume|clear|compact|fork)$"
+
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "node \"$(git rev-parse --show-toplevel)/scripts/codex-hook.mjs\" session-start"
+timeout = 10
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "node \"$(git rev-parse --show-toplevel)/scripts/codex-hook.mjs\" guard-bash"
+timeout = 10
+
+[[hooks.PreToolUse]]
+matcher = "^apply_patch$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "node \"$(git rev-parse --show-toplevel)/scripts/codex-hook.mjs\" guard-generated-files"
+timeout = 10
+
+[[hooks.PostToolUse]]
+matcher = "^apply_patch$"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "node \"$(git rev-parse --show-toplevel)/scripts/codex-hook.mjs\" format-edit"
+timeout = 15
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "node \"$(git rev-parse --show-toplevel)/scripts/codex-hook.mjs\" stop-checks"
+timeout = 30
+
+[[hooks.SubagentStop]]
+
+[[hooks.SubagentStop.hooks]]
+type = "command"
+command = "node \"$(git rev-parse --show-toplevel)/scripts/codex-hook.mjs\" log-subagent"
+timeout = 3
+
+[[hooks.PreCompact]]
+
+[[hooks.PreCompact.hooks]]
+type = "command"
+command = "node \"$(git rev-parse --show-toplevel)/scripts/codex-hook.mjs\" log-compaction"
+timeout = 3

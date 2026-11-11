@@ -116,7 +116,8 @@ export function tsvField(value) {
 
 export function appendMetric(name, fields, cwd = projectDir()) {
   try {
-    const logPath = path.join(cwd, '.claude', 'metrics', name);
+    const runtimeDir = process.env.RESTURA_AGENT_RUNTIME === 'codex' ? '.codex' : '.claude';
+    const logPath = path.join(cwd, runtimeDir, 'metrics', name);
     mkdirSync(path.dirname(logPath), { recursive: true });
     appendFileSync(logPath, `${[new Date().toISOString(), ...fields.map(tsvField)].join('\t')}\n`);
   } catch {

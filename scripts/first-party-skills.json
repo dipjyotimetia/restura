@@ -1,0 +1,21 @@
+{
+  "skills": [
+    "babysit-prs",
+    "batch-ship",
+    "code-review",
+    "dependabot-remediate",
+    "docs-sync",
+    "fix-until-green",
+    "new-protocol",
+    "restura-feature-dev",
+    "restura-docs-steward",
+    "restura-parity-checker",
+    "restura-security-auditor",
+    "restura-production-checks",
+    "roadmap-sync",
+    "ship-check",
+    "skill-report",
+    "triage-maintenance",
+    "verify-ui-change"
+  ]
+}
