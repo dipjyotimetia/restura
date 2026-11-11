@@ -96,6 +96,8 @@ export function userScriptSource(
     return { source: script, topLevelAwait: false };
   }
   asIs.error.dispose();
+  // This is user-authored code by design; it is evaluated only in QuickJS,
+  // which is the security boundary described in ADR-0015.
   const wrapped = `(async function () {${script}\n})()`;
   const probe = vm.evalCode(wrapped, 'user-script.js', { compileOnly: true });
   if (probe.error) {
