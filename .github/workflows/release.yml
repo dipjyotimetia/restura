@@ -54,18 +54,25 @@ name: Release
 #     provenance and npm publishing happen in artifact-only jobs.
 #   - No dependency cache in release jobs (a PR-writable cache must never be
 #     restored into a job that signs, attests, publishes or deploys).
-#   - Checkouts drop the token (`persist-credentials: false`) except `release`,
-#     which pushes the tag.
+#   - Every checkout drops the token (`persist-credentials: false`). The
+#     `release` job pushes and deletes v* tags with a restura-bot App token
+#     that is never written into .git/config. github-actions[bot] cannot
+#     satisfy a tag ruleset whose bypass list is that App (issue #1289).
 #
-# Retry: if a stable run fails before npm/web/Docker publish, only a draft
-# release + tag exist. Merge the fix to main, then dispatch with
+# Retry: if a stable run fails before npm/web/Docker publish, the version
+# bump may already be on main with no tag, or only a draft release + tag
+# exist. Merge the fix to main, then dispatch with
 #   gh workflow run release.yml --ref main -f retry_release_tag=vX.Y.Z
-# The run re-validates main HEAD (whose package.json must still be X.Y.Z),
-# deletes the unpublished draft + tag, and re-tags HEAD. It refuses once
-# restura-cli@X.Y.Z is on npm or the release is public. Transient failures
-# AFTER desktop succeeded (npm, Cloudflare, Docker) need no code fix: use
-# "Re-run failed jobs" on the original run instead.
-# The version-bump commit remains on main and is never rewritten.
+# Do not re-run the failed job: that job's workflow file does not contain
+# later fixes. Do not start a normal Release dispatch while package.json is
+# ahead of the latest published stable release — preflight refuses, because
+# that would skip the unpublished version. The retry re-validates main HEAD
+# (whose package.json must still be X.Y.Z), deletes the unpublished draft +
+# tag as restura-bot, and re-tags HEAD. It refuses once restura-cli@X.Y.Z is
+# on npm or the release is public. Transient failures AFTER desktop succeeded
+# (npm, Cloudflare, Docker) need no code fix: use "Re-run failed jobs" on the
+# original run instead. The version-bump commit remains on main and is never
+# rewritten.
 
 on:
   workflow_dispatch:
@@ -149,8 +156,9 @@ jobs:
             exit 1
           fi
 
-      - name: Validate release preparation credentials
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.retry_release_tag == '' }}
+      # Every release path needs the App: opening the version-bump PR, pushing
+      # a prerelease or stable tag, and deleting an unpublished tag on retry.
+      - name: Validate release App credentials
         env:
           RELEASE_PR_APP_ID: ${{ secrets.RELEASE_PR_APP_ID }}
           RELEASE_PR_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
@@ -163,7 +171,8 @@ jobs:
             fi
           done
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing release PR App credential(s): %s\n' "${missing[*]}"
+            printf 'Missing restura-bot App credential(s): %s\n' "${missing[*]}"
+            printf 'The App opens the version-bump PR and creates or deletes v* release tags.\n'
             exit 1
           fi
 
@@ -225,6 +234,29 @@ jobs:
           node-version-file: ".nvmrc"
           # No dependency cache in release jobs (cache poisoning, #1291).
           cache: ""
+
+      # A normal dispatch computes the next version from package.json. If that
+      # version is already ahead of the latest published stable release, the
+      # bump merged and the tag never shipped (or only a draft/tag remains).
+      # Another bump would skip it. retry_release_tag is the way through, and
+      # it is the caller's job to pass. npm view short-circuits when the CLI
+      # is already public: retry would refuse, and the next patch is correct.
+      - name: Refuse to skip an unpublished stable version
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_release_tag == '' }}
+        run: |
+          set -euo pipefail
+          CURRENT="$(node -p "require('./package.json').version")"
+          CLI_NAME="$(node -p "require('./cli/package.json').name")"
+          if npm view "${CLI_NAME}@${CURRENT}" version >/dev/null 2>&1; then
+            echo "${CLI_NAME}@${CURRENT} is already on npm, so a new version bump is allowed."
+            exit 0
+          fi
+          # GITHUB_TOKEN is the job token (contents: read). Published releases
+          # are public; drafts are excluded and stay invisible to this check.
+          published="$(gh release list --exclude-drafts --exclude-pre-releases \
+            --limit 100 --json tagName --jq '.[].tagName')"
+          printf 'Published stable tags considered:\n%s\n' "$published"
+          printf '%s\n' "$published" | node scripts/release-version.mjs unpublished-guard
 
       - name: Validate stable release candidate
         if: ${{ github.event_name == 'pull_request' || inputs.retry_release_tag != '' }}
@@ -447,8 +479,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      # Pushes the release tag and creates the GitHub release.
-      contents: write
+      # Tag create/delete and the draft release use the restura-bot App token.
+      # This job's GITHUB_TOKEN stays read-only, so a v* ruleset that does not
+      # bypass github-actions[bot] cannot be satisfied by accident.
+      contents: read
+      # Download the SBOM artifact from the read-only `sbom` job.
+      actions: read
     outputs:
       # The actual published tag — includes prerelease suffix when applicable.
       # Consumed by downstream jobs so they check out the right commit.
@@ -481,10 +517,9 @@ jobs:
         with:
           # full history: changelog range + tag-existence checks read prior tags
           fetch-depth: 0
-          # Credentials persist on purpose: this job pushes the release tag.
-          # It runs no npm-installed code (the SBOM is built in `sbom`).
-          persist-credentials: true # zizmor: ignore[artipacked] -- pushes the release tag; no npm-installed code runs here
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # The App token used to push the tag is not stored in .git/config.
+          # git-cliff runs in this job and must not inherit a ruleset bypass.
+          persist-credentials: false
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
 
       - uses: ./.github/actions/setup-node-npm
@@ -493,9 +528,9 @@ jobs:
           # No dependency cache in release jobs (cache poisoning, #1291).
           cache: ""
 
-      # No npm code here at all: this job keeps a contents:write token in
-      # .git/config to push the tag, and needs only Node built-ins
-      # (release-version.mjs). The SBOM comes from the read-only `sbom` job.
+      # No `npm ci` here. The SBOM is built in the read-only `sbom` job.
+      # release-version.mjs uses Node built-ins. `npm view` only queries the
+      # registry during a retry.
 
       - name: Compute actual tag
         id: tag
@@ -529,12 +564,25 @@ jobs:
           echo "actual_tag=$ACTUAL_TAG" >> "$GITHUB_OUTPUT"
           echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE)"
 
-      # Retry only: remove the unpublished draft + tag left by a failed run so
-      # main HEAD can be re-tagged. Refuses once anything went public.
+      # contents: write only. pull-requests is intentionally omitted so a
+      # leaked token cannot open or merge a PR. The installation already has
+      # contents: write (prepare-stable pushes release/prepare with it).
+      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: release-tag-token
+        with:
+          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      # Retry only: remove the unpublished draft + tag left by a failed run,
+      # or by a version bump whose tag push was rejected, so main HEAD can be
+      # re-tagged. Refuses once anything went public. Deletion uses the App
+      # token: a v* ruleset that blocks github-actions[bot] also blocks it
+      # from deleting the tag it could not create.
       - name: Clear unpublished release for retry
         if: ${{ inputs.retry_release_tag != '' }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
         run: |
           set -euo pipefail
@@ -550,16 +598,30 @@ jobs:
               echo "Release ${ACTUAL_TAG} is already public; published releases are immutable."
               exit 1
             fi
-            gh release delete "$ACTUAL_TAG" --cleanup-tag --yes
+            echo "Deleting draft release ${ACTUAL_TAG}."
+            gh release delete "$ACTUAL_TAG" --yes
+          else
+            echo "No GitHub release ${ACTUAL_TAG} to delete."
           fi
           if git ls-remote --exit-code --tags origin "refs/tags/${ACTUAL_TAG}" >/dev/null; then
-            git push origin ":refs/tags/${ACTUAL_TAG}"
+            echo "Deleting tag ${ACTUAL_TAG}."
+            if ! delete_log="$(gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${ACTUAL_TAG}" 2>&1)"; then
+              printf '%s\n' "$delete_log"
+              if printf '%s\n' "$delete_log" | grep -q 'restricted'; then
+                node scripts/release-version.mjs tag-ruleset-rejected "$ACTUAL_TAG" delete
+              fi
+              exit 1
+            fi
+          else
+            echo "No remote tag ${ACTUAL_TAG} to delete."
           fi
           git tag -d "$ACTUAL_TAG" 2>/dev/null || true
 
       - name: Validate tag does not exist
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # App token, so a draft release is visible. The job token is
+          # contents: read and would treat a draft as missing.
+          GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
         run: |
           set -euo pipefail
@@ -567,30 +629,68 @@ jobs:
             echo "Computed tag is not a valid semver tag: ${ACTUAL_TAG}"
             exit 1
           fi
+          exists=0
           if git rev-parse -q --verify "refs/tags/${ACTUAL_TAG}" >/dev/null; then
-            echo "Tag ${ACTUAL_TAG} already exists. Pick a different release bump / prerelease identifier,"
-            echo "or if this is a retry of a failed run, delete the tag + draft release first:"
-            echo "  gh release delete ${ACTUAL_TAG} --cleanup-tag --yes"
-            exit 1
+            exists=1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${ACTUAL_TAG}" >/dev/null; then
+            exists=1
           fi
           if gh release view "$ACTUAL_TAG" >/dev/null 2>&1; then
-            echo "GitHub release ${ACTUAL_TAG} already exists (likely a prior failed run)."
-            echo "Delete it before retrying:  gh release delete ${ACTUAL_TAG} --cleanup-tag --yes"
+            exists=1
+          fi
+          if [ "$exists" -ne 0 ]; then
+            node scripts/release-version.mjs release-already-exists "$ACTUAL_TAG"
             exit 1
           fi
 
       - name: Configure git author
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          set -euo pipefail
+          # Public profile of the App that pushes the tag. The ruleset checks
+          # the token, and the tagger records the same identity.
+          bot_id="$(gh api users/restura-bot%5Bbot%5D --jq .id)"
+          bot_login="$(gh api users/restura-bot%5Bbot%5D --jq .login)"
+          git config user.name "$bot_login"
+          git config user.email "${bot_id}+${bot_login}@users.noreply.github.com"
 
       - name: Tag and push
         env:
+          APP_TOKEN: ${{ steps.release-tag-token.outputs.token }}
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
         run: |
           set -euo pipefail
           git tag -a "${ACTUAL_TAG}" -m "${ACTUAL_TAG}"
-          git push origin "${ACTUAL_TAG}"
+          # Askpass keeps the App token out of .git/config and out of the
+          # remote URL. The script reads APP_TOKEN from the environment.
+          askpass="$(mktemp)"
+          cleanup() { rm -f "$askpass"; }
+          trap cleanup EXIT
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'case "$1" in' \
+            '  *Username*) printf "%s\n" "x-access-token" ;;' \
+            '  *) printf "%s\n" "$APP_TOKEN" ;;' \
+            'esac' \
+            > "$askpass"
+          chmod 700 "$askpass"
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          set +e
+          push_log="$(
+            GIT_ASKPASS="$askpass" \
+            GIT_TERMINAL_PROMPT=0 \
+            git -c credential.helper= \
+              push "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${ACTUAL_TAG}" 2>&1
+          )"
+          push_status=$?
+          set -e
+          printf '%s\n' "$push_log"
+          if [ "$push_status" -ne 0 ]; then
+            if printf '%s\n' "$push_log" | grep -q 'creations being restricted'; then
+              node scripts/release-version.mjs tag-ruleset-rejected "$ACTUAL_TAG" create
+            fi
+            exit "$push_status"
+          fi
 
       - name: Compute changelog range
         id: range
@@ -632,32 +732,38 @@ jobs:
         env:
           OUTPUT: CHANGELOG.md
 
-      # Generated in the read-only `sbom` job: this job keeps a contents:write
-      # token in .git/config and must run no third-party npm code.
+      # Generated in the read-only `sbom` job. git-cliff above does not
+      # receive the App token; the draft release below does, via gh.
       - name: Download SBOM
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-sbom
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ steps.tag.outputs.actual_tag }}
-          name: ${{ steps.tag.outputs.actual_tag }}
-          draft: true
-          prerelease: ${{ steps.context.outputs.is_prerelease }}
-          # Release notes generated by git-cliff from conventional commits.
-          # Replaces GitHub's auto-generated "What's Changed" (noisy, no categorization).
-          generate_release_notes: false
-          body: |
-            ${{ steps.cliff.outputs.content }}
-
-            ---
-            A CycloneDX SBOM of the production dependency tree is attached
-            (`restura.cdx.json` / `.xml`).
-          files: |
-            restura.cdx.json
-            restura.cdx.xml
+        env:
+          GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
+          PRERELEASE: ${{ steps.context.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          notes="$(mktemp)"
+          {
+            cat CHANGELOG.md
+            printf '\n---\nA CycloneDX SBOM of the production dependency tree is attached (`restura.cdx.json` / `.xml`).\n'
+          } > "$notes"
+          args=(
+            release create "$ACTUAL_TAG"
+            --repo "$GITHUB_REPOSITORY"
+            --draft
+            --title "$ACTUAL_TAG"
+            --notes-file "$notes"
+            --verify-tag
+          )
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          args+=(restura.cdx.json restura.cdx.xml)
+          gh "${args[@]}"
 
   desktop:
     name: Desktop installers (${{ matrix.os }})

@@ -24,7 +24,7 @@
 
 ## Release workflow (`release.yml`, manual `workflow_dispatch`)
 
-Inputs: `release_bump` (patch/minor/major), `prerelease`, `prerelease_identifier`, `publish_docker`, `retry_release_tag` (retry a failed, unpublished stable release from main HEAD). Flow: preflight validate → semver bump → commit + tag → release notes (git-cliff) → SBOM → draft release → `desktop` (electron installers, all platforms) → then `publish-cli` (npm, stable only), `publish-docker` (GHCR, opt-in), `deploy-web` (Cloudflare, stable only) → publish draft. Desktop gates the irreversible surfaces.
+Inputs: `release_bump` (patch/minor/major), `prerelease`, `prerelease_identifier`, `publish_docker`, `retry_release_tag` (retry a failed or never-tagged stable release from main HEAD). A normal dispatch is refused while `package.json` is ahead of the latest published stable release. Flow: preflight validate → version-bump PR merged by restura-bot → the merge run tags and drafts the release as that App (not `GITHUB_TOKEN`) → `desktop` (electron installers, all platforms) → then `publish-cli` (npm, stable only), `publish-docker` (GHCR, opt-in), `deploy-web` (Cloudflare, stable only) → publish draft. Desktop gates the irreversible surfaces.
 
 - macOS builds are notarized (`docs/notary.md`); Sentry sourcemaps uploaded via `scripts/sentry-sourcemaps.mjs` on publish.
 - CLI publishes from the `cli/` workspace; Docker from the repo Dockerfile.

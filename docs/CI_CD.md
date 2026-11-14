@@ -489,9 +489,10 @@ the output and options.
    does not wait for candidate-PR CI. The merged PR automatically starts
    publication. The workflow uses that exact merge commit, so later `main`
    commits are excluded.
-4. The publish run: **release-secrets** (presence checks only, no checkout)
-   → **preflight** → **sbom** → **release** (tag, notes, draft release with
-   the SBOM attached) → **desktop** (signed installers uploaded
+4. The publish run: **release-secrets** (presence checks only, no checkout;
+   this includes the restura-bot App credentials) → **preflight** → **sbom**
+   → **release** (annotated tag + draft release, both as the restura-bot App,
+   with the SBOM attached) → **desktop** (signed installers uploaded
    to the draft) → **attest-desktop**, **build-cli** → **publish-cli**,
    **publish-docker** → **attest-image**, **deploy-web** →
    **publish-release** (flips the draft to public once every required
@@ -521,21 +522,34 @@ loosen or update one without the other;
 
 ### Recovery after a failed stable run
 
-**Transient failure (notarization timeout, runner flake).** Use **Re-run
-failed jobs** on the original run — no code change or retry needed.
+**Transient failure after the tag and draft exist (notarization timeout, runner
+flake).** Use **Re-run failed jobs** on the original run — no code change or
+retry needed. Re-run does not pick up a workflow file that landed later.
 
-**Desktop (or anything before it) failed and needs a code fix.** Only a draft
-release and tag exist — npm, Docker, and the web deploy wait for desktop. Merge the fix to
-`main` (without another version bump), then retry the same version from
-current `main` HEAD:
+**The version bump is on `main` but the tag was never created, or only an
+unpublished draft and tag exist** (tag ruleset rejection, cancelled job,
+manual delete of a release). Merge any workflow fix to `main` without another
+version bump. A normal **Release** dispatch is refused while `package.json` is
+ahead of the latest published stable release, because that bump would skip the
+unpublished version. Retry the same version from current `main` HEAD:
 
 ```bash
 gh workflow run release.yml --ref main -f retry_release_tag=vX.Y.Z
 ```
 
-The retry re-runs preflight on HEAD, requires HEAD's `package.json` version to
-equal `X.Y.Z`, deletes the unpublished draft + tag, and re-tags HEAD. It
-refuses if the release is already public or `restura-cli@X.Y.Z` is on npm.
+Leave `prerelease` off. Leave `publish_docker` off unless this release should
+push a GHCR image. The retry re-runs preflight on HEAD, requires HEAD's
+`package.json` version to equal `X.Y.Z`, deletes the unpublished draft and tag
+as restura-bot, and re-tags HEAD. It refuses if the release is already public
+or `restura-cli@X.Y.Z` is on npm. If the tag push or delete is rejected with
+"creations being restricted" (or the deletion equivalent), the `v*` ruleset
+bypass list is missing the restura-bot App (`RELEASE_PR_APP_ID`). Add that App
+for creation, update, and deletion. Leave the ruleset in place, and do not add
+`github-actions[bot]`.
+
+**Desktop (or anything before it) failed and needs a code fix.** npm, Docker,
+and the web deploy wait for desktop. Same retry as above after the fix is on
+`main`.
 
 **npm, Docker, or Cloudflare failed after desktop succeeded.** These are
 transient (credentials, outages) and need no code change. Use **Re-run failed

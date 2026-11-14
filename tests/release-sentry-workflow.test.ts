@@ -178,8 +178,74 @@ describe('release workflow Sentry guardrails', () => {
     expect(retryBlock).toContain("if: ${{ inputs.retry_release_tag != '' }}");
     expect(retryBlock).toContain('npm view "${CLI_NAME}@${ACTUAL_TAG#v}" version');
     expect(retryBlock).toContain('--json isDraft --jq .isDraft');
-    expect(retryBlock).toContain('gh release delete "$ACTUAL_TAG" --cleanup-tag --yes');
+    expect(retryBlock).toContain('gh release delete "$ACTUAL_TAG" --yes');
+    expect(retryBlock).toContain('repos/${GITHUB_REPOSITORY}/git/refs/tags/${ACTUAL_TAG}');
+    expect(retryBlock).toContain('steps.release-tag-token.outputs.token');
+    expect(retryBlock).not.toContain('secrets.GITHUB_TOKEN');
+    expect(retryBlock).not.toContain('--cleanup-tag');
     expect(workflow).toContain("does not match main's package.json version");
+  });
+
+  it('creates and deletes v* tags with the restura-bot App, not GITHUB_TOKEN', () => {
+    const releaseJob = workflow.slice(
+      workflow.indexOf('\n  release:'),
+      workflow.indexOf('\n  desktop:')
+    );
+    expect(releaseJob).toContain('contents: read');
+    expect(releaseJob).not.toMatch(/^\s+contents: write\s*$/m);
+    expect(releaseJob).toContain('id: release-tag-token');
+    expect(releaseJob).toContain('permission-contents: write');
+    expect(releaseJob).not.toContain('permission-pull-requests:');
+    expect(releaseJob).toContain('persist-credentials: false');
+    expect(releaseJob).not.toContain('persist-credentials: true');
+    expect(releaseJob).not.toContain('softprops/action-gh-release');
+    expect(releaseJob).not.toContain('git push origin "${ACTUAL_TAG}"');
+    expect(releaseJob).not.toContain('x-access-token:${');
+
+    const push = releaseJob.slice(
+      releaseJob.indexOf('- name: Tag and push'),
+      releaseJob.indexOf('- name: Compute changelog range')
+    );
+    expect(push).toContain('APP_TOKEN: ${{ steps.release-tag-token.outputs.token }}');
+    expect(push).toContain('GIT_ASKPASS="$askpass"');
+    expect(push).toContain('x-access-token');
+    expect(push).toContain('printf "%s\\n" "$APP_TOKEN"');
+    expect(push).toContain('creations being restricted');
+    expect(push).toContain('tag-ruleset-rejected "$ACTUAL_TAG" create');
+
+    const notes = releaseJob.slice(
+      releaseJob.indexOf('- name: Generate release notes'),
+      releaseJob.indexOf('- name: Download SBOM')
+    );
+    expect(notes).not.toContain('release-tag-token');
+    expect(notes).not.toContain('APP_TOKEN');
+
+    const create = releaseJob.slice(releaseJob.indexOf('- name: Create GitHub release'));
+    expect(create).toContain('GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}');
+    expect(create).toContain('gh "${args[@]}"');
+    expect(create).toContain('--verify-tag');
+    expect(create).toContain('--draft');
+  });
+
+  it('refuses a normal dispatch that would skip an unpublished stable version', () => {
+    const guard = workflow.slice(
+      workflow.indexOf('- name: Refuse to skip an unpublished stable version'),
+      workflow.indexOf('- name: Validate stable release candidate')
+    );
+    expect(guard).toContain(
+      "if: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_release_tag == '' }}"
+    );
+    expect(guard).toContain('npm view "${CLI_NAME}@${CURRENT}" version');
+    expect(guard).toContain('unpublished-guard');
+    expect(guard).not.toContain('secrets.');
+
+    const appCreds = workflow.slice(
+      workflow.indexOf('- name: Validate release App credentials'),
+      workflow.indexOf('- name: Require main branch')
+    );
+    expect(appCreds).toContain('RELEASE_PR_APP_ID');
+    expect(appCreds).toContain('RELEASE_PR_APP_PRIVATE_KEY');
+    expect(appCreds).not.toContain('retry_release_tag');
   });
 
   it('computes release versions from package.json instead of a tag-scanning action', () => {
