@@ -9,7 +9,7 @@
 //
 // Usage: node scripts/verify-packaged-main-requires.mjs <path-to-app.asar>
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -62,6 +62,16 @@ function tryResolve(fromFile, specifier) {
   return createRequire(fromFile).resolve(specifier);
 }
 
+/** require.resolve realpaths. os.tmpdir() on macOS does not (`/var` → `/private/var`). */
+function canonical(file) {
+  const resolved = path.resolve(file);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
 function shouldParse(file) {
   return file.endsWith('.js') || file.endsWith('.cjs') || file.endsWith('.mjs');
 }
@@ -76,7 +86,7 @@ function insideNodeModules(appDir, file) {
  * @returns {{ missing: Array<{ specifier: string, from: string, message: string }>, checked: string[] }}
  */
 export function findMissingRuntimeRequires(appDir) {
-  const root = path.resolve(appDir);
+  const root = canonical(appDir);
   const pkgPath = path.join(root, 'package.json');
   if (!existsSync(pkgPath)) {
     return {
@@ -167,6 +177,7 @@ export function findMissingRuntimeRequires(appDir) {
           });
           continue;
         }
+        if (path.isAbsolute(resolved)) resolved = canonical(resolved);
         if (
           isShippedResolution(root, resolved) &&
           !insideNodeModules(root, resolved) &&
@@ -192,6 +203,7 @@ export function findMissingRuntimeRequires(appDir) {
       }
       // `node:fs` resolves to a builtin id, not a file in the archive.
       if (!path.isAbsolute(resolved)) continue;
+      resolved = canonical(resolved);
       if (!isShippedResolution(root, resolved)) {
         missing.push({
           specifier,

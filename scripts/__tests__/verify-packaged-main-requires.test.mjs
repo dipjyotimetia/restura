@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -70,6 +70,31 @@ test('flags a main-process require that resolves only from a parent install', ()
     assert.deepEqual(result.checked, ['shipped']);
   } finally {
     rmSync(app, { recursive: true, force: true });
+  }
+});
+
+test('a symlinked app root still counts packages inside it as shipped', () => {
+  // macOS os.tmpdir() is /var/folders, a symlink to /private/var/folders.
+  // require.resolve returns the real path, so the checker must realpath the
+  // extract dir or every in-archive module looks external.
+  const real = mkdtempSync(path.join(tmpdir(), 'restura-real-app-'));
+  const linkParent = mkdtempSync(path.join(tmpdir(), 'restura-link-app-'));
+  const link = path.join(linkParent, 'app');
+  try {
+    writeApp(real, {
+      'package.json': JSON.stringify({ main: 'main.js' }),
+      'main.js': "require('./feature.js');\n",
+      'feature.js': "require('shipped');\n",
+      'node_modules/shipped/package.json': JSON.stringify({ main: 'index.js' }),
+      'node_modules/shipped/index.js': 'module.exports = {};\n',
+    });
+    symlinkSync(real, link);
+    const result = findMissingRuntimeRequires(link);
+    assert.deepEqual(specifiers(result), []);
+    assert.deepEqual(result.checked, ['shipped']);
+  } finally {
+    rmSync(real, { recursive: true, force: true });
+    rmSync(linkParent, { recursive: true, force: true });
   }
 });
 
