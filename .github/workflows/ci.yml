@@ -401,6 +401,19 @@ jobs:
           node scripts/verify-asar-renderer.mjs "$asar"
           node scripts/verify-packaged-main-requires.mjs "$asar"
 
+      - name: Disable broken Microsoft apt repos
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/fix-apt-microsoft-repos
+
+      - name: Install xvfb
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Launch packaged app
+        # Headless on Linux (xvfb). The app exits 0 after the main frame loads
+        # when RESTURA_SMOKE=1, and exits 1 on an uncaught main-process error.
+        run: node scripts/smoke-packaged-electron.mjs
+
   e2e:
     needs: [changes]
     if: ${{ needs.changes.outputs.app == 'true' }}

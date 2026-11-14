@@ -5,9 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import asar from '@electron/asar';
 import {
+  findDevOnlyRuntimeRequires,
   findMissingRuntimeRequires,
   isShippedResolution,
   literalSpecifiers,
+  packageNameFromSpecifier,
   verifyPackagedMainRequires,
 } from '../verify-packaged-main-requires.mjs';
 
@@ -34,6 +36,37 @@ test('literalSpecifiers ignores comments, builtins stay visible, variables are n
     import("@dynamic/pkg");
   `;
   assert.deepEqual(literalSpecifiers(source), ['node:fs', './local', '@dynamic/pkg']);
+});
+
+test('packageNameFromSpecifier keeps the package, not the subpath', () => {
+  assert.equal(
+    packageNameFromSpecifier('@modelcontextprotocol/server/stdio'),
+    '@modelcontextprotocol/server'
+  );
+  assert.equal(packageNameFromSpecifier('electron-log/main'), 'electron-log');
+  assert.equal(packageNameFromSpecifier('zod'), 'zod');
+});
+
+test('flags a main or preload import that is only a devDependency', () => {
+  const app = mkdtempSync(path.join(tmpdir(), 'restura-devdep-'));
+  try {
+    writeApp(app, {
+      'package.json': JSON.stringify({
+        main: 'main.js',
+        dependencies: { shipped: '^1.0.0' },
+        devDependencies: { 'only-dev': '^1.0.0', shipped: '^1.0.0' },
+      }),
+      'main.js': "require('./feature.js');\nrequire('shipped');\n",
+      'feature.js': "require('only-dev/extra');\n",
+    });
+    const hits = findDevOnlyRuntimeRequires(app);
+    assert.deepEqual(
+      hits.map((hit) => hit.packageName),
+      ['only-dev']
+    );
+  } finally {
+    rmSync(app, { recursive: true, force: true });
+  }
 });
 
 test('a resolution outside the app directory is not shipped', () => {

@@ -1,27 +1,15 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createLogger } from '@shared/runtime/logger';
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../shared/channels';
-import { gitRateLimiter } from './handlers/git-handler';
-import { grpcRateLimiter, grpcStreamRateLimiter } from './handlers/grpc-handler';
-import { httpRateLimiter } from './handlers/http-handler';
-import { kafkaRateLimiter } from './handlers/kafka-handler';
-import {
-  mcpCancelRateLimiter,
-  mcpRateLimiter,
-  mcpRequestRateLimiter,
-} from './handlers/mcp-handler';
-import { mqttRateLimiter } from './handlers/mqtt-handler';
-import { socketIoRateLimiter } from './handlers/socketio-handler';
-import { sseRateLimiter } from './handlers/sse-handler';
-import { wsPingRateLimiter, wsRateLimiter } from './handlers/websocket-handler';
+import type { KeyedRateLimiter } from './ipc/ipc-rate-limiter';
 import { createValidatedHandler, NoInputSchema, SAFE_OPEN_PROTOCOLS } from './ipc/ipc-validators';
 import { bindLimiterToWebContents } from './ipc/rate-limiter-cleanup';
 import { createApplicationMenu } from './lifecycle/menu';
-import { notificationRateLimiter } from './notifications';
-import { secretRateLimiter } from './security/secret-handle-store';
+import { watchSmokeWindow } from './lifecycle/process-guard';
+import { rendererGoneAction } from './lifecycle/renderer-recovery';
 
 const log = createLogger('window-manager');
 
@@ -169,6 +157,101 @@ export function shouldPersistWindowState(otherLiveWindows: number): boolean {
   return otherLiveWindows === 0;
 }
 
+const rendererReloads = new WeakMap<BrowserWindow, number>();
+
+/** A handler that fails to load must not stop the window from opening. */
+function optionalLimiters(feature: string, load: () => KeyedRateLimiter[]): KeyedRateLimiter[] {
+  try {
+    return load();
+  } catch (err) {
+    log.error('startup feature failed', {
+      feature,
+      message: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+    return [];
+  }
+}
+
+function windowLimiters(): KeyedRateLimiter[] {
+  return [
+    ...optionalLimiters('http', () => [require('./handlers/http-handler').httpRateLimiter]),
+    ...optionalLimiters('grpc', () => [
+      require('./handlers/grpc-handler').grpcRateLimiter,
+      require('./handlers/grpc-handler').grpcStreamRateLimiter,
+    ]),
+    ...optionalLimiters('websocket', () => [
+      require('./handlers/websocket-handler').wsRateLimiter,
+      require('./handlers/websocket-handler').wsPingRateLimiter,
+    ]),
+    ...optionalLimiters('socketio', () => [
+      require('./handlers/socketio-handler').socketIoRateLimiter,
+    ]),
+    ...optionalLimiters('sse', () => [require('./handlers/sse-handler').sseRateLimiter]),
+    ...optionalLimiters('mcp', () => [
+      require('./handlers/mcp-handler').mcpRateLimiter,
+      require('./handlers/mcp-handler').mcpRequestRateLimiter,
+      require('./handlers/mcp-handler').mcpCancelRateLimiter,
+    ]),
+    ...optionalLimiters('kafka', () => [require('./handlers/kafka-handler').kafkaRateLimiter]),
+    ...optionalLimiters('mqtt', () => [require('./handlers/mqtt-handler').mqttRateLimiter]),
+    ...optionalLimiters('git', () => [require('./handlers/git-handler').gitRateLimiter]),
+    ...optionalLimiters('notifications', () => [
+      require('./notifications').notificationRateLimiter,
+    ]),
+    ...optionalLimiters('secret-handles', () => [
+      require('./security/secret-handle-store').secretRateLimiter,
+    ]),
+  ];
+}
+
+function attachRendererRecovery(win: BrowserWindow): void {
+  win.webContents.on('render-process-gone', (_event, details) => {
+    const previous = rendererReloads.get(win) ?? 0;
+    const action = rendererGoneAction(previous, details.reason);
+    log.error('renderer gone', { reason: details.reason, exitCode: details.exitCode, action });
+    if (action === 'ignore' || win.isDestroyed()) return;
+    if (action === 'reload') {
+      rendererReloads.set(win, previous + 1);
+      win.webContents.reload();
+      return;
+    }
+    void dialog
+      .showMessageBox(win, {
+        type: 'error',
+        title: 'Restura window crashed',
+        message: 'This window crashed and could not recover automatically.',
+        detail: 'Details were saved to the Restura log. You can reload the window or close it.',
+        buttons: ['Reload', 'Close'],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response !== 0 || win.isDestroyed()) return;
+        rendererReloads.set(win, 0);
+        win.webContents.reload();
+      });
+  });
+
+  win.on('unresponsive', () => {
+    log.error('renderer unresponsive');
+    void dialog
+      .showMessageBox(win, {
+        type: 'warning',
+        title: 'Restura is not responding',
+        message: 'The window is not responding.',
+        detail:
+          'You can keep waiting, or reload the window. Details were saved to the Restura log.',
+        buttons: ['Wait', 'Reload'],
+        defaultId: 0,
+        cancelId: 0,
+      })
+      .then(({ response }) => {
+        if (response === 1 && !win.isDestroyed()) win.webContents.reload();
+      });
+  });
+}
+
 export function createMainWindow(isDev: boolean): BrowserWindow {
   const windowState = loadWindowState();
   const referenceWindow = getActiveWindow();
@@ -218,6 +301,9 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
     if (shouldPersistWindowState(others)) saveWindowState(mainWindow);
   });
 
+  // Attach before loadFile/loadURL so a fast load cannot finish first.
+  watchSmokeWindow(mainWindow);
+
   // Load the app
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
@@ -251,26 +337,8 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
   // Drop per-webContents rate-limit buckets when the renderer is destroyed.
   // Keeps the keyed-limiter Maps from accumulating dead webContents ids
   // across the app lifetime (windows opened/closed, reloads, etc.).
-  bindLimiterToWebContents(
-    [
-      httpRateLimiter,
-      grpcRateLimiter,
-      grpcStreamRateLimiter,
-      wsRateLimiter,
-      wsPingRateLimiter,
-      socketIoRateLimiter,
-      sseRateLimiter,
-      mcpRateLimiter,
-      mcpRequestRateLimiter,
-      mcpCancelRateLimiter,
-      kafkaRateLimiter,
-      mqttRateLimiter,
-      gitRateLimiter,
-      notificationRateLimiter,
-      secretRateLimiter,
-    ],
-    mainWindow.webContents
-  );
+  bindLimiterToWebContents(windowLimiters(), mainWindow.webContents);
+  attachRendererRecovery(mainWindow);
 
   return mainWindow;
 }

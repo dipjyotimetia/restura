@@ -83,9 +83,13 @@ function insideNodeModules(appDir, file) {
 
 /**
  * @param {string} appDir extracted (or fixture) app root
- * @returns {{ missing: Array<{ specifier: string, from: string, message: string }>, checked: string[] }}
+ * @returns {{
+ *   missing: Array<{ specifier: string, from: string, message: string }>,
+ *   checked: string[],
+ *   packages: Array<{ specifier: string, from: string }>
+ * }}
  */
-export function findMissingRuntimeRequires(appDir) {
+function scanRuntimeRequires(appDir) {
   const root = canonical(appDir);
   const pkgPath = path.join(root, 'package.json');
   if (!existsSync(pkgPath)) {
@@ -98,6 +102,7 @@ export function findMissingRuntimeRequires(appDir) {
         },
       ],
       checked: [],
+      packages: [],
     };
   }
 
@@ -115,6 +120,7 @@ export function findMissingRuntimeRequires(appDir) {
         },
       ],
       checked: [],
+      packages: [],
     };
   }
 
@@ -131,6 +137,7 @@ export function findMissingRuntimeRequires(appDir) {
           },
         ],
         checked: [],
+        packages: [],
       };
     }
     entries.push(mainFile);
@@ -147,6 +154,7 @@ export function findMissingRuntimeRequires(appDir) {
         },
       ],
       checked: [],
+      packages: [],
     };
   }
 
@@ -154,6 +162,7 @@ export function findMissingRuntimeRequires(appDir) {
   const seenSpecs = new Set();
   const missing = [];
   const checked = [];
+  const packages = [];
   const queue = [...entries];
 
   while (queue.length > 0) {
@@ -190,6 +199,7 @@ export function findMissingRuntimeRequires(appDir) {
 
       if (isElectronSpecifier(specifier) || seenSpecs.has(specifier)) continue;
       seenSpecs.add(specifier);
+      packages.push({ specifier, from: path.relative(root, file) });
       let resolved;
       try {
         resolved = tryResolve(file, specifier);
@@ -218,7 +228,49 @@ export function findMissingRuntimeRequires(appDir) {
 
   missing.sort((a, b) => a.specifier.localeCompare(b.specifier) || a.from.localeCompare(b.from));
   checked.sort();
+  packages.sort((a, b) => a.specifier.localeCompare(b.specifier) || a.from.localeCompare(b.from));
+  return { missing, checked, packages };
+}
+
+export function findMissingRuntimeRequires(appDir) {
+  const { missing, checked } = scanRuntimeRequires(appDir);
   return { missing, checked };
+}
+
+/** `@scope/name/sub` → `@scope/name`; `pkg/sub` → `pkg`. */
+export function packageNameFromSpecifier(specifier) {
+  if (specifier.startsWith('@')) {
+    const [scope, name] = specifier.split('/');
+    return name ? `${scope}/${name}` : specifier;
+  }
+  const slash = specifier.indexOf('/');
+  return slash === -1 ? specifier : specifier.slice(0, slash);
+}
+
+/**
+ * Main/preload specifiers whose package is a devDependency and not a production
+ * dependency. electron-builder will not ship those, so a top-level require of
+ * one crashes the packaged app (#1353). Resolving against the workspace
+ * node_modules cannot see this, because devDependencies are installed there.
+ *
+ * @param {string} repoRoot
+ * @returns {Array<{ specifier: string, from: string, packageName: string }>}
+ */
+export function findDevOnlyRuntimeRequires(repoRoot) {
+  const root = path.resolve(repoRoot);
+  const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const devOnly = new Set(Object.keys(pkg.devDependencies ?? {}));
+  for (const name of Object.keys(pkg.dependencies ?? {})) devOnly.delete(name);
+  const { packages } = scanRuntimeRequires(root);
+  const hits = [];
+  const seen = new Set();
+  for (const item of packages) {
+    const packageName = packageNameFromSpecifier(item.specifier);
+    if (!devOnly.has(packageName) || seen.has(packageName)) continue;
+    seen.add(packageName);
+    hits.push({ ...item, packageName });
+  }
+  return hits;
 }
 
 /**
@@ -243,9 +295,25 @@ function isDirectRun() {
 }
 
 if (isDirectRun()) {
+  if (process.argv.includes('--check-dev-dependencies')) {
+    const hits = findDevOnlyRuntimeRequires(process.cwd());
+    if (hits.length > 0) {
+      console.error(
+        '::error::Main or preload imports a devDependency. electron-builder will not ship it:'
+      );
+      for (const hit of hits) {
+        console.error(`- ${hit.specifier} (${hit.packageName}) from ${hit.from}`);
+      }
+      process.exit(1);
+    }
+    console.log('OK: main and preload do not import devDependencies');
+    process.exit(0);
+  }
   const asarPath = process.argv[2];
   if (!asarPath) {
-    console.error('::error::usage: verify-packaged-main-requires.mjs <app.asar>');
+    console.error(
+      '::error::usage: verify-packaged-main-requires.mjs <app.asar> | --check-dev-dependencies'
+    );
     process.exit(1);
   }
   const { missing, checked } = verifyPackagedMainRequires(path.resolve(asarPath));
