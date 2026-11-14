@@ -222,6 +222,9 @@ describe('release workflow Sentry guardrails', () => {
     const tool = JSON.parse(
       readFileSync(resolve(process.cwd(), '.github/tools/cyclonedx/package.json'), 'utf8')
     ) as { dependencies: Record<string, string> };
-    expect(tool.dependencies['@cyclonedx/cyclonedx-npm']).toMatch(/^6\.\d+\.\d+$/);
+    // 7.x drops the bundled xmlbuilder2 path; pin a major that still works with
+    // npm 12 and keep xmlbuilder2 explicit so --output-format XML succeeds.
+    expect(tool.dependencies['@cyclonedx/cyclonedx-npm']).toMatch(/^7\.\d+\.\d+$/);
+    expect(tool.dependencies.xmlbuilder2).toMatch(/^4\.\d+\.\d+$/);
   });
 });
