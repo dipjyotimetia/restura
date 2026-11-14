@@ -551,18 +551,23 @@ export default function ImportDialog({
 
           {/* Body */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-            <ImportStatusBanner
-              status={importStatus}
-              warnings={warnings}
-              environmentOnlyName={environmentOnlyName}
-              collectionName={importedCollectionName}
-              errorMessage={errorMessage}
-              onDismiss={() => {
-                onOpenChange(false);
-                setImportStatus('idle');
-                setWarnings([]);
-              }}
-            />
+            {importStatus === 'idle' ? (
+              <ImportStatusBanner status="idle" />
+            ) : importStatus === 'error' ? (
+              <ImportStatusBanner status="error" errorMessage={errorMessage} />
+            ) : (
+              <ImportStatusBanner
+                status="success"
+                warnings={warnings}
+                environmentOnlyName={environmentOnlyName}
+                collectionName={importedCollectionName}
+                onDismiss={() => {
+                  onOpenChange(false);
+                  setImportStatus('idle');
+                  setWarnings([]);
+                }}
+              />
+            )}
 
             {pendingOutcome && (
               <ImportPendingReview

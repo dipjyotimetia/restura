@@ -265,296 +265,309 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
     <>
       <div className="shrink-0 flex items-center gap-1">
         <Floater
-          ref={stripRef}
           radius="panel"
           elevation="float"
-          className={cn(
-            'sp-chrome flex min-w-0 flex-1 items-center gap-0.5 p-1',
-            // Horizontal scroll fallback when many tabs are open. We
-            // intentionally hide the scrollbar — overflow is signalled by
-            // the sp-scroll-fade edge masks on the cropped side.
-            'overflow-x-auto overflow-y-hidden no-scrollbar sp-scroll-fade'
-          )}
-          role="tablist"
-          aria-label="Request tabs"
-          // Mouse wheels only scroll vertically; map that onto the strip's
-          // horizontal overflow so cropped tabs are reachable without a trackpad.
-          onWheel={(e) => {
-            const el = e.currentTarget;
-            if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-            if (el.scrollWidth <= el.clientWidth) return;
-            el.scrollLeft += e.deltaY;
-          }}
-          onKeyDown={(e) => {
-            const idx = tabs.findIndex((t) => t.id === activeTabId);
-            if (e.key === 'ArrowRight') {
-              e.preventDefault();
-              const next = tabs[(idx + 1) % tabs.length];
-              if (next) {
-                focusActiveOnSwitch.current = true;
-                switchTab(next.id);
-              }
-            } else if (e.key === 'ArrowLeft') {
-              e.preventDefault();
-              const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
-              if (prev) {
-                focusActiveOnSwitch.current = true;
-                switchTab(prev.id);
-              }
-            } else if (e.key === 'Delete' && activeTabId) {
-              e.preventDefault();
-              requestClose(activeTabId);
-            }
-          }}
+          className="sp-chrome flex min-w-0 flex-1 items-center gap-0.5 p-1"
         >
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTabId;
-            const isRenaming = tab.id === renamingTabId;
-            const displayName = tabDisplayName(tab);
-            const saveBlockedReason = saveToCollectionBlockedReason(tab);
-            const isLive = liveIds.includes(tab.id);
-            // The visible dots are aria-hidden; their meaning rides the tab's name.
-            const accessibleName = [
-              displayName,
-              tab.isDirty ? 'unsaved changes' : null,
-              isLive ? 'live connection' : null,
-            ]
-              .filter(Boolean)
-              .join(', ');
+          {/*
+            tablist wraps the request tabs. New-request stays a sibling (not a
+            tablist child). Each chip still pairs role=tab with close/save
+            controls — a closable-tabs compromise; Delete closes the focused tab.
+          */}
+          <div
+            ref={stripRef}
+            role="tablist"
+            aria-label="Request tabs"
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-0.5',
+              // Horizontal scroll fallback when many tabs are open. We
+              // intentionally hide the scrollbar — overflow is signalled by
+              // the sp-scroll-fade edge masks on the cropped side.
+              'overflow-x-auto overflow-y-hidden no-scrollbar sp-scroll-fade'
+            )}
+            // Mouse wheels only scroll vertically; map that onto the strip's
+            // horizontal overflow so cropped tabs are reachable without a trackpad.
+            onWheel={(e) => {
+              const el = e.currentTarget;
+              if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+              if (el.scrollWidth <= el.clientWidth) return;
+              el.scrollLeft += e.deltaY;
+            }}
+            onKeyDown={(e) => {
+              const idx = tabs.findIndex((t) => t.id === activeTabId);
+              if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                const next = tabs[(idx + 1) % tabs.length];
+                if (next) {
+                  focusActiveOnSwitch.current = true;
+                  switchTab(next.id);
+                }
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
+                if (prev) {
+                  focusActiveOnSwitch.current = true;
+                  switchTab(prev.id);
+                }
+              } else if (e.key === 'Delete' && activeTabId) {
+                e.preventDefault();
+                requestClose(activeTabId);
+              }
+            }}
+          >
+            {tabs.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              const isRenaming = tab.id === renamingTabId;
+              const displayName = tabDisplayName(tab);
+              const saveBlockedReason = saveToCollectionBlockedReason(tab);
+              const isLive = liveIds.includes(tab.id);
+              // The visible dots are aria-hidden; their meaning rides the tab's name.
+              const accessibleName = [
+                displayName,
+                tab.isDirty ? 'unsaved changes' : null,
+                isLive ? 'live connection' : null,
+              ]
+                .filter(Boolean)
+                .join(', ');
 
-            return (
-              <ContextMenu key={tab.id}>
-                <ContextMenuTrigger asChild>
-                  <div
-                    // Middle-click closes, as in browsers and editors.
-                    onAuxClick={(e) => {
-                      if (e.button !== 1) return;
-                      e.preventDefault();
-                      requestClose(tab.id);
-                    }}
-                    className={cn(
-                      'group inline-flex items-center gap-2 shrink-0',
-                      'rounded-sp-btn px-3 py-1.5 transition-colors',
-                      // Mount-only scale-in: plays when a tab is opened (and once
-                      // on strip mount); reorders/renames keep keys so no replay.
-                      'animate-scale-in font-mono text-sp-11-5',
-                      isActive
-                        ? // Active uses a clean raised fill — no glow ring.
-                          'text-sp-text bg-sp-surface-hi border border-sp-line-strong'
-                        : 'text-sp-muted hover:text-sp-text hover:bg-sp-hover border border-transparent'
-                    )}
-                  >
-                    {isRenaming ? (
-                      <input
-                        ref={renameInputRef}
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={commitRename}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commitRename();
-                          if (e.key === 'Escape') cancelRename();
-                        }}
-                        className={cn(
-                          'bg-transparent outline-none border-b border-sp-accent',
-                          'text-sp-text text-sp-12 font-sans',
-                          'min-w-[8ch] max-w-[130px]'
-                        )}
-                        aria-label="Rename request"
-                      />
-                    ) : (
-                      <button
-                        ref={isActive ? activeTabRef : undefined}
-                        type="button"
-                        role="tab"
-                        aria-selected={isActive}
-                        aria-label={accessibleName}
-                        tabIndex={isActive ? 0 : -1}
-                        onClick={() => switchTab(tab.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            switchTab(tab.id);
-                          }
-                        }}
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggingId(tab.id);
-                          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-                        }}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (!draggingId || draggingId === tab.id) return;
-                          const ids = tabs.map((t) => t.id);
-                          const fromIdx = ids.indexOf(draggingId);
-                          const toIdx = ids.indexOf(tab.id);
-                          if (fromIdx === -1 || toIdx === -1) return;
-                          ids.splice(fromIdx, 1);
-                          ids.splice(toIdx, 0, draggingId);
-                          reorderTabs(ids);
-                          setDraggingId(null);
-                        }}
-                        onDragEnd={() => setDraggingId(null)}
-                        className="inline-flex min-w-0 items-center gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
-                      >
-                        <ProtoChip protocol={tab.modeOverride ?? tab.request.type} />
-                        <span
-                          className="truncate font-sans text-sp-12"
-                          style={{ maxWidth: 130 }}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            switchTab(tab.id);
-                            startRename(tab.id, tab.request.name);
-                          }}
-                          title={displayName}
-                        >
-                          {displayName}
-                        </span>
-
-                        {/* Dirty dot — only when truly unsaved (no bound saved
-                            request). When there is a bound request, the adjacent
-                            save button exposes that action independently. */}
-                        {isLive && (
-                          <span
-                            aria-hidden="true"
-                            title="Live connection"
-                            data-testid="tab-live-dot"
-                            className="block size-[6px] rounded-full bg-success shrink-0"
-                          />
-                        )}
-
-                        {tab.isDirty && !tab.savedRequestId && (
-                          <span
-                            aria-hidden="true"
-                            className="block size-[5px] rounded-full sp-accent-glow shrink-0"
-                            style={{ background: 'var(--sp-accent)' }}
-                          />
-                        )}
-                      </button>
-                    )}
-
-                    {tab.isDirty && tab.savedRequestId && (
-                      <button
-                        type="button"
-                        aria-label="Save changes to collection"
-                        title="Save changes"
-                        onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}
-                        // 16px hit target around the 5px dot.
-                        className="-mx-1 inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
-                      >
-                        <span
-                          aria-hidden="true"
-                          className="block size-[5px] rounded-full sp-accent-glow"
-                          style={{ background: 'var(--sp-accent)' }}
-                        />
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      aria-label={`close ${displayName}`}
-                      // Out of the tab order: Delete closes the focused tab, and a
-                      // close stop per tab makes the strip slow to tab through.
-                      tabIndex={-1}
-                      onClick={() => requestClose(tab.id)}
+              return (
+                <ContextMenu key={tab.id}>
+                  <ContextMenuTrigger asChild>
+                    <div
+                      // Middle-click closes, as in browsers and editors.
+                      onAuxClick={(e) => {
+                        if (e.button !== 1) return;
+                        e.preventDefault();
+                        requestClose(tab.id);
+                      }}
                       className={cn(
-                        'inline-flex items-center justify-center size-4 rounded-[5px]',
-                        'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
-                        'hover:bg-sp-hover text-sp-muted hover:text-sp-text',
-                        'transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
-                        isActive && 'opacity-70'
+                        'group inline-flex items-center gap-2 shrink-0',
+                        'rounded-sp-btn px-3 py-1.5 transition-colors',
+                        // Mount-only scale-in: plays when a tab is opened (and once
+                        // on strip mount); reorders/renames keep keys so no replay.
+                        'animate-scale-in font-mono text-sp-11-5',
+                        isActive
+                          ? // Active uses a clean raised fill — no glow ring.
+                            'text-sp-text bg-sp-surface-hi border border-sp-line-strong'
+                          : 'text-sp-muted hover:text-sp-text hover:bg-sp-hover border border-transparent'
                       )}
                     >
-                      <X className="size-3" aria-hidden="true" />
-                    </button>
-                  </div>
-                </ContextMenuTrigger>
-                <ContextMenuContent>
-                  <ContextMenuItem
-                    onClick={() => {
-                      switchTab(tab.id);
-                      startRename(tab.id, tab.request.name);
-                    }}
-                  >
-                    Rename
-                  </ContextMenuItem>
-                  {saveBlockedReason ? (
-                    // Disabled items swallow pointer events, so the tooltip
-                    // hangs off a wrapper that still receives hover/focus.
-                    <TooltipProvider delayDuration={200}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="block" tabIndex={-1}>
-                            <ContextMenuItem disabled aria-description={saveBlockedReason}>
-                              Save to Collection…
-                              <span className="ml-auto pl-3 text-sp-11 text-sp-dim">
-                                Not supported yet
-                              </span>
-                            </ContextMenuItem>
+                      {isRenaming ? (
+                        <input
+                          ref={renameInputRef}
+                          value={renameValue}
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={commitRename}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename();
+                            if (e.key === 'Escape') cancelRename();
+                          }}
+                          className={cn(
+                            'bg-transparent outline-none border-b border-sp-accent',
+                            'text-sp-text text-sp-12 font-sans',
+                            'min-w-[8ch] max-w-[130px]'
+                          )}
+                          aria-label="Rename request"
+                        />
+                      ) : (
+                        <button
+                          ref={isActive ? activeTabRef : undefined}
+                          type="button"
+                          role="tab"
+                          aria-selected={isActive}
+                          aria-label={accessibleName}
+                          tabIndex={isActive ? 0 : -1}
+                          onClick={() => switchTab(tab.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              switchTab(tab.id);
+                            }
+                          }}
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggingId(tab.id);
+                            if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            if (!draggingId || draggingId === tab.id) return;
+                            const ids = tabs.map((t) => t.id);
+                            const fromIdx = ids.indexOf(draggingId);
+                            const toIdx = ids.indexOf(tab.id);
+                            if (fromIdx === -1 || toIdx === -1) return;
+                            ids.splice(fromIdx, 1);
+                            ids.splice(toIdx, 0, draggingId);
+                            reorderTabs(ids);
+                            setDraggingId(null);
+                          }}
+                          onDragEnd={() => setDraggingId(null)}
+                          className="inline-flex min-w-0 items-center gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                        >
+                          <ProtoChip protocol={tab.modeOverride ?? tab.request.type} />
+                          <span
+                            className="truncate font-sans text-sp-12"
+                            style={{ maxWidth: 130 }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              switchTab(tab.id);
+                              startRename(tab.id, tab.request.name);
+                            }}
+                            title={displayName}
+                          >
+                            {displayName}
                           </span>
-                        </TooltipTrigger>
-                        {/* Portalled: the menu content clips overflow. */}
-                        <TooltipPortal>
-                          <TooltipContent side="right" className="max-w-[260px]">
-                            {saveBlockedReason}
-                          </TooltipContent>
-                        </TooltipPortal>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : (
-                    <ContextMenuItem onClick={() => openSaveDialog(tab.id)}>
-                      Save to Collection…
+
+                          {/* Dirty dot — only when truly unsaved (no bound saved
+                            request). When there is a bound request, the adjacent
+                            save button exposes that action independently. */}
+                          {isLive && (
+                            <span
+                              aria-hidden="true"
+                              title="Live connection"
+                              data-testid="tab-live-dot"
+                              className="block size-[6px] rounded-full bg-success shrink-0"
+                            />
+                          )}
+
+                          {tab.isDirty && !tab.savedRequestId && (
+                            <span
+                              aria-hidden="true"
+                              className="block size-[5px] rounded-full sp-accent-glow shrink-0"
+                              style={{ background: 'var(--sp-accent)' }}
+                            />
+                          )}
+                        </button>
+                      )}
+
+                      {tab.isDirty && tab.savedRequestId && (
+                        <button
+                          type="button"
+                          aria-label="Save changes to collection"
+                          title="Save changes"
+                          onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}
+                          // 16px hit target around the 5px dot.
+                          className="-mx-1 inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                        >
+                          <span
+                            aria-hidden="true"
+                            className="block size-[5px] rounded-full sp-accent-glow"
+                            style={{ background: 'var(--sp-accent)' }}
+                          />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        aria-label={`close ${displayName}`}
+                        // Out of the tab order: Delete closes the focused tab, and a
+                        // close stop per tab makes the strip slow to tab through.
+                        tabIndex={-1}
+                        onClick={() => requestClose(tab.id)}
+                        className={cn(
+                          'inline-flex items-center justify-center size-4 rounded-[5px]',
+                          'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                          'hover:bg-sp-hover text-sp-muted hover:text-sp-text',
+                          'transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+                          isActive && 'opacity-70'
+                        )}
+                      >
+                        <X className="size-3" aria-hidden="true" />
+                      </button>
+                    </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem
+                      onClick={() => {
+                        switchTab(tab.id);
+                        startRename(tab.id, tab.request.name);
+                      }}
+                    >
+                      Rename
                     </ContextMenuItem>
-                  )}
-                  {/* Connection-preset edits (Kafka / MQTT / WebSocket /
+                    {saveBlockedReason ? (
+                      // Disabled items swallow pointer events, so the tooltip
+                      // hangs off a wrapper that still receives hover/focus.
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="block" tabIndex={-1}>
+                              <ContextMenuItem disabled aria-description={saveBlockedReason}>
+                                Save to Collection…
+                                <span className="ml-auto pl-3 text-sp-11 text-sp-dim">
+                                  Not supported yet
+                                </span>
+                              </ContextMenuItem>
+                            </span>
+                          </TooltipTrigger>
+                          {/* Portalled: the menu content clips overflow. */}
+                          <TooltipPortal>
+                            <TooltipContent side="right" className="max-w-[260px]">
+                              {saveBlockedReason}
+                            </TooltipContent>
+                          </TooltipPortal>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      <ContextMenuItem onClick={() => openSaveDialog(tab.id)}>
+                        Save to Collection…
+                      </ContextMenuItem>
+                    )}
+                    {/* Connection-preset edits (Kafka / MQTT / WebSocket /
                       Socket.IO) live in the connection store and never mark
                       the tab dirty, so a preset-linked tab can always save
                       (#984, #1209). */}
-                  {(tab.isDirty || isConnectionPresetTab(tab)) && tab.savedRequestId && (
-                    <ContextMenuItem onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}>
-                      Save changes
+                    {(tab.isDirty || isConnectionPresetTab(tab)) && tab.savedRequestId && (
+                      <ContextMenuItem onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}>
+                        Save changes
+                      </ContextMenuItem>
+                    )}
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => duplicateTab(tab.id)}>
+                      Duplicate
                     </ContextMenuItem>
-                  )}
-                  <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => duplicateTab(tab.id)}>Duplicate</ContextMenuItem>
-                  <ContextMenuSub>
-                    <ContextMenuSubTrigger>Open as…</ContextMenuSubTrigger>
-                    <ContextMenuSubContent>
-                      {OPEN_AS.filter((t) => t.mode !== tabMode(tab)).map((t) => (
-                        <ContextMenuItem
-                          key={t.mode}
-                          className="gap-2"
-                          disabled={t.desktopOnly && !isElectron()}
-                          onClick={() => handleOpenAs(tab, t.mode)}
-                        >
-                          <ProtoChip protocol={t.chip} className="w-12 justify-center" />
-                          {t.menuLabel}
-                          {carriesUrl(t.mode) ? null : (
-                            <span className="ml-auto pl-3 text-sp-11 text-sp-dim">
-                              URL not carried
-                            </span>
-                          )}
-                        </ContextMenuItem>
-                      ))}
-                    </ContextMenuSubContent>
-                  </ContextMenuSub>
-                  <ContextMenuItem onClick={() => requestClose(tab.id)}>Close</ContextMenuItem>
-                  <ContextMenuItem onClick={() => requestBulkClose({ kind: 'others', id: tab.id })}>
-                    Close Others
-                  </ContextMenuItem>
-                  <ContextMenuItem
-                    disabled={tabs[tabs.length - 1]?.id === tab.id}
-                    onClick={() => requestBulkClose({ kind: 'right', id: tab.id })}
-                  >
-                    Close Tabs to the Right
-                  </ContextMenuItem>
-                  <ContextMenuItem onClick={() => requestBulkClose({ kind: 'all' })}>
-                    Close All
-                  </ContextMenuItem>
-                </ContextMenuContent>
-              </ContextMenu>
-            );
-          })}
+                    <ContextMenuSub>
+                      <ContextMenuSubTrigger>Open as…</ContextMenuSubTrigger>
+                      <ContextMenuSubContent>
+                        {OPEN_AS.filter((t) => t.mode !== tabMode(tab)).map((t) => (
+                          <ContextMenuItem
+                            key={t.mode}
+                            className="gap-2"
+                            disabled={t.desktopOnly && !isElectron()}
+                            onClick={() => handleOpenAs(tab, t.mode)}
+                          >
+                            <ProtoChip protocol={t.chip} className="w-12 justify-center" />
+                            {t.menuLabel}
+                            {carriesUrl(t.mode) ? null : (
+                              <span className="ml-auto pl-3 text-sp-11 text-sp-dim">
+                                URL not carried
+                              </span>
+                            )}
+                          </ContextMenuItem>
+                        ))}
+                      </ContextMenuSubContent>
+                    </ContextMenuSub>
+                    <ContextMenuItem onClick={() => requestClose(tab.id)}>Close</ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => requestBulkClose({ kind: 'others', id: tab.id })}
+                    >
+                      Close Others
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      disabled={tabs[tabs.length - 1]?.id === tab.id}
+                      onClick={() => requestBulkClose({ kind: 'right', id: tab.id })}
+                    >
+                      Close Tabs to the Right
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={() => requestBulkClose({ kind: 'all' })}>
+                      Close All
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+              );
+            })}
+          </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

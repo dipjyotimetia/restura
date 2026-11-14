@@ -44,50 +44,51 @@ const MessageRow = memo(function MessageRow({
   selected: boolean;
   onSelect: (id: string) => void;
 }) {
+  const label = message.error
+    ? `MQTT message error: ${message.error}`
+    : `MQTT message on ${message.topic || 'unknown topic'}`;
+
   return (
-    <li
-      role="button"
-      tabIndex={0}
-      onClick={() => onSelect(message.id)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect(message.id);
-        }
-      }}
-      className={cn(
-        'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors sp-stream-row',
-        selected ? 'bg-sp-active border-l-sp-accent' : 'border-l-transparent hover:bg-sp-hover'
-      )}
-      style={{ gridTemplateColumns: '40px 50px 110px 1fr' }}
-    >
-      <div>
-        <QosPill qos={message.qos} />
-      </div>
-      <span className="text-sp-dim">
-        {message.retain ? <span style={{ color: MQTT_GREEN }}>R</span> : '—'}
-      </span>
-      <span className="text-sp-dim tabular-nums">
-        {new Date(message.timestamp).toLocaleTimeString()}
-      </span>
-      <span className="truncate">
-        {message.topic && (
-          <span style={{ color: MQTT_GREEN }} className="mr-2">
-            {message.topic}
-          </span>
+    <li>
+      <button
+        type="button"
+        onClick={() => onSelect(message.id)}
+        aria-label={label}
+        aria-pressed={selected}
+        className={cn(
+          'grid w-full items-center gap-2 px-3 py-1.5 text-left font-mono border-l-2 transition-colors sp-stream-row',
+          selected ? 'bg-sp-active border-l-sp-accent' : 'border-l-transparent hover:bg-sp-hover'
         )}
-        {message.payloadEncoding === 'base64' && !message.error && (
-          <span className="mr-2 text-sp-dim">[binary]</span>
-        )}
-        <span
-          className={cn(message.error ? 'text-red-400' : 'text-sp-text')}
-          title={message.payload}
-        >
-          {message.error
-            ? message.error
-            : displayMqttBinary(message.payload, message.payloadEncoding)}
+        style={{ gridTemplateColumns: '40px 50px 110px 1fr' }}
+      >
+        <div>
+          <QosPill qos={message.qos} />
+        </div>
+        <span className="text-sp-dim">
+          {message.retain ? <span style={{ color: MQTT_GREEN }}>R</span> : '—'}
         </span>
-      </span>
+        <span className="text-sp-dim tabular-nums">
+          {new Date(message.timestamp).toLocaleTimeString()}
+        </span>
+        <span className="truncate">
+          {message.topic && (
+            <span style={{ color: MQTT_GREEN }} className="mr-2">
+              {message.topic}
+            </span>
+          )}
+          {message.payloadEncoding === 'base64' && !message.error && (
+            <span className="mr-2 text-sp-dim">[binary]</span>
+          )}
+          <span
+            className={cn(message.error ? 'text-red-400' : 'text-sp-text')}
+            title={message.payload}
+          >
+            {message.error
+              ? message.error
+              : displayMqttBinary(message.payload, message.payloadEncoding)}
+          </span>
+        </span>
+      </button>
     </li>
   );
 });

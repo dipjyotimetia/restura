@@ -148,127 +148,124 @@ export default function RequestEntryItem({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          role="button"
-          tabIndex={0}
-          onClick={onClick}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onClick();
-            }
-          }}
           className={cn(
-            'group/entry px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
+            'group/entry flex items-start gap-2 px-3 py-2 border-b border-border/50 hover:bg-accent/50 transition-colors',
             isSelected && 'bg-accent',
             entry.pinned && 'bg-primary/[0.04]'
           )}
         >
-          <div className="flex items-center gap-2 mb-1">
-            {onToggleCompare && (
-              <Checkbox
-                checked={isCompareChecked ?? false}
-                onCheckedChange={onToggleCompare}
-                onClick={(e) => e.stopPropagation()}
-                aria-label="Select for compare"
-                className="h-3.5 w-3.5"
-              />
-            )}
-            {/* gRPC "methods" are full service paths — truncate rather than
-                push the status and protocol badges out of the row. */}
-            <Badge
-              variant="outline"
-              title={request.method}
-              className={cn('min-w-0 text-sp-11 px-1.5 py-0 font-semibold', methodColor)}
-            >
-              <span className="truncate">{request.method}</span>
-            </Badge>
-            <span className={cn('shrink-0 text-xs font-medium tabular-nums', statusColor)}>
-              {displayStatus || 'ERR'}
-            </span>
-            {entry.protocol && entry.protocol !== 'http' && (
-              <Badge variant="outline" className="shrink-0 text-sp-11 px-1 py-0 uppercase">
-                {entry.protocol}
+          {onToggleCompare && (
+            <Checkbox
+              checked={isCompareChecked ?? false}
+              onCheckedChange={onToggleCompare}
+              aria-label="Select for compare"
+              className="mt-0.5 h-3.5 w-3.5"
+            />
+          )}
+          <button
+            type="button"
+            onClick={onClick}
+            aria-pressed={isSelected}
+            aria-label={`${request.method} ${displayUrl}`}
+            className="min-w-0 flex-1 text-left"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              {/* gRPC "methods" are full service paths — truncate rather than
+                  push the status and protocol badges out of the row. */}
+              <Badge
+                variant="outline"
+                title={request.method}
+                className={cn('min-w-0 text-sp-11 px-1.5 py-0 font-semibold', methodColor)}
+              >
+                <span className="truncate">{request.method}</span>
               </Badge>
-            )}
-            {isSlow && (
-              <span title={`Slow (≥${slowThresholdMs}ms)`}>
-                <Zap className="h-3 w-3 text-amber-500" />
+              <span className={cn('shrink-0 text-xs font-medium tabular-nums', statusColor)}>
+                {displayStatus || 'ERR'}
               </span>
-            )}
-            {entry.pinned && <Pin className="h-3 w-3 text-primary fill-primary" />}
-            {/* Quick actions — pin + remove, on hover. */}
-            <div className="ml-auto flex items-center gap-0.5">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  togglePin(entry.id);
-                }}
-                className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-opacity"
-                aria-label={entry.pinned ? 'Unpin entry' : 'Pin entry'}
-                title={entry.pinned ? 'Unpin' : 'Pin (keeps across clears)'}
-              >
-                {entry.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeEntry(entry.id);
-                }}
-                className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-red-500 transition-opacity"
-                aria-label="Remove entry"
-                title="Remove"
-              >
-                <X className="h-3 w-3" />
-              </button>
-              <span className="text-sp-11 text-muted-foreground group-hover/entry:hidden">
+              {entry.protocol && entry.protocol !== 'http' && (
+                <Badge variant="outline" className="shrink-0 text-sp-11 px-1 py-0 uppercase">
+                  {entry.protocol}
+                </Badge>
+              )}
+              {isSlow && (
+                <span title={`Slow (≥${slowThresholdMs}ms)`}>
+                  <Zap className="h-3 w-3 text-amber-500" aria-hidden="true" />
+                </span>
+              )}
+              {entry.pinned && (
+                <Pin className="h-3 w-3 text-primary fill-primary" aria-hidden="true" />
+              )}
+              <span className="ml-auto text-sp-11 text-muted-foreground group-hover/entry:hidden">
                 {formatRelativeTime(timestamp)}
               </span>
             </div>
-          </div>
-          <div className="text-xs text-sp-muted truncate font-mono">{displayUrl}</div>
-          {/* Waterfall bar — duration relative to the slowest entry in view. */}
-          {barPct > 0 && (
-            <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
-              <div
-                className={cn(
-                  'h-full rounded-full',
-                  isSlow ? 'bg-red-500' : response.time < 200 ? 'bg-emerald-500' : 'bg-amber-500'
-                )}
-                style={{ width: `${barPct}%` }}
-              />
+            <div className="text-xs text-sp-muted truncate font-mono">{displayUrl}</div>
+            {/* Waterfall bar — duration relative to the slowest entry in view. */}
+            {barPct > 0 && (
+              <div className="mt-1 h-1 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={cn(
+                    'h-full rounded-full',
+                    isSlow ? 'bg-red-500' : response.time < 200 ? 'bg-emerald-500' : 'bg-amber-500'
+                  )}
+                  style={{ width: `${barPct}%` }}
+                />
+              </div>
+            )}
+            <div className="flex items-center gap-3 mt-1 text-sp-11 text-muted-foreground">
+              <span className={cn(isSlow && 'text-amber-600 dark:text-amber-400')}>
+                {formatDuration(response.time)}
+              </span>
+              {entry.requestSize != null && (
+                <span title="Request size">↑ {formatBytes(entry.requestSize)}</span>
+              )}
+              <span title="Response size">↓ {formatBytes(response.size)}</span>
+              {totalTests > 0 && (
+                <span
+                  className={cn(
+                    'font-mono tabular-nums',
+                    passedTests === totalTests
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : 'text-red-600 dark:text-red-400'
+                  )}
+                  title="Test assertions"
+                >
+                  {passedTests}/{totalTests} ✓
+                </span>
+              )}
+              {entry.runLabel && (
+                <span
+                  className="ml-auto truncate max-w-[90px] text-primary/70"
+                  title={`Run: ${entry.runLabel}`}
+                >
+                  ⚡ {entry.runLabel}
+                </span>
+              )}
             </div>
-          )}
-          <div className="flex items-center gap-3 mt-1 text-sp-11 text-muted-foreground">
-            <span className={cn(isSlow && 'text-amber-600 dark:text-amber-400')}>
-              {formatDuration(response.time)}
-            </span>
-            {entry.requestSize != null && (
-              <span title="Request size">↑ {formatBytes(entry.requestSize)}</span>
-            )}
-            <span title="Response size">↓ {formatBytes(response.size)}</span>
-            {totalTests > 0 && (
-              <span
-                className={cn(
-                  'font-mono tabular-nums',
-                  passedTests === totalTests
-                    ? 'text-emerald-600 dark:text-emerald-400'
-                    : 'text-red-600 dark:text-red-400'
-                )}
-                title="Test assertions"
-              >
-                {passedTests}/{totalTests} ✓
-              </span>
-            )}
-            {entry.runLabel && (
-              <span
-                className="ml-auto truncate max-w-[90px] text-primary/70"
-                title={`Run: ${entry.runLabel}`}
-              >
-                ⚡ {entry.runLabel}
-              </span>
-            )}
+          </button>
+          <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+            <button
+              type="button"
+              onClick={() => togglePin(entry.id)}
+              className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-foreground transition-opacity focus-visible:opacity-100"
+              aria-label={entry.pinned ? 'Unpin entry' : 'Pin entry'}
+              title={entry.pinned ? 'Unpin' : 'Pin (keeps across clears)'}
+            >
+              {entry.pinned ? (
+                <PinOff className="h-3 w-3" aria-hidden="true" />
+              ) : (
+                <Pin className="h-3 w-3" aria-hidden="true" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => removeEntry(entry.id)}
+              className="opacity-0 group-hover/entry:opacity-100 p-0.5 rounded text-muted-foreground hover:text-red-500 transition-opacity focus-visible:opacity-100"
+              aria-label="Remove entry"
+              title="Remove"
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
+            </button>
           </div>
         </div>
       </ContextMenuTrigger>

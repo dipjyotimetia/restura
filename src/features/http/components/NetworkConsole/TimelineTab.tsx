@@ -149,20 +149,15 @@ export default function TimelineTab() {
     const isAnchor = event.id === anchorId;
     const preview = event.payload.length > 120 ? `${event.payload.slice(0, 120)}…` : event.payload;
     return (
-      <div
+      <button
         key={event.id}
-        role="button"
-        tabIndex={0}
+        type="button"
         data-testid="timeline-row"
         onClick={() => setSelectedId(event.id)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setSelectedId(event.id);
-          }
-        }}
+        aria-pressed={isSelected}
+        aria-label={`${event.direction} ${event.protocol} event${event.label ? `: ${event.label}` : ''}`}
         className={cn(
-          'flex items-center gap-2 px-3 py-1 cursor-pointer border-b border-border/50 hover:bg-accent/50 text-sp-11',
+          'flex w-full items-center gap-2 px-3 py-1 text-left border-b border-border/50 hover:bg-accent/50 text-sp-11',
           isSelected && 'bg-accent',
           event.direction === 'system' && !isSelected && 'bg-muted/40',
           isAnchor && 'border-l-2 border-l-primary'
@@ -191,7 +186,7 @@ export default function TimelineTab() {
         >
           {preview || <span className="text-muted-foreground">(empty)</span>}
         </span>
-      </div>
+      </button>
     );
   };
 
