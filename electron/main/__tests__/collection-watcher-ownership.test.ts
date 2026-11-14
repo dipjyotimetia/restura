@@ -1,6 +1,5 @@
 // @vitest-environment node
 import * as fsp from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -83,7 +82,8 @@ describe('collection watchers are owned by the registering renderer', () => {
   const focusedWindow = fakeWebContents(999);
 
   beforeEach(async () => {
-    base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'watch-owner-')));
+    // `/tmp`, not `os.tmpdir()` — macOS `/var/folders` is a blocked system root.
+    base = await fsp.realpath(await fsp.mkdtemp(path.join('/tmp', 'watch-owner-')));
     h.userData = base;
     h.watchers.length = 0;
     resetGrantedCollectionRootsForTests();
