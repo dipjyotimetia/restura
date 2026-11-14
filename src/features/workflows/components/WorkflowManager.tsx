@@ -121,18 +121,20 @@ export function WorkflowManager({
             size="icon"
             className="h-6 w-6"
             title="Import workflow JSON or YAML"
+            aria-label="Import workflow JSON or YAML"
             onClick={() => importInputRef.current?.click()}
           >
-            <Upload className="h-4 w-4" />
+            <Upload className="h-4 w-4" aria-hidden="true" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
             title="New workflow"
+            aria-label="New workflow"
             onClick={() => setShowNewDialog(true)}
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       </div>

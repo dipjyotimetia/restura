@@ -87,21 +87,10 @@ function EnvRow({ env, isSubEnvironment, isSelected, isActive, onSelect, onDelet
   return (
     <div
       className={cn(
-        'group relative flex items-center gap-2.5 rounded-sp-btn px-2.5 py-2 cursor-pointer',
+        'group relative flex items-center gap-0.5 rounded-sp-btn',
         isSubEnvironment && 'ml-3 pl-4',
-        'transition-colors',
         isSelected ? 'bg-sp-active' : 'hover:bg-sp-hover'
       )}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      aria-current={isSelected ? 'true' : undefined}
     >
       {isSelected && (
         <span
@@ -110,50 +99,54 @@ function EnvRow({ env, isSubEnvironment, isSelected, isActive, onSelect, onDelet
           style={{ boxShadow: '0 0 8px var(--sp-accent-glow-55)' }}
         />
       )}
-      <EnvDot color={color} active={isActive} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <span
-            className={cn(
-              'text-sp-12-5 truncate',
-              isSelected ? 'font-semibold text-sp-text' : 'text-sp-text'
-            )}
-          >
-            {env.name}
-          </span>
-          {isSubEnvironment && <span className="text-sp-10 text-sp-dim">sub</span>}
-          {isActive && (
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-current={isSelected ? 'true' : undefined}
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-sp-btn px-2.5 py-2 text-left transition-colors"
+      >
+        <EnvDot color={color} active={isActive} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
             <span
-              className="inline-flex items-center px-1.5 h-4 rounded-sp-chip text-[10px] font-semibold text-sp-accent"
-              style={{ background: 'var(--sp-accent-glow-33)' }}
+              className={cn(
+                'text-sp-12-5 truncate',
+                isSelected ? 'font-semibold text-sp-text' : 'text-sp-text'
+              )}
             >
-              Active
+              {env.name}
             </span>
-          )}
+            {isSubEnvironment && <span className="text-sp-10 text-sp-dim">sub</span>}
+            {isActive && (
+              <span
+                className="inline-flex items-center px-1.5 h-4 rounded-sp-chip text-[10px] font-semibold text-sp-accent"
+                style={{ background: 'var(--sp-accent-glow-33)' }}
+              >
+                Active
+              </span>
+            )}
+          </div>
+          <div className="text-sp-10-5 text-sp-muted font-mono truncate">
+            {hint
+              ? hint
+              : `${stats.varCount} variable${stats.varCount === 1 ? '' : 's'}${
+                  stats.secretCount > 0 ? ` · ${stats.secretCount} secret` : ''
+                }`}
+          </div>
         </div>
-        <div className="text-sp-10-5 text-sp-muted font-mono truncate">
-          {hint
-            ? hint
-            : `${stats.varCount} variable${stats.varCount === 1 ? '' : 's'}${
-                stats.secretCount > 0 ? ` · ${stats.secretCount} secret` : ''
-              }`}
-        </div>
-      </div>
+      </button>
       <button
         type="button"
         aria-label={`Delete ${env.name}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
+        onClick={onDelete}
         className={cn(
-          'opacity-0 group-hover:opacity-100 transition-opacity shrink-0',
+          'opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mr-1',
           'inline-flex items-center justify-center size-6 rounded-sp-btn',
           'text-sp-muted hover:text-rose-400 hover:bg-sp-surface',
           'focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
         )}
       >
-        <Trash2 size={12} />
+        <Trash2 size={12} aria-hidden="true" />
       </button>
     </div>
   );

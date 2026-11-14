@@ -5,28 +5,45 @@ import { Floater } from '@/components/ui/spatial';
 import type { ImportWarning } from '@/features/collections/lib/importers';
 import { cn } from '@/lib/shared/utils';
 
-interface ImportStatusBannerProps {
-  status: 'idle' | 'success' | 'error';
-  warnings: ImportWarning[];
-  environmentOnlyName: string | null;
-  /** Name of the collection that was imported (shown in the success message). */
-  collectionName?: string | null;
-  errorMessage: string;
-  onDismiss: () => void;
-}
+export type ImportStatusBannerProps =
+  | { status: 'idle' }
+  | {
+      status: 'success';
+      warnings: ImportWarning[];
+      environmentOnlyName: string | null;
+      /** Name of the collection that was imported (shown in the success message). */
+      collectionName?: string | null;
+      onDismiss: () => void;
+    }
+  | {
+      status: 'error';
+      errorMessage: string;
+    };
 
-export function ImportStatusBanner({
-  status,
-  warnings,
-  environmentOnlyName,
-  collectionName,
-  errorMessage,
-  onDismiss,
-}: ImportStatusBannerProps) {
+export function ImportStatusBanner(props: ImportStatusBannerProps) {
   const [showAll, setShowAll] = useState(false);
-  if (status === 'idle') return null;
+  if (props.status === 'idle') return null;
 
-  if (status === 'success' && warnings.length === 0) {
+  if (props.status === 'error') {
+    return (
+      <Floater
+        radius="panel"
+        elevation="inset"
+        className="p-3.5 flex items-start gap-2.5 border border-rose-500/30"
+        style={{ background: 'rgba(244,63,94,0.08)' }}
+      >
+        <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
+        <div className="min-w-0">
+          <div className="text-sp-13 text-rose-300 font-medium">Import failed</div>
+          <p className="text-sp-12 text-rose-300/80 mt-0.5 break-words">{props.errorMessage}</p>
+        </div>
+      </Floater>
+    );
+  }
+
+  const { warnings, environmentOnlyName, collectionName, onDismiss } = props;
+
+  if (warnings.length === 0) {
     return (
       <Floater
         radius="panel"
@@ -34,7 +51,7 @@ export function ImportStatusBanner({
         className="p-3.5 flex items-center gap-2.5 border border-emerald-500/30"
         style={{ background: 'rgba(16,185,129,0.08)' }}
       >
-        <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+        <CheckCircle2 size={16} className="text-emerald-400 shrink-0" aria-hidden="true" />
         <span className="text-sp-13 text-emerald-300 font-medium">
           {environmentOnlyName
             ? `Imported environment: ${environmentOnlyName}`
@@ -46,89 +63,72 @@ export function ImportStatusBanner({
     );
   }
 
-  if (status === 'success' && warnings.length > 0) {
-    return (
-      <Floater
-        radius="panel"
-        elevation="inset"
-        className="p-3.5 border border-amber-500/30"
-        style={{ background: 'rgba(245,158,11,0.08)' }}
-      >
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div className="flex items-center gap-2 text-amber-300 font-medium text-sp-13">
-            <AlertCircle size={16} className="shrink-0" />
-            <span>
-              {collectionName ? `Imported "${collectionName}"` : 'Imported'} with {warnings.length}{' '}
-              warning{warnings.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                const text = warnings.map(describeWarning).join('\n');
-                navigator.clipboard
-                  ?.writeText(text)
-                  .then(() => toast.success('Warnings copied'))
-                  .catch(() => toast.error("Couldn't copy warnings"));
-              }}
-              className={cn(
-                'inline-flex items-center h-7 px-3 rounded-sp-btn',
-                'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
-                'hover:bg-sp-hover transition-colors'
-              )}
-            >
-              Copy warnings
-            </button>
-            <button
-              type="button"
-              onClick={onDismiss}
-              className={cn(
-                'inline-flex items-center h-7 px-3 rounded-sp-btn',
-                'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
-                'hover:bg-sp-hover transition-colors'
-              )}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-        <ul className="space-y-1 text-sp-12 text-sp-muted max-h-40 overflow-y-auto pr-1">
-          {(showAll ? warnings : warnings.slice(0, WARNING_CAP)).map((warning, index) => (
-            <li key={index} className="flex gap-2">
-              <span className="text-amber-400/70 shrink-0">›</span>
-              <span>{describeWarning(warning)}</span>
-            </li>
-          ))}
-          {!showAll && warnings.length > WARNING_CAP && (
-            <li className="text-sp-muted italic">
-              … and {warnings.length - WARNING_CAP} more{' '}
-              <button
-                type="button"
-                onClick={() => setShowAll(true)}
-                className="not-italic underline text-sp-text hover:text-amber-300"
-              >
-                Show all {warnings.length}
-              </button>
-            </li>
-          )}
-        </ul>
-      </Floater>
-    );
-  }
-
   return (
     <Floater
       radius="panel"
       elevation="inset"
-      className="p-3.5 flex items-start gap-2.5 border border-rose-500/30"
-      style={{ background: 'rgba(244,63,94,0.08)' }}
+      className="p-3.5 border border-amber-500/30"
+      style={{ background: 'rgba(245,158,11,0.08)' }}
     >
-      <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
-      <div className="min-w-0">
-        <div className="text-sp-13 text-rose-300 font-medium">Import failed</div>
-        <p className="text-sp-12 text-rose-300/80 mt-0.5 break-words">{errorMessage}</p>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2 text-amber-300 font-medium text-sp-13">
+          <AlertCircle size={16} className="shrink-0" aria-hidden="true" />
+          <span>
+            {collectionName ? `Imported "${collectionName}"` : 'Imported'} with {warnings.length}{' '}
+            warning{warnings.length === 1 ? '' : 's'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              const text = warnings.map(describeWarning).join('\n');
+              navigator.clipboard
+                ?.writeText(text)
+                .then(() => toast.success('Warnings copied'))
+                .catch(() => toast.error("Couldn't copy warnings"));
+            }}
+            className={cn(
+              'inline-flex items-center h-7 px-3 rounded-sp-btn',
+              'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
+              'hover:bg-sp-hover transition-colors'
+            )}
+          >
+            Copy warnings
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className={cn(
+              'inline-flex items-center h-7 px-3 rounded-sp-btn',
+              'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
+              'hover:bg-sp-hover transition-colors'
+            )}
+          >
+            Dismiss
+          </button>
+        </div>
       </div>
+      <ul className="space-y-1 text-sp-12 text-sp-muted max-h-40 overflow-y-auto pr-1">
+        {(showAll ? warnings : warnings.slice(0, WARNING_CAP)).map((warning, index) => (
+          <li key={index} className="flex gap-2">
+            <span className="text-amber-400/70 shrink-0">›</span>
+            <span>{describeWarning(warning)}</span>
+          </li>
+        ))}
+        {!showAll && warnings.length > WARNING_CAP && (
+          <li className="text-sp-muted italic">
+            … and {warnings.length - WARNING_CAP} more{' '}
+            <button
+              type="button"
+              onClick={() => setShowAll(true)}
+              className="not-italic underline text-sp-text hover:text-amber-300"
+            >
+              Show all {warnings.length}
+            </button>
+          </li>
+        )}
+      </ul>
     </Floater>
   );
 }

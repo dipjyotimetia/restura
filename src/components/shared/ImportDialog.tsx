@@ -64,7 +64,6 @@ interface ImportDialogProps {
   /** A file dropped on the window: its format is detected and it is staged for review. */
   droppedFile?: File | null;
 }
-
 export default function ImportDialog({
   open,
   onOpenChange,
@@ -75,8 +74,7 @@ export default function ImportDialog({
   const existingCollectionNames = useCollectionStore(
     useShallow((s) => s.collections.map((collection) => collection.name))
   );
-  // Name clash on import: keep both (auto-suffixed) or replace the existing one.
-  const [clashChoice, setClashChoice] = useState<NameClashChoice>('keep-both');
+  const [clashChoice, setClashChoice] = useState<NameClashChoice>('keep-both'); // keep-both | replace
   const [importedCollectionName, setImportedCollectionName] = useState<string | null>(null);
   const addEnvironment = useEnvironmentStore((s) => s.addEnvironment);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -93,11 +91,9 @@ export default function ImportDialog({
   const [harPreview, setHarPreview] = useState<HarImportPreview | null>(null);
   const [selectedHarEntries, setSelectedHarEntries] = useState<Set<string>>(new Set());
   const [selectedHarEnvironments, setSelectedHarEnvironments] = useState<Set<string>>(new Set());
-
   useEffect(() => {
     if (deepLinkSource?.format) setActiveFormat(deepLinkSource.format);
   }, [deepLinkSource]);
-
   // Auto-close after success / error reset; cancelled on close-reopen and unmount.
   const scheduleStatusTimer = useResettableTimeout([open]);
   // Confirm is async (secret-handle conversion): a second click must not import twice.
@@ -551,18 +547,22 @@ export default function ImportDialog({
 
           {/* Body */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-            <ImportStatusBanner
-              status={importStatus}
-              warnings={warnings}
-              environmentOnlyName={environmentOnlyName}
-              collectionName={importedCollectionName}
-              errorMessage={errorMessage}
-              onDismiss={() => {
-                onOpenChange(false);
-                setImportStatus('idle');
-                setWarnings([]);
-              }}
-            />
+            {importStatus === 'success' && (
+              <ImportStatusBanner
+                status="success"
+                warnings={warnings}
+                environmentOnlyName={environmentOnlyName}
+                collectionName={importedCollectionName}
+                onDismiss={() => {
+                  onOpenChange(false);
+                  setImportStatus('idle');
+                  setWarnings([]);
+                }}
+              />
+            )}
+            {importStatus === 'error' && (
+              <ImportStatusBanner status="error" errorMessage={errorMessage} />
+            )}
 
             {pendingOutcome && (
               <ImportPendingReview

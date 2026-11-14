@@ -37,9 +37,16 @@ function scaffoldButton(page: Page, name: 'Local' | 'Staging' | 'Production') {
   return dialog(page).getByRole('button').filter({ hasText: name }).first();
 }
 
-/** A list row in the left rail — `role="button"` with the env name + subtitle. */
+/**
+ * A list row in the left rail — native `<button>` (implicit button role) whose
+ * accessible name starts with the env name. Attribute `[role="button"]` does
+ * not match native buttons, so query by role inside the Environments nav.
+ */
 function envRow(page: Page, envName: string) {
-  return dialog(page).locator('[role="button"]').filter({ hasText: envName }).first();
+  const escaped = envName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return dialog(page)
+    .getByRole('navigation', { name: 'Environments' })
+    .getByRole('button', { name: new RegExp(`^${escaped}`) });
 }
 
 /** The header rename trigger — uniquely identified by its title attribute. */
@@ -157,7 +164,11 @@ test.describe('Environment Manager', () => {
 
     const localRow = envRow(page, 'Local');
     await localRow.hover();
-    await localRow.getByRole('button', { name: /Delete Local/ }).click();
+    // Delete is a sibling of the select button (not a descendant).
+    await dialog(page)
+      .getByRole('navigation', { name: 'Environments' })
+      .getByRole('button', { name: 'Delete Local' })
+      .click();
 
     // ConfirmDialog appears outside the manager dialog as an alertdialog.
     await expect(page.getByRole('alertdialog')).toBeVisible();

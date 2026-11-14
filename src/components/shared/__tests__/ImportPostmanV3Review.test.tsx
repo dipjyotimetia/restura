@@ -20,7 +20,6 @@ describe('Postman v3 import review', () => {
         status="success"
         warnings={[warning]}
         environmentOnlyName={null}
-        errorMessage=""
         onDismiss={vi.fn()}
       />
     );

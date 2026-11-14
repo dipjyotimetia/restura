@@ -1,19 +1,12 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { ImportWarning } from '@/features/collections/lib/importers';
 import { ImportStatusBanner } from '../ImportStatusBanner';
 
 describe('ImportStatusBanner', () => {
   it('renders nothing while an import is idle', () => {
-    const { container } = render(
-      <ImportStatusBanner
-        status="idle"
-        warnings={[]}
-        environmentOnlyName={null}
-        errorMessage=""
-        onDismiss={vi.fn()}
-      />
-    );
+    const { container } = render(<ImportStatusBanner status="idle" />);
 
     expect(container).toBeEmptyDOMElement();
   });
@@ -24,7 +17,6 @@ describe('ImportStatusBanner', () => {
         status="success"
         warnings={[]}
         environmentOnlyName="Staging"
-        errorMessage=""
         onDismiss={vi.fn()}
       />
     );
@@ -40,7 +32,6 @@ describe('ImportStatusBanner', () => {
         status="success"
         warnings={[{ kind: 'unsupported-method', method: 'PURGE', requestName: 'Clear cache' }]}
         environmentOnlyName={null}
-        errorMessage=""
         onDismiss={onDismiss}
       />
     );
@@ -67,7 +58,6 @@ describe('ImportStatusBanner', () => {
           },
         ]}
         environmentOnlyName={null}
-        errorMessage=""
         onDismiss={vi.fn()}
       />
     );
@@ -114,9 +104,8 @@ describe('ImportStatusBanner', () => {
     render(
       <ImportStatusBanner
         status="success"
-        warnings={warnings as Parameters<typeof ImportStatusBanner>[0]['warnings']}
+        warnings={warnings as ImportWarning[]}
         environmentOnlyName={null}
-        errorMessage=""
         onDismiss={vi.fn()}
       />
     );
@@ -154,7 +143,6 @@ describe('ImportStatusBanner', () => {
         warnings={[]}
         environmentOnlyName={null}
         collectionName="Billing"
-        errorMessage=""
         onDismiss={vi.fn()}
       />
     );
@@ -175,7 +163,6 @@ describe('ImportStatusBanner', () => {
         status="success"
         warnings={warnings}
         environmentOnlyName={null}
-        errorMessage=""
         onDismiss={vi.fn()}
       />
     );
@@ -193,22 +180,13 @@ describe('ImportStatusBanner', () => {
         status="success"
         warnings={[]}
         environmentOnlyName={null}
-        errorMessage=""
         onDismiss={vi.fn()}
       />
     );
 
     expect(screen.getByText('Collection imported successfully')).toBeInTheDocument();
 
-    rerender(
-      <ImportStatusBanner
-        status="error"
-        warnings={[]}
-        environmentOnlyName={null}
-        errorMessage="The file is invalid"
-        onDismiss={vi.fn()}
-      />
-    );
+    rerender(<ImportStatusBanner status="error" errorMessage="The file is invalid" />);
 
     expect(screen.getByText('Import failed')).toBeInTheDocument();
     expect(screen.getByText('The file is invalid')).toBeInTheDocument();

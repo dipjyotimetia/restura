@@ -41,7 +41,7 @@ describe('EnvironmentManager empty state', () => {
     expect(screen.getByRole('heading', { name: 'No environments yet' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /staging/i }));
     expect(names()).toEqual(['Staging']);
-    expect(within(rail()).getByText('Staging').closest('[role="button"]')).toHaveAttribute(
+    expect(within(rail()).getByRole('button', { name: /^Staging/ })).toHaveAttribute(
       'aria-current',
       'true'
     );
@@ -118,9 +118,11 @@ describe('EnvironmentManager rail', () => {
       'api'
     );
     renderManager();
-    const rows = within(rail())
-      .getAllByRole('button')
-      .filter((b) => b.getAttribute('tabindex') === '0');
+    const rows = [
+      within(rail()).getByRole('button', { name: /^APIActive/ }),
+      within(rail()).getByRole('button', { name: /^API EU/ }),
+      within(rail()).getByRole('button', { name: /^One/ }),
+    ];
     // Sub-environments render directly under their base.
     expect(rows.map((r) => r.textContent)).toEqual([
       expect.stringMatching(/^APIActiveapi\.example\.com/),
@@ -141,11 +143,11 @@ describe('EnvironmentManager rail', () => {
       { id: 'b', name: 'Beta', variables: [] },
     ]);
     renderManager();
-    const beta = within(rail()).getByText('Beta').closest('[role="button"]') as HTMLElement;
-    fireEvent.keyDown(beta, { key: 'Enter' });
+    const beta = within(rail()).getByRole('button', { name: /^Beta/ });
+    await user.click(beta);
     expect(beta).toHaveAttribute('aria-current', 'true');
-    const alpha = within(rail()).getByText('Alpha').closest('[role="button"]') as HTMLElement;
-    fireEvent.keyDown(alpha, { key: ' ' });
+    const alpha = within(rail()).getByRole('button', { name: /^Alpha/ });
+    await user.click(alpha);
     expect(alpha).toHaveAttribute('aria-current', 'true');
     fireEvent.keyDown(beta, { key: 'x' });
     expect(alpha).toHaveAttribute('aria-current', 'true');

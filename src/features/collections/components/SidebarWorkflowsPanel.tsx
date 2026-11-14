@@ -36,29 +36,23 @@ export function SidebarWorkflowsPanel({
             const isGroupCollapsed = collapsedGroups.has(collection.id);
             return (
               <div key={collection.id}>
-                <div
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   aria-expanded={!isGroupCollapsed}
+                  aria-label={`${isGroupCollapsed ? 'Expand' : 'Collapse'} workflows for ${collection.name}`}
                   onClick={() => onToggleGroup(collection.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onToggleGroup(collection.id);
-                    }
-                  }}
-                  className="flex items-center gap-1.5 mb-2 px-1 rounded text-xs font-medium text-muted-foreground cursor-pointer hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="flex w-full items-center gap-1.5 mb-2 px-1 rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   {isGroupCollapsed ? (
-                    <ChevronRight className="h-3 w-3 shrink-0 text-sp-muted" />
+                    <ChevronRight className="h-3 w-3 shrink-0 text-sp-muted" aria-hidden="true" />
                   ) : (
-                    <ChevronDown className="h-3 w-3 shrink-0 text-sp-muted" />
+                    <ChevronDown className="h-3 w-3 shrink-0 text-sp-muted" aria-hidden="true" />
                   )}
                   <span className="truncate">{collection.name}</span>
                   <span className="ml-auto shrink-0 text-[10px] tabular-nums text-sp-dim">
                     {workflowCounts[collection.id] ?? 0}
                   </span>
-                </div>
+                </button>
                 {!isGroupCollapsed && (
                   <WorkflowManager
                     collectionId={collection.id}

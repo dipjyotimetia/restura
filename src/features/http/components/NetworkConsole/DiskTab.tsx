@@ -154,8 +154,9 @@ export default function DiskTab() {
               onClick={reload}
               className="h-6 w-6"
               title="Reload disk log"
+              aria-label="Reload disk log"
             >
-              <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
+              <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} aria-hidden="true" />
             </Button>
             <Button
               variant="ghost"
@@ -163,8 +164,9 @@ export default function DiskTab() {
               onClick={handleClear}
               className="h-6 w-6"
               title="Clear disk log file"
+              aria-label="Clear disk log file"
             >
-              <Trash2 className="h-3 w-3" />
+              <Trash2 className="h-3 w-3" aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -174,19 +176,14 @@ export default function DiskTab() {
             const mc = getMethodColor(entry.method);
             const displayStatus = httpLikeStatus(entry.protocol, entry.status);
             return (
-              <div
+              <button
                 key={`${entry.ts}-${idx}`}
-                role="button"
-                tabIndex={0}
+                type="button"
                 onClick={() => setSelected(entry)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setSelected(entry);
-                  }
-                }}
+                aria-pressed={isSelected}
+                aria-label={`${entry.method} ${entry.url}`}
                 className={cn(
-                  'px-3 py-2 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
+                  'w-full text-left px-3 py-2 border-b border-border/50 hover:bg-accent/50 transition-colors',
                   isSelected && 'bg-accent'
                 )}
               >
@@ -216,7 +213,7 @@ export default function DiskTab() {
                 </div>
                 <div className="text-xs text-sp-muted truncate font-mono">{entry.url}</div>
                 <div className="text-sp-11 text-muted-foreground">{entry.durationMs}ms</div>
-              </div>
+              </button>
             );
           })}
           {entries.length >= pageSize && (
