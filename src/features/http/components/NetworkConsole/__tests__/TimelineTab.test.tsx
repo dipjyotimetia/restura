@@ -147,7 +147,7 @@ describe('TimelineTab', () => {
     expect(within(rows()[1]!).getByText('anchor')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /clear anchor/i }));
     expect(within(rows()[1]!).getByText('+250ms')).toBeInTheDocument();
-    fireEvent.keyDown(rows()[2]!, { key: 'Enter' });
+    fireEvent.click(rows()[2]!);
     expect(screen.getByText('broker down', { selector: 'pre' })).toBeInTheDocument();
   });
 
@@ -201,9 +201,8 @@ describe('TimelineTab', () => {
     expect(within(rows()[498]!).getByText('(empty)')).toBeInTheDocument();
     expect(within(rows()[499]!).getByText(/L+…$/)).toBeInTheDocument();
 
-    fireEvent.keyDown(rows()[498]!, { key: 'a' });
     expect(screen.getByText('Select an event to inspect it')).toBeInTheDocument();
-    fireEvent.keyDown(rows()[498]!, { key: ' ' });
+    fireEvent.click(rows()[498]!);
     expect(screen.getByText('(empty payload)')).toBeInTheDocument();
     fireEvent.click(rows()[499]!);
     expect(screen.getByText('Preview truncated at 64 KB.')).toBeInTheDocument();

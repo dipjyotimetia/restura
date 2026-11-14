@@ -107,19 +107,14 @@ export default function FramesTab() {
     const isSystem = frame.direction === 'system';
     const preview = frame.payload.length > 80 ? `${frame.payload.slice(0, 80)}…` : frame.payload;
     return (
-      <div
+      <button
         key={frame.id}
-        role="button"
-        tabIndex={0}
+        type="button"
         onClick={() => setSelectedId(frame.id)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setSelectedId(frame.id);
-          }
-        }}
+        aria-pressed={isSelected}
+        aria-label={`${frame.direction} ${frame.protocol} frame${frame.label ? `: ${frame.label}` : ''}`}
         className={cn(
-          'px-3 py-1.5 cursor-pointer border-b border-border/50 hover:bg-accent/50 transition-colors',
+          'w-full text-left px-3 py-1.5 border-b border-border/50 hover:bg-accent/50 transition-colors',
           isSelected && 'bg-accent',
           isSystem && !isSelected && 'bg-muted/40'
         )}
@@ -141,7 +136,7 @@ export default function FramesTab() {
         <div className={cn('text-sp-11 font-mono truncate', directionColor(frame.direction))}>
           {preview || <span className="text-muted-foreground">(empty)</span>}
         </div>
-      </div>
+      </button>
     );
   };
 

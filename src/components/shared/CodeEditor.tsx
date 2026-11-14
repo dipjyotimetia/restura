@@ -64,12 +64,13 @@ export default function CodeEditor({
   showCopyButton = true,
   onEditorMount,
   onModelChange,
-  ariaLabel,
+  ariaLabel: ariaLabelProp,
   formatOnMount = true,
   path,
   modelOwner,
   getVariableStatus,
 }: CodeEditorProps) {
+  const ariaLabel = ariaLabelProp ?? (readOnly ? 'Code viewer' : 'Code editor');
   const { theme } = useTheme();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -304,8 +305,13 @@ export default function CodeEditor({
           className="absolute top-2 right-2 z-10 h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity bg-background border border-border hover:bg-accent shadow-md"
           onClick={handleCopy}
           title="Copy to clipboard"
+          aria-label={copied ? 'Copied to clipboard' : 'Copy to clipboard'}
         >
-          {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+          {copied ? (
+            <Check className="h-4 w-4 text-green-500" aria-hidden="true" />
+          ) : (
+            <Copy className="h-4 w-4" aria-hidden="true" />
+          )}
         </Button>
       )}
       <Editor
@@ -336,7 +342,7 @@ export default function CodeEditor({
           lineNumbers: 'on',
           wordWrap: 'on',
           automaticLayout: false,
-          ...(ariaLabel ? { ariaLabel } : {}),
+          ariaLabel,
         }}
       />
     </div>

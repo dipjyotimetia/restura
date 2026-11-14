@@ -119,10 +119,11 @@ describe('MqttMessagesPanel list', () => {
 
     fireEvent.click(screen.getByText('hello'));
     expect(handlers.onSelectMessage).toHaveBeenCalledWith('1');
-    const rows = screen.getAllByRole('button').filter((el) => el.tagName === 'LI');
-    fireEvent.keyDown(rows[1] as HTMLElement, { key: 'Enter' });
-    fireEvent.keyDown(rows[2] as HTMLElement, { key: ' ' });
-    fireEvent.keyDown(rows[2] as HTMLElement, { key: 'a' });
+    const rows = screen
+      .getAllByRole('button')
+      .filter((el) => el.getAttribute('aria-label')?.startsWith('MQTT message'));
+    fireEvent.click(rows[1]!);
+    fireEvent.click(rows[2]!);
     expect(handlers.onSelectMessage.mock.calls.map((c) => c[0])).toEqual(['1', '2', '3']);
   });
 

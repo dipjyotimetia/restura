@@ -42,6 +42,7 @@ describe('Button', () => {
       render(<Button loading>Submit</Button>);
       const button = screen.getByRole('button');
       expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('aria-busy', 'true');
       expect(button.querySelector('svg')).toBeInTheDocument();
     });
 
@@ -57,6 +58,11 @@ describe('Button', () => {
         </Button>
       );
       expect(screen.getByText('Loading...')).toBeInTheDocument();
+    });
+
+    it('does not set aria-busy when not loading', () => {
+      render(<Button>Submit</Button>);
+      expect(screen.getByRole('button')).not.toHaveAttribute('aria-busy');
     });
   });
 

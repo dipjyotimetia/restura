@@ -237,88 +237,81 @@ export function KafkaMessagesPanel({
                   const selected = message.id === selectedMessageId;
                   if (message.direction === 'system') {
                     return (
-                      <li
-                        key={message.id}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Activity: ${message.value}`}
-                        onClick={() => setSelectedMessageId(message.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault();
-                            setSelectedMessageId(message.id);
-                          }
-                        }}
-                        className={cn(
-                          'flex items-center gap-2 border-l-2 px-3 py-2 font-mono transition-colors sp-stream-row cursor-pointer',
-                          selected
-                            ? 'bg-sp-active border-l-sp-accent'
-                            : 'border-l-transparent hover:bg-sp-hover'
-                        )}
-                      >
-                        <Activity
-                          className="h-3.5 w-3.5 shrink-0 text-sp-muted"
-                          aria-hidden="true"
-                        />
-                        <Badge variant="outline" className="shrink-0 text-sp-9">
-                          Activity
-                        </Badge>
-                        <span className="truncate text-sp-text">{message.value}</span>
-                        <time className="ml-auto shrink-0 text-sp-dim tabular-nums">
-                          {new Date(message.timestamp).toLocaleTimeString()}
-                        </time>
+                      <li key={message.id}>
+                        <button
+                          type="button"
+                          aria-label={`Activity: ${message.value}`}
+                          aria-pressed={selected}
+                          onClick={() => setSelectedMessageId(message.id)}
+                          className={cn(
+                            'flex w-full items-center gap-2 border-l-2 px-3 py-2 text-left font-mono transition-colors sp-stream-row',
+                            selected
+                              ? 'bg-sp-active border-l-sp-accent'
+                              : 'border-l-transparent hover:bg-sp-hover'
+                          )}
+                        >
+                          <Activity
+                            className="h-3.5 w-3.5 shrink-0 text-sp-muted"
+                            aria-hidden="true"
+                          />
+                          <Badge variant="outline" className="shrink-0 text-sp-9">
+                            Activity
+                          </Badge>
+                          <span className="truncate text-sp-text">{message.value}</span>
+                          <time className="ml-auto shrink-0 text-sp-dim tabular-nums">
+                            {new Date(message.timestamp).toLocaleTimeString()}
+                          </time>
+                        </button>
                       </li>
                     );
                   }
                   return (
-                    <li
-                      key={message.id}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Kafka record in ${message.topic}, partition ${
-                        message.partition ?? 'unknown'
-                      }, offset ${message.offset ?? 'unknown'}`}
-                      onClick={() => setSelectedMessageId(message.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setSelectedMessageId(message.id);
-                        }
-                      }}
-                      className={cn(
-                        'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors sp-stream-row',
-                        selected
-                          ? 'bg-sp-active border-l-sp-accent'
-                          : 'border-l-transparent hover:bg-sp-hover'
-                      )}
-                      style={{ gridTemplateColumns: '40px 80px 110px 130px 1fr' }}
-                    >
-                      <div>
-                        {message.partition !== undefined ? (
-                          <PartitionMiniPill partition={message.partition} />
-                        ) : (
-                          <span className="text-sp-dim">—</span>
+                    <li key={message.id}>
+                      <button
+                        type="button"
+                        aria-label={`Kafka record in ${message.topic}, partition ${
+                          message.partition ?? 'unknown'
+                        }, offset ${message.offset ?? 'unknown'}`}
+                        aria-pressed={selected}
+                        onClick={() => setSelectedMessageId(message.id)}
+                        className={cn(
+                          'grid w-full items-center gap-2 px-3 py-1.5 text-left font-mono border-l-2 transition-colors sp-stream-row',
+                          selected
+                            ? 'bg-sp-active border-l-sp-accent'
+                            : 'border-l-transparent hover:bg-sp-hover'
                         )}
-                      </div>
-                      <span className="text-sp-muted tabular-nums truncate">
-                        {message.offset ?? '—'}
-                      </span>
-                      <span className="text-sp-dim tabular-nums">
-                        {new Date(message.timestamp).toLocaleTimeString()}
-                      </span>
-                      <span className="text-sp-muted truncate" title={message.key ?? ''}>
-                        {message.key ?? <span className="text-sp-dim">—</span>}
-                      </span>
-                      <span
-                        className={cn('truncate', message.error ? 'text-red-400' : 'text-sp-text')}
-                        title={message.tombstone ? '<tombstone>' : message.value}
+                        style={{ gridTemplateColumns: '40px 80px 110px 130px 1fr' }}
                       >
-                        {message.error
-                          ? message.error
-                          : message.tombstone
-                            ? '<tombstone>'
-                            : message.value}
-                      </span>
+                        <div>
+                          {message.partition !== undefined ? (
+                            <PartitionMiniPill partition={message.partition} />
+                          ) : (
+                            <span className="text-sp-dim">—</span>
+                          )}
+                        </div>
+                        <span className="text-sp-muted tabular-nums truncate">
+                          {message.offset ?? '—'}
+                        </span>
+                        <span className="text-sp-dim tabular-nums">
+                          {new Date(message.timestamp).toLocaleTimeString()}
+                        </span>
+                        <span className="text-sp-muted truncate" title={message.key ?? ''}>
+                          {message.key ?? <span className="text-sp-dim">—</span>}
+                        </span>
+                        <span
+                          className={cn(
+                            'truncate',
+                            message.error ? 'text-red-400' : 'text-sp-text'
+                          )}
+                          title={message.tombstone ? '<tombstone>' : message.value}
+                        >
+                          {message.error
+                            ? message.error
+                            : message.tombstone
+                              ? '<tombstone>'
+                              : message.value}
+                        </span>
+                      </button>
                     </li>
                   );
                 })}

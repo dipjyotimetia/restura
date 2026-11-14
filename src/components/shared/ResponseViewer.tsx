@@ -9,13 +9,15 @@ import { ImagePreview } from '@/components/shared/ImagePreview';
 import { InFlightBar } from '@/components/shared/InFlightBar';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
 import { ResponseHeadersPanel } from '@/components/shared/ResponseHeadersPanel';
+import { ResponseSkeleton } from '@/components/shared/ResponseSkeleton';
 import { ResponseStatus } from '@/components/shared/ResponseStatus';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
+import { resolveResponsePaneState } from '@/components/shared/responsePaneState';
 import { StreamingResponsePanel } from '@/components/shared/StreamingResponsePanel';
 import { TimingBreakdown } from '@/components/shared/TimingBreakdown';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
-import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
+import { AnimatePresence, motion } from '@/components/ui/motion';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Floater,
@@ -99,42 +101,6 @@ function alpnLabel(alpn?: 'h1.1' | 'h2' | 'h3'): string {
   return '—';
 }
 
-function ResponseSkeleton() {
-  return (
-    <Scale className="h-full flex flex-col relative z-20">
-      <Floater radius="panel" elevation="float-lg" className="h-full flex flex-col overflow-hidden">
-        <div className="flex items-center gap-4 px-4 py-2.5 border-b border-sp-line">
-          <Skeleton className="h-7 w-28 rounded-md" />
-          <div className="h-5 w-px bg-sp-line" />
-          <Skeleton className="h-5 w-20 rounded" />
-          <div className="h-5 w-px bg-sp-line" />
-          <Skeleton className="h-5 w-16 rounded" />
-        </div>
-        <div className="flex-1 p-4">
-          <Stagger className="space-y-2 font-mono text-sm">
-            <StaggerItem>
-              <Skeleton className="h-3.5 w-12 rounded" />
-            </StaggerItem>
-            <StaggerItem className="pl-4 space-y-2">
-              <Skeleton className="h-3.5 w-3/4 rounded" />
-              <Skeleton className="h-3.5 w-1/2 rounded" />
-              <div className="pl-4 space-y-2">
-                <Skeleton className="h-3.5 w-2/3 rounded" />
-                <Skeleton className="h-3.5 w-4/5 rounded" />
-                <Skeleton className="h-3.5 w-1/3 rounded" />
-              </div>
-              <Skeleton className="h-3.5 w-2/5 rounded" />
-            </StaggerItem>
-            <StaggerItem>
-              <Skeleton className="h-3.5 w-8 rounded" />
-            </StaggerItem>
-          </Stagger>
-        </div>
-      </Floater>
-    </Scale>
-  );
-}
-
 type ResponseTab =
   | 'body'
   | 'errors'
@@ -163,6 +129,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
     activeTab_?.scriptResult?.preRequest?.visualization;
   const testResults = activeTab_?.scriptResult?.test?.tests ?? [];
   const isLoading = useRequestStore((state) => state.isLoading);
+  const responsePane = resolveResponsePaneState(isLoading, currentResponse);
   const [activeTab, setActiveTab] = useState<ResponseTab>('body');
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('pretty');
   const [showJsonPath, setShowJsonPath] = useState(false);
@@ -432,7 +399,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <AnimatePresence mode="wait">
-        {isLoading && !currentResponse?.partial ? (
+        {responsePane.status === 'loading' ? (
           <motion.div
             key="loading"
             initial={{ opacity: 0 }}
@@ -446,7 +413,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
               <ResponseSkeleton />
             </div>
           </motion.div>
-        ) : !currentResponse ? (
+        ) : responsePane.status === 'empty' ? (
           <motion.div
             key="empty"
             initial={{ opacity: 0 }}
@@ -467,7 +434,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
               }
             />
           </motion.div>
-        ) : (
+        ) : !currentResponse ? null : (
           <motion.div
             key={`response-${currentResponse.id}`}
             initial={{ opacity: 0, y: 6 }}
@@ -698,7 +665,10 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
                   {activeTab === 'errors' && (
                     <div className="h-full overflow-auto">
                       <GraphQLErrorsPanel
-                        items={graphqlErrors.map((error) => ({ key: String(error.index), error }))}
+                        items={graphqlErrors.map((error) => ({
+                          key: String(error.index),
+                          error,
+                        }))}
                         tabId={activeTabId}
                         {...(canShowTree && {
                           onSelectPath: (_item: unknown, path: (string | number)[]) =>
