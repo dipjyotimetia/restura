@@ -74,8 +74,7 @@ export default function ImportDialog({
   const existingCollectionNames = useCollectionStore(
     useShallow((s) => s.collections.map((collection) => collection.name))
   );
-  // Name clash on import: keep both (auto-suffixed) or replace the existing one.
-  const [clashChoice, setClashChoice] = useState<NameClashChoice>('keep-both');
+  const [clashChoice, setClashChoice] = useState<NameClashChoice>('keep-both'); // keep-both | replace
   const [importedCollectionName, setImportedCollectionName] = useState<string | null>(null);
   const addEnvironment = useEnvironmentStore((s) => s.addEnvironment);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
