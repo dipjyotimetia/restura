@@ -14,7 +14,6 @@ export interface GraphQLValidationResult {
   errors: GraphQLValidationError[];
 }
 
-// Parse and validate a GraphQL query against a schema
 export function validateQuery(
   query: string,
   schema?: GraphQLSchema | null
@@ -25,7 +24,6 @@ export function validateQuery(
 
   const errors: GraphQLValidationError[] = [];
 
-  // First, try to parse the query
   let document: ReturnType<typeof parse>;
   try {
     document = parse(query);
@@ -47,7 +45,6 @@ export function validateQuery(
     return { valid: false, errors };
   }
 
-  // If we have a schema, validate against it
   if (schema) {
     try {
       const validationErrors = validate(schema, document);
@@ -60,7 +57,6 @@ export function validateQuery(
         });
       }
     } catch (error) {
-      // Schema validation failed
       errors.push({
         message: error instanceof Error ? error.message : 'Validation error',
         line: 1,
@@ -75,7 +71,6 @@ export function validateQuery(
   };
 }
 
-// Parse query and return AST or null
 export function parseQuery(query: string) {
   try {
     return parse(query);
@@ -84,7 +79,6 @@ export function parseQuery(query: string) {
   }
 }
 
-// Get syntax errors only (no schema validation)
 export function getSyntaxErrors(query: string): GraphQLValidationError[] {
   if (!query.trim()) {
     return [];

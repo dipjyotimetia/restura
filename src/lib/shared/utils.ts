@@ -51,6 +51,17 @@ export function formatTime(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+/** Connection / session uptime as `3h 2m`, `5m 12s`, or `9s`. */
+export function formatUptime(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+  return `${seconds}s`;
+}
+
 export function formatDate(timestamp: number): string {
   const date = new Date(timestamp);
   return date.toLocaleString();

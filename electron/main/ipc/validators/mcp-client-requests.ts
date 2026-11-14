@@ -2,9 +2,7 @@ import { isLocalFileRootUri } from '@shared/protocol/mcp-roots';
 import { z } from 'zod';
 import { McpConnectionIdSchema } from './core';
 
-// ===========================
 // MCP server→client requests (#860): elicitation, sampling, roots
-// ===========================
 
 /** Main-generated id that routes one pending server→client request. */
 const McpClientRequestIdSchema = z.uuid();

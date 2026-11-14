@@ -56,6 +56,7 @@ import {
 } from '@/features/socketio/store/useSocketIOStore';
 import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { formatClockTime } from '@/lib/shared/console-format';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
 import {
@@ -73,28 +74,8 @@ import {
 } from '@/lib/shared/streaming/messageVariables';
 import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSync';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
-import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
+import { cn, formatUptime, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
-
-const formatDuration = (ms: number): string => {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-  return `${seconds}s`;
-};
-
-const formatTime = (timestamp: number) => {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
-};
 
 function formatArgs(args: unknown[]): string {
   if (args.length === 0) return '';
@@ -196,7 +177,7 @@ function UptimeStat({ connectedAt, isConnected }: { connectedAt?: number; isConn
     return () => clearInterval(id);
   }, [isConnected]);
   const duration = isConnected && connectedAt ? now - connectedAt : 0;
-  return <Stat label="Uptime" value={duration > 0 ? formatDuration(duration) : '—'} />;
+  return <Stat label="Uptime" value={duration > 0 ? formatUptime(duration) : '—'} />;
 }
 
 function SocketIOClient() {
@@ -610,7 +591,7 @@ function SocketIOClient() {
                   >
                     <DirTag direction={event.direction} />
                     <span className="text-sp-dim text-sp-11 tabular-nums">
-                      {formatTime(event.timestamp)}
+                      {formatClockTime(event.timestamp)}
                     </span>
                     <span className="truncate font-mono font-medium text-sp-12 text-sp-text">
                       {event.eventName}
@@ -646,7 +627,7 @@ function SocketIOClient() {
               <span className="text-sp-13 font-medium text-sp-text">Selected event</span>
               {selectedEvent && (
                 <span className="text-sp-11 text-sp-dim font-mono">
-                  {selectedEvent.eventName} · {formatTime(selectedEvent.timestamp)}
+                  {selectedEvent.eventName} · {formatClockTime(selectedEvent.timestamp)}
                 </span>
               )}
               <div className="flex-1" />

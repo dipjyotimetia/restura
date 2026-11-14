@@ -8,9 +8,7 @@ import {
 import { z } from 'zod';
 import { WsConnectionIdSchema } from './core';
 
-// ===========================
 // WebSocket control-frame schemas (#915 close code/reason, #919 ping)
-// ===========================
 
 /**
  * Explicit disconnect. `code`/`reason` are optional; when present they are

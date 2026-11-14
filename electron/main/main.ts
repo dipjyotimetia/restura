@@ -227,7 +227,6 @@ function setupSecurityMeasures(): void {
   });
 }
 
-// Initialize the application
 app.whenReady().then(async () => {
   if (quittingAtStartup) return;
   if (isMcpServerMode) {

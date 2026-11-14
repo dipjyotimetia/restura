@@ -1,5 +1,3 @@
-// Streaming HTTP request support using ReadableStream
-
 export interface StreamingRequestOptions {
   url: string;
   method: string;
@@ -13,7 +11,6 @@ export interface StreamingChunk {
   delay?: number; // Delay in ms before sending this chunk
 }
 
-// Create a readable stream from chunks
 export function createChunkedStream(
   chunks: StreamingChunk[],
   onProgress?: (sent: number, total: number) => void
@@ -88,7 +85,7 @@ export async function sendStreamingRequest(
   return response;
 }
 
-// Parse a line-delimited stream (e.g., NDJSON)
+/** Yield complete lines from an NDJSON / line-delimited byte stream. */
 export async function* parseLineDelimitedStream(
   stream: ReadableStream<Uint8Array>
 ): AsyncGenerator<string> {
@@ -199,10 +196,8 @@ export function concatenateStreams(
   });
 }
 
-// Check if browser supports streaming request bodies
 export function supportsStreamingRequests(): boolean {
   try {
-    // Check for ReadableStream and fetch with body stream support
     return (
       typeof ReadableStream !== 'undefined' &&
       typeof Request !== 'undefined' &&

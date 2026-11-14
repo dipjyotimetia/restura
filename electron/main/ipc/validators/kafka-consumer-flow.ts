@@ -1,9 +1,7 @@
 import { z } from 'zod';
 import { KafkaConnectionIdSchema, KafkaTopicSchema } from './kafka';
 
-// ===========================
 // Kafka live-consumer controls (#942): per-partition pause/resume and seek.
-// ===========================
 
 const INT64_MAX = 9_223_372_036_854_775_807n;
 

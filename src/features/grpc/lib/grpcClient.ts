@@ -527,7 +527,6 @@ export async function makeElectronGrpcRequest(
 // grpc-js). The former callback-based startElectronGrpcStream was removed in
 // favour of that unified handle.
 
-// Create error response
 export function createErrorResponse(
   requestId: string,
   error: unknown,
@@ -580,7 +579,6 @@ export function createErrorResponse(
   };
 }
 
-// Create success response
 export function createSuccessResponse(
   requestId: string,
   responseData: unknown,
@@ -610,7 +608,6 @@ export function createSuccessResponse(
   };
 }
 
-// Get method type description
 export function getMethodTypeDescription(methodType: string): string {
   switch (methodType) {
     case 'unary':
@@ -626,18 +623,15 @@ export function getMethodTypeDescription(methodType: string): string {
   }
 }
 
-// Format gRPC status for display
 export function formatGrpcStatus(statusCode: GrpcStatusCode): string {
   const statusName = GrpcStatusCodeName[statusCode] || 'UNKNOWN';
   return `${statusCode} ${statusName}`;
 }
 
-// Check if status indicates error
 export function isGrpcError(statusCode: GrpcStatusCode): boolean {
   return statusCode !== GrpcStatusCode.OK;
 }
 
-// Get suggested action for error
 export function getSuggestedAction(statusCode: GrpcStatusCode): string {
   switch (statusCode) {
     case GrpcStatusCode.UNAUTHENTICATED:

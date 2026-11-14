@@ -18,9 +18,7 @@ import {
 
 export type { KafkaTlsConfig } from './kafka-secrets';
 
-// ===========================
 // Kafka Schemas
-// ===========================
 
 export const KafkaConnectionIdSchema = ConnectionIdSchema;
 

@@ -54,6 +54,7 @@ import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore'
 import { useCleartextCredentialsGuard } from '@/hooks/useCleartextCredentialsGuard';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import { resolveWebSocketConnect } from '@/lib/shared/connectSpec';
+import { formatBytes, formatClockTime } from '@/lib/shared/console-format';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { isElectron } from '@/lib/shared/platform';
@@ -69,7 +70,7 @@ import {
 } from '@/lib/shared/streaming/messageTemplates';
 import { useComposerDraftSync } from '@/lib/shared/streaming/useComposerDraftSync';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
-import { cn } from '@/lib/shared/utils';
+import { cn, formatUptime } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 import {
   FrameAssertionBadge,
@@ -79,33 +80,7 @@ import {
 
 type SendFormat = WebSocketSendFormat;
 
-const formatDuration = (ms: number): string => {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-
-  if (hours > 0) return `${hours}h ${minutes % 60}m`;
-  if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
-  return `${seconds}s`;
-};
-
-const formatTime = (timestamp: number) => {
-  const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-US', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
-};
-
-const formatSize = (content: string): string => {
-  const bytes = new Blob([content]).size;
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
+const formatSize = (content: string): string => formatBytes(new Blob([content]).size);
 
 function previewContent(content: string): string {
   const collapsed = content.replace(/\s+/g, ' ').trim();
@@ -169,7 +144,7 @@ function UptimeStat({ connectedAt, isConnected }: { connectedAt?: number; isConn
     return () => clearInterval(id);
   }, [isConnected]);
   const duration = isConnected && connectedAt ? now - connectedAt : 0;
-  return <Stat label="Uptime" value={duration > 0 ? formatDuration(duration) : '—'} />;
+  return <Stat label="Uptime" value={duration > 0 ? formatUptime(duration) : '—'} />;
 }
 
 function WebSocketClient() {
@@ -548,7 +523,7 @@ function WebSocketClient() {
                   >
                     <DirTag type={msg.type} />
                     <span className="text-sp-dim text-sp-11 tabular-nums">
-                      {formatTime(msg.timestamp)}
+                      {formatClockTime(msg.timestamp)}
                     </span>
                     <span className="text-sp-dim text-sp-11">
                       {msg.dataType === 'binary' ? 'bin' : formatSize(msg.content)}
@@ -573,7 +548,8 @@ function WebSocketClient() {
               <span className="text-sp-13 font-medium text-sp-text">Selected message</span>
               {selectedMessage && (
                 <span className="text-sp-11 text-sp-dim font-mono">
-                  {formatTime(selectedMessage.timestamp)} · {formatSize(selectedMessage.content)}
+                  {formatClockTime(selectedMessage.timestamp)} ·{' '}
+                  {formatSize(selectedMessage.content)}
                 </span>
               )}
               <div className="flex-1" />

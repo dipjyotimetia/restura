@@ -435,7 +435,6 @@ async function startWatching(collectionId: string, directoryPath: string): Promi
   useFileCollectionStore.getState().setWatching(collectionId, res?.success !== false);
 }
 
-// Load collection from directory
 export async function loadCollectionFromDirectory(directoryPath: string): Promise<{
   success: boolean;
   collection?: Collection;
@@ -528,7 +527,6 @@ function notifySaveRedactions(
   toast.warning(parts.join(' '), { id: `collection-save-redactions:${collectionId}` });
 }
 
-// Save collection to directory
 export async function saveCollectionToDirectory(
   collection: Collection,
   directoryPath: string
@@ -606,7 +604,7 @@ export async function selectCollectionDirectory(): Promise<string | null> {
   return null;
 }
 
-// Export collection to file directory (migrate from localStorage)
+/** Persist a localStorage-backed collection into a file directory. */
 export async function exportCollectionToFiles(
   collectionId: string,
   directoryPath: string
@@ -661,7 +659,6 @@ export async function restoreFileCollectionWatchers(): Promise<void> {
   );
 }
 
-// Initialize file watcher event handler
 let unsubscribeCollectionChanges: (() => void) | null = null;
 let unsubscribeWorkflowChanges: (() => void) | null = null;
 let unsubscribeFileChanges: (() => void) | null = null;

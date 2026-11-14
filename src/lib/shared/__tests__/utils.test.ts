@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { debounce, formatBytes, formatDate, formatTime, keyValuePairsToRecord } from '../utils';
+import {
+  debounce,
+  formatBytes,
+  formatDate,
+  formatTime,
+  formatUptime,
+  keyValuePairsToRecord,
+} from '../utils';
 
 describe('formatBytes', () => {
   it('returns "0 Bytes" for 0', () => {
@@ -22,6 +29,18 @@ describe('formatTime', () => {
   });
   it('shows seconds for values >= 1000', () => {
     expect(formatTime(1500)).toBe('1.50s');
+  });
+});
+
+describe('formatUptime', () => {
+  it('formats seconds only', () => {
+    expect(formatUptime(9_000)).toBe('9s');
+  });
+  it('formats minutes and seconds', () => {
+    expect(formatUptime(5 * 60_000 + 12_000)).toBe('5m 12s');
+  });
+  it('formats hours and minutes', () => {
+    expect(formatUptime(3 * 3_600_000 + 2 * 60_000)).toBe('3h 2m');
   });
 });
 

@@ -269,12 +269,10 @@ export async function introspectSchema(
   }
 }
 
-// Get types by kind from schema
 export function getTypesByKind(schema: GraphQLSchema, kind: string) {
   return schema.types.filter((t) => t.kind === kind && !t.name?.startsWith('__'));
 }
 
-// Get query/mutation/subscription root types
 export function getRootTypes(schema: GraphQLSchema) {
   const result: { query?: string; mutation?: string; subscription?: string } = {};
 
@@ -291,35 +289,29 @@ export function getRootTypes(schema: GraphQLSchema) {
   return result;
 }
 
-// Get all fields for a type by name
 export function getTypeFields(schema: GraphQLSchema, typeName: string) {
   const type = schema.types.find((t) => t.name === typeName);
   return type?.fields || [];
 }
 
-// Get all input fields for an input type
 export function getInputTypeFields(schema: GraphQLSchema, typeName: string) {
   const type = schema.types.find((t) => t.name === typeName);
   return type?.inputFields || [];
 }
 
-// Get all enum values for an enum type
 export function getEnumValues(schema: GraphQLSchema, typeName: string) {
   const type = schema.types.find((t) => t.name === typeName);
   return type?.enumValues || [];
 }
 
-// Get type by name
 export function getTypeByName(schema: GraphQLSchema, name: string) {
   return schema.types.find((t) => t.name === name);
 }
 
-// Export a built schema to SDL string
 export function exportSchemaToSDL(schema: GQLSchema): string {
   return printSchema(schema);
 }
 
-// Convert introspection result to executable GraphQL schema
 export function buildSchemaFromIntrospection(
   introspectionResult: IntrospectionResult
 ): GQLSchema | null {

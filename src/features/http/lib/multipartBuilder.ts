@@ -47,12 +47,10 @@ export function buildMultipartMixedBody(parts: MultipartPart[], boundary: string
   return lines.join('\r\n');
 }
 
-// Parse multipart/mixed response body
 export function parseMultipartMixedBody(body: string, boundary: string): MultipartPart[] {
   const parts: MultipartPart[] = [];
   const partDelimiter = `--${boundary}`;
 
-  // Split by boundary
   const segments = body.split(partDelimiter);
 
   for (let i = 1; i < segments.length; i++) {
@@ -61,7 +59,6 @@ export function parseMultipartMixedBody(body: string, boundary: string): Multipa
       continue;
     }
 
-    // Split headers and content by empty line
     const emptyLineIndex = segment.indexOf('\r\n\r\n');
     if (emptyLineIndex === -1) {
       continue;
@@ -70,12 +67,10 @@ export function parseMultipartMixedBody(body: string, boundary: string): Multipa
     const headerSection = segment.substring(0, emptyLineIndex);
     let content = segment.substring(emptyLineIndex + 4);
 
-    // Remove trailing CRLF
     if (content.endsWith('\r\n')) {
       content = content.slice(0, -2);
     }
 
-    // Parse headers
     const headers: Record<string, string> = {};
     let contentType = 'application/octet-stream';
 
@@ -104,7 +99,6 @@ export function parseMultipartMixedBody(body: string, boundary: string): Multipa
   return parts;
 }
 
-// Validate multipart parts
 export function validateMultipartParts(parts: MultipartPart[]): {
   valid: boolean;
   errors: string[];
@@ -134,7 +128,6 @@ export function validateMultipartParts(parts: MultipartPart[]): {
   };
 }
 
-// Get default content type suggestions
 export function getContentTypeSuggestions(): string[] {
   return [
     'application/json',
