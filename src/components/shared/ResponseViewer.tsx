@@ -9,6 +9,7 @@ import { ImagePreview } from '@/components/shared/ImagePreview';
 import { InFlightBar } from '@/components/shared/InFlightBar';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
 import { ResponseHeadersPanel } from '@/components/shared/ResponseHeadersPanel';
+import { ResponseSkeleton } from '@/components/shared/ResponseSkeleton';
 import { ResponseStatus } from '@/components/shared/ResponseStatus';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
@@ -16,7 +17,7 @@ import { resolveResponsePaneState } from '@/components/shared/responsePaneState'
 import { StreamingResponsePanel } from '@/components/shared/StreamingResponsePanel';
 import { TimingBreakdown } from '@/components/shared/TimingBreakdown';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
-import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
+import { AnimatePresence, motion } from '@/components/ui/motion';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Floater,
@@ -98,42 +99,6 @@ function alpnLabel(alpn?: 'h1.1' | 'h2' | 'h3'): string {
   if (alpn === 'h3') return 'HTTP/3';
   if (alpn === 'h1.1') return 'HTTP/1.1';
   return '—';
-}
-
-function ResponseSkeleton() {
-  return (
-    <Scale className="h-full flex flex-col relative z-20">
-      <Floater radius="panel" elevation="float-lg" className="h-full flex flex-col overflow-hidden">
-        <div className="flex items-center gap-4 px-4 py-2.5 border-b border-sp-line">
-          <Skeleton className="h-7 w-28 rounded-md" />
-          <div className="h-5 w-px bg-sp-line" />
-          <Skeleton className="h-5 w-20 rounded" />
-          <div className="h-5 w-px bg-sp-line" />
-          <Skeleton className="h-5 w-16 rounded" />
-        </div>
-        <div className="flex-1 p-4">
-          <Stagger className="space-y-2 font-mono text-sm">
-            <StaggerItem>
-              <Skeleton className="h-3.5 w-12 rounded" />
-            </StaggerItem>
-            <StaggerItem className="pl-4 space-y-2">
-              <Skeleton className="h-3.5 w-3/4 rounded" />
-              <Skeleton className="h-3.5 w-1/2 rounded" />
-              <div className="pl-4 space-y-2">
-                <Skeleton className="h-3.5 w-2/3 rounded" />
-                <Skeleton className="h-3.5 w-4/5 rounded" />
-                <Skeleton className="h-3.5 w-1/3 rounded" />
-              </div>
-              <Skeleton className="h-3.5 w-2/5 rounded" />
-            </StaggerItem>
-            <StaggerItem>
-              <Skeleton className="h-3.5 w-8 rounded" />
-            </StaggerItem>
-          </Stagger>
-        </div>
-      </Floater>
-    </Scale>
-  );
 }
 
 type ResponseTab =
@@ -469,343 +434,333 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
               }
             />
           </motion.div>
-        ) : (
-          // status === 'ready' — alias so the pane body keeps a non-null Response.
-          ((currentResponse) => (
-            <motion.div
-              key={`response-${currentResponse.id}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.18, ease: [0.2, 0.7, 0.1, 1] }}
-              className="h-full"
+        ) : !currentResponse ? null : (
+          <motion.div
+            key={`response-${currentResponse.id}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.2, 0.7, 0.1, 1] }}
+            className="h-full"
+          >
+            <Floater
+              radius="panel"
+              elevation="float-lg"
+              className="@container h-full flex flex-col overflow-hidden relative z-20"
             >
-              <Floater
-                radius="panel"
-                elevation="float-lg"
-                className="@container h-full flex flex-col overflow-hidden relative z-20"
-              >
-                {/* Status row padding 12×16 / hairline bottom per handoff §5.
+              {/* Status row padding 12×16 / hairline bottom per handoff §5.
                   Container-query responsive: the waterfall + the HTTP stat drop
                   out as the PANEL (not the viewport) gets narrow, so the row
                   stays clean at any split width or in stacked layout. */}
-                <div className="flex items-center gap-3 px-4 py-3 border-b border-sp-line">
-                  {/* One-shot arrival cue — replays because the keyed motion.div
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-sp-line">
+                {/* One-shot arrival cue — replays because the keyed motion.div
                     above remounts the pill for each new response id. */}
-                  <ResponseStatus
-                    status={currentResponse.status}
-                    statusText={currentResponse.statusText}
-                  />
-                  <Stat label="Time" value={formatTime(currentResponse.time)} />
-                  <Stat label="Size" value={formatBytes(currentResponse.size)} />
-                  {currentResponse.negotiatedAlpn && (
-                    <Stat label="HTTP" value={alpnLabel(currentResponse.negotiatedAlpn)} />
-                  )}
-
-                  <div className="flex-1" />
-
-                  <div className="hidden @md:flex flex-col items-end gap-1">
-                    <span className="sp-label">Waterfall</span>
-                    <WaterfallBar segments={waterfallSegments} width={220} height={8} />
-                  </div>
-
-                  <AiActionsMenu />
-                  <LayoutToggleButton />
-                </div>
-
-                <SubTabBar
-                  tabs={tabs}
-                  value={activeTab}
-                  onChange={setActiveTab}
-                  right={
-                    activeTab === 'body' ? (
-                      <div className="flex items-center gap-2">
-                        {!isBase64 && (
-                          <Segmented
-                            size="sm"
-                            value={bodyFormat}
-                            onChange={setBodyFormat}
-                            options={[
-                              { value: 'pretty', label: 'Pretty' },
-                              { value: 'raw', label: 'Raw' },
-                              ...(canShowTree ? [{ value: 'tree' as const, label: 'Tree' }] : []),
-                              ...(isCsv ? [{ value: 'table' as const, label: 'Table' }] : []),
-                            ]}
-                            ariaLabel="Response body format"
-                          />
-                        )}
-                        {!isBase64 && language === 'json' && (
-                          <IconButton
-                            icon={<Braces className="h-3.5 w-3.5" />}
-                            label="Query with JSONPath"
-                            active={showJsonPath}
-                            onClick={() => setShowJsonPath((v) => !v)}
-                          />
-                        )}
-                        {!isBase64 &&
-                          bodyFormat !== 'table' &&
-                          bodyFormat !== 'tree' &&
-                          !showJsonPath && (
-                            <IconButton
-                              icon={<Search className="h-3.5 w-3.5" />}
-                              label="Find in response (Ctrl+F)"
-                              onClick={() =>
-                                responseEditorRef.current?.getAction('actions.find')?.run()
-                              }
-                            />
-                          )}
-                        {!isBase64 && (
-                          <IconButton
-                            icon={
-                              copiedBody ? (
-                                <Check className="h-3.5 w-3.5 text-emerald-400" />
-                              ) : (
-                                <Copy className="h-3.5 w-3.5" />
-                              )
-                            }
-                            label={copiedBody ? 'Copied!' : 'Copy response body'}
-                            onClick={handleCopyBody}
-                          />
-                        )}
-                        <IconButton
-                          icon={
-                            isBase64 ? (
-                              <FileDown className="h-3.5 w-3.5" />
-                            ) : (
-                              <Download className="h-3.5 w-3.5" />
-                            )
-                          }
-                          label={isBase64 ? 'Download file' : 'Download response'}
-                          onClick={handleDownloadBody}
-                        />
-                        {activeTab_ && (
-                          <CompareWithPrevious
-                            request={activeTab_.request}
-                            response={currentResponse}
-                          />
-                        )}
-                      </div>
-                    ) : undefined
-                  }
+                <ResponseStatus
+                  status={currentResponse.status}
+                  statusText={currentResponse.statusText}
                 />
-
-                {currentResponse.bodyNotice && (
-                  <div
-                    role="status"
-                    className="flex items-center gap-2 px-4 py-1.5 border-b border-amber-500/30 bg-amber-500/10 text-sp-12 text-amber-500"
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                    <span>{currentResponse.bodyNotice}</span>
-                  </div>
+                <Stat label="Time" value={formatTime(currentResponse.time)} />
+                <Stat label="Size" value={formatBytes(currentResponse.size)} />
+                {currentResponse.negotiatedAlpn && (
+                  <Stat label="HTTP" value={alpnLabel(currentResponse.negotiatedAlpn)} />
                 )}
 
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <SubTabPanel tabKey={activeTab} className="h-full">
-                    {activeTab === 'body' && (
-                      <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>
-                        {errorInfo ? (
-                          <RequestErrorCard info={errorInfo} url={activeTab_?.request.url ?? ''} />
-                        ) : isImage ? (
-                          <ImagePreview
-                            base64={currentResponse.body}
-                            contentType={contentType}
-                            size={currentResponse.size}
-                          />
-                        ) : isBase64 ? (
-                          <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
-                            <FileDown className="h-7 w-7 opacity-60" />
-                            <p className="text-sp-12 font-mono text-center">
-                              Binary response · {contentType || 'unknown type'}
-                              <br />
-                              {formatBytes(currentResponse.size)}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={handleDownloadBody}
-                              className="px-3 py-1.5 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono text-sp-text hover:bg-sp-hover transition-colors"
-                            >
-                              Download file
-                            </button>
-                          </div>
-                        ) : showJsonPath ? (
-                          <JsonPathQuery
-                            body={currentResponse.body}
-                            onClose={() => setShowJsonPath(false)}
-                          />
-                        ) : bodyFormat === 'tree' ? (
-                          treeValue ? (
-                            <JsonTree
-                              value={treeValue.value}
-                              {...(treeHighlights && { highlights: treeHighlights })}
-                              {...(treeFocus && { focus: treeFocus })}
-                            />
-                          ) : (
-                            <p className="p-4 text-sp-12 text-sp-dim">
-                              This body isn’t valid JSON, so it can’t be shown as a tree.
-                            </p>
-                          )
-                        ) : bodyFormat === 'table' ? (
-                          <CsvTableViewer body={currentResponse.body} />
-                        ) : formattedBody ? (
-                          <div className="flex h-full flex-col">
-                            {formattingSkipped && (
-                              <LargeBodyNotice
-                                size={currentResponse.size}
-                                onFormat={() => setForceFormat(true)}
-                              />
-                            )}
-                            {largeTextBody && (
-                              <div
-                                role="status"
-                                className="border-b border-sp-line px-3 py-1.5 text-sp-11 text-sp-dim"
-                              >
-                                Large body ({formatBytes(currentResponse.size)}) — syntax
-                                highlighting is off to keep the app responsive.
-                              </div>
-                            )}
-                            <div className="relative min-h-0 flex-1">
-                              <CodeEditor
-                                value={formattedBody}
-                                language={editorLanguage}
-                                readOnly
-                                height="100%"
-                                showCopyButton={false}
-                                onEditorMount={(editor) => {
-                                  responseEditorRef.current = editor;
-                                }}
-                                path={activeTabId ? `tab-${activeTabId}-response` : undefined}
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
-                            <p className="text-sp-12 font-mono">No body content returned</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                <div className="flex-1" />
 
-                    {activeTab === 'preview' && (
-                      <iframe
-                        srcDoc={buildResponsePreviewDocument(currentResponse.body)}
-                        // The preview renders an UNTRUSTED upstream response body.
-                        // An empty sandbox allowlist disables active content and
-                        // navigation; the srcDoc CSP separately denies all network
-                        // access while retaining inline styles and data: images for
-                        // local-only presentation.
-                        sandbox=""
-                        className="w-full h-full bg-white border-0"
-                        title="HTML Preview"
-                      />
-                    )}
+                <div className="hidden @md:flex flex-col items-end gap-1">
+                  <span className="sp-label">Waterfall</span>
+                  <WaterfallBar segments={waterfallSegments} width={220} height={8} />
+                </div>
 
-                    {activeTab === 'errors' && (
-                      <div className="h-full overflow-auto">
-                        <GraphQLErrorsPanel
-                          items={graphqlErrors.map((error) => ({
-                            key: String(error.index),
-                            error,
-                          }))}
-                          tabId={activeTabId}
-                          {...(canShowTree && {
-                            onSelectPath: (_item: unknown, path: (string | number)[]) =>
-                              showErrorPathInTree(path),
-                          })}
+                <AiActionsMenu />
+                <LayoutToggleButton />
+              </div>
+
+              <SubTabBar
+                tabs={tabs}
+                value={activeTab}
+                onChange={setActiveTab}
+                right={
+                  activeTab === 'body' ? (
+                    <div className="flex items-center gap-2">
+                      {!isBase64 && (
+                        <Segmented
+                          size="sm"
+                          value={bodyFormat}
+                          onChange={setBodyFormat}
+                          options={[
+                            { value: 'pretty', label: 'Pretty' },
+                            { value: 'raw', label: 'Raw' },
+                            ...(canShowTree ? [{ value: 'tree' as const, label: 'Tree' }] : []),
+                            ...(isCsv ? [{ value: 'table' as const, label: 'Table' }] : []),
+                          ]}
+                          ariaLabel="Response body format"
                         />
-                      </div>
-                    )}
+                      )}
+                      {!isBase64 && language === 'json' && (
+                        <IconButton
+                          icon={<Braces className="h-3.5 w-3.5" />}
+                          label="Query with JSONPath"
+                          active={showJsonPath}
+                          onClick={() => setShowJsonPath((v) => !v)}
+                        />
+                      )}
+                      {!isBase64 &&
+                        bodyFormat !== 'table' &&
+                        bodyFormat !== 'tree' &&
+                        !showJsonPath && (
+                          <IconButton
+                            icon={<Search className="h-3.5 w-3.5" />}
+                            label="Find in response (Ctrl+F)"
+                            onClick={() =>
+                              responseEditorRef.current?.getAction('actions.find')?.run()
+                            }
+                          />
+                        )}
+                      {!isBase64 && (
+                        <IconButton
+                          icon={
+                            copiedBody ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )
+                          }
+                          label={copiedBody ? 'Copied!' : 'Copy response body'}
+                          onClick={handleCopyBody}
+                        />
+                      )}
+                      <IconButton
+                        icon={
+                          isBase64 ? (
+                            <FileDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <Download className="h-3.5 w-3.5" />
+                          )
+                        }
+                        label={isBase64 ? 'Download file' : 'Download response'}
+                        onClick={handleDownloadBody}
+                      />
+                      {activeTab_ && (
+                        <CompareWithPrevious
+                          request={activeTab_.request}
+                          response={currentResponse}
+                        />
+                      )}
+                    </div>
+                  ) : undefined
+                }
+              />
 
-                    {activeTab === 'headers' && <ResponseHeadersPanel entries={headerEntries} />}
+              {currentResponse.bodyNotice && (
+                <div
+                  role="status"
+                  className="flex items-center gap-2 px-4 py-1.5 border-b border-amber-500/30 bg-amber-500/10 text-sp-12 text-amber-500"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>{currentResponse.bodyNotice}</span>
+                </div>
+              )}
 
-                    {activeTab === 'cookies' && (
-                      <div className="h-full overflow-auto">
-                        {cookies.length === 0 ? (
-                          <div className="flex items-center justify-center h-full">
-                            <p className="text-sp-12 text-sp-dim font-mono">
-                              No cookies set by this response
-                            </p>
-                          </div>
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <SubTabPanel tabKey={activeTab} className="h-full">
+                  {activeTab === 'body' && (
+                    <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>
+                      {errorInfo ? (
+                        <RequestErrorCard info={errorInfo} url={activeTab_?.request.url ?? ''} />
+                      ) : isImage ? (
+                        <ImagePreview
+                          base64={currentResponse.body}
+                          contentType={contentType}
+                          size={currentResponse.size}
+                        />
+                      ) : isBase64 ? (
+                        <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
+                          <FileDown className="h-7 w-7 opacity-60" />
+                          <p className="text-sp-12 font-mono text-center">
+                            Binary response · {contentType || 'unknown type'}
+                            <br />
+                            {formatBytes(currentResponse.size)}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleDownloadBody}
+                            className="px-3 py-1.5 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono text-sp-text hover:bg-sp-hover transition-colors"
+                          >
+                            Download file
+                          </button>
+                        </div>
+                      ) : showJsonPath ? (
+                        <JsonPathQuery
+                          body={currentResponse.body}
+                          onClose={() => setShowJsonPath(false)}
+                        />
+                      ) : bodyFormat === 'tree' ? (
+                        treeValue ? (
+                          <JsonTree
+                            value={treeValue.value}
+                            {...(treeHighlights && { highlights: treeHighlights })}
+                            {...(treeFocus && { focus: treeFocus })}
+                          />
                         ) : (
-                          <div className="px-3 py-2 space-y-1">
-                            {cookies.map((c, i) => (
-                              <div
-                                key={`${c.name}-${i}`}
-                                className="grid grid-cols-[160px_1fr] gap-3 py-1.5 border-b border-sp-line"
-                              >
-                                <span className="font-mono text-sp-12 text-sp-text truncate">
-                                  {c.name}
+                          <p className="p-4 text-sp-12 text-sp-dim">
+                            This body isn’t valid JSON, so it can’t be shown as a tree.
+                          </p>
+                        )
+                      ) : bodyFormat === 'table' ? (
+                        <CsvTableViewer body={currentResponse.body} />
+                      ) : formattedBody ? (
+                        <div className="flex h-full flex-col">
+                          {formattingSkipped && (
+                            <LargeBodyNotice
+                              size={currentResponse.size}
+                              onFormat={() => setForceFormat(true)}
+                            />
+                          )}
+                          {largeTextBody && (
+                            <div
+                              role="status"
+                              className="border-b border-sp-line px-3 py-1.5 text-sp-11 text-sp-dim"
+                            >
+                              Large body ({formatBytes(currentResponse.size)}) — syntax highlighting
+                              is off to keep the app responsive.
+                            </div>
+                          )}
+                          <div className="relative min-h-0 flex-1">
+                            <CodeEditor
+                              value={formattedBody}
+                              language={editorLanguage}
+                              readOnly
+                              height="100%"
+                              showCopyButton={false}
+                              onEditorMount={(editor) => {
+                                responseEditorRef.current = editor;
+                              }}
+                              path={activeTabId ? `tab-${activeTabId}-response` : undefined}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
+                          <p className="text-sp-12 font-mono">No body content returned</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeTab === 'preview' && (
+                    <iframe
+                      srcDoc={buildResponsePreviewDocument(currentResponse.body)}
+                      // The preview renders an UNTRUSTED upstream response body.
+                      // An empty sandbox allowlist disables active content and
+                      // navigation; the srcDoc CSP separately denies all network
+                      // access while retaining inline styles and data: images for
+                      // local-only presentation.
+                      sandbox=""
+                      className="w-full h-full bg-white border-0"
+                      title="HTML Preview"
+                    />
+                  )}
+
+                  {activeTab === 'errors' && (
+                    <div className="h-full overflow-auto">
+                      <GraphQLErrorsPanel
+                        items={graphqlErrors.map((error) => ({
+                          key: String(error.index),
+                          error,
+                        }))}
+                        tabId={activeTabId}
+                        {...(canShowTree && {
+                          onSelectPath: (_item: unknown, path: (string | number)[]) =>
+                            showErrorPathInTree(path),
+                        })}
+                      />
+                    </div>
+                  )}
+
+                  {activeTab === 'headers' && <ResponseHeadersPanel entries={headerEntries} />}
+
+                  {activeTab === 'cookies' && (
+                    <div className="h-full overflow-auto">
+                      {cookies.length === 0 ? (
+                        <div className="flex items-center justify-center h-full">
+                          <p className="text-sp-12 text-sp-dim font-mono">
+                            No cookies set by this response
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 space-y-1">
+                          {cookies.map((c, i) => (
+                            <div
+                              key={`${c.name}-${i}`}
+                              className="grid grid-cols-[160px_1fr] gap-3 py-1.5 border-b border-sp-line"
+                            >
+                              <span className="font-mono text-sp-12 text-sp-text truncate">
+                                {c.name}
+                              </span>
+                              <div className="space-y-0.5">
+                                <span className="font-mono text-sp-12 text-sp-muted break-all">
+                                  {c.value}
                                 </span>
-                                <div className="space-y-0.5">
-                                  <span className="font-mono text-sp-12 text-sp-muted break-all">
-                                    {c.value}
-                                  </span>
-                                  {c.attrs && (
-                                    <div className="text-sp-11 text-sp-dim font-mono">
-                                      {c.attrs}
-                                    </div>
-                                  )}
-                                </div>
+                                {c.attrs && (
+                                  <div className="text-sp-11 text-sp-dim font-mono">{c.attrs}</div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeTab === 'timeline' && (
+                    <div className="h-full overflow-auto px-4 py-3 space-y-4">
+                      <TimingBreakdown segments={waterfallSegments} total={currentResponse.time} />
+                      <div>
+                        <div className="sp-label mb-2">Server-Timing</div>
+                        {serverTiming.length === 0 ? (
+                          <Floater radius="btn" elevation="inset" className="p-3">
+                            <p className="text-sp-12 text-sp-dim font-mono">
+                              No Server-Timing headers reported by upstream
+                            </p>
+                          </Floater>
+                        ) : (
+                          <Floater radius="btn" elevation="inset" className="p-3 space-y-2">
+                            {serverTiming.map((t, i) => (
+                              <div
+                                key={`${t.name}-${i}`}
+                                className="grid grid-cols-[140px_1fr_auto] gap-3 items-center"
+                              >
+                                <span className="font-mono text-sp-12 text-sp-text">{t.name}</span>
+                                <span className="font-mono text-sp-11-5 text-sp-muted truncate">
+                                  {t.desc ?? ''}
+                                </span>
+                                <span className="font-mono text-sp-12 text-sp-muted tabular-nums">
+                                  {typeof t.dur === 'number' ? `${t.dur} ms` : '—'}
+                                </span>
                               </div>
                             ))}
-                          </div>
+                          </Floater>
                         )}
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {activeTab === 'timeline' && (
-                      <div className="h-full overflow-auto px-4 py-3 space-y-4">
-                        <TimingBreakdown
-                          segments={waterfallSegments}
-                          total={currentResponse.time}
-                        />
-                        <div>
-                          <div className="sp-label mb-2">Server-Timing</div>
-                          {serverTiming.length === 0 ? (
-                            <Floater radius="btn" elevation="inset" className="p-3">
-                              <p className="text-sp-12 text-sp-dim font-mono">
-                                No Server-Timing headers reported by upstream
-                              </p>
-                            </Floater>
-                          ) : (
-                            <Floater radius="btn" elevation="inset" className="p-3 space-y-2">
-                              {serverTiming.map((t, i) => (
-                                <div
-                                  key={`${t.name}-${i}`}
-                                  className="grid grid-cols-[140px_1fr_auto] gap-3 items-center"
-                                >
-                                  <span className="font-mono text-sp-12 text-sp-text">
-                                    {t.name}
-                                  </span>
-                                  <span className="font-mono text-sp-11-5 text-sp-muted truncate">
-                                    {t.desc ?? ''}
-                                  </span>
-                                  <span className="font-mono text-sp-12 text-sp-muted tabular-nums">
-                                    {typeof t.dur === 'number' ? `${t.dur} ms` : '—'}
-                                  </span>
-                                </div>
-                              ))}
-                            </Floater>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                  {activeTab === 'tests' && (
+                    <ResponseTestsPanel result={activeTab_?.scriptResult?.test} />
+                  )}
 
-                    {activeTab === 'tests' && (
-                      <ResponseTestsPanel result={activeTab_?.scriptResult?.test} />
-                    )}
-
-                    {activeTab === 'visualize' && visualization && (
-                      <VisualizerFrame
-                        template={visualization.template}
-                        data={visualization.data}
-                        className="h-full"
-                      />
-                    )}
-                  </SubTabPanel>
-                </div>
-              </Floater>
-            </motion.div>
-          ))(responsePane.response)
+                  {activeTab === 'visualize' && visualization && (
+                    <VisualizerFrame
+                      template={visualization.template}
+                      data={visualization.data}
+                      className="h-full"
+                    />
+                  )}
+                </SubTabPanel>
+              </div>
+            </Floater>
+          </motion.div>
         )}
       </AnimatePresence>
     </TooltipProvider>
