@@ -9,6 +9,7 @@ import type { ControlToolResult } from '@shared/mcp-server/control-bridge';
 import { CONTROL_TOOLS } from '@shared/mcp-server/control-tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  __setMcpNodeAdapterLoaderForTests,
   type ControlHttpServerHandle,
   type ControlToolCall,
   clientFromMeta,
@@ -20,6 +21,7 @@ const handles: ControlHttpServerHandle[] = [];
 const clients: Client[] = [];
 
 afterEach(async () => {
+  __setMcpNodeAdapterLoaderForTests(undefined);
   await Promise.allSettled(clients.splice(0).map((c) => c.close()));
   await Promise.allSettled(handles.splice(0).map((h) => h.close()));
 });
@@ -80,6 +82,22 @@ function rawPost(
     req.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }));
   });
 }
+
+describe('node adapter load', () => {
+  it('fails the start call when the Node adapter cannot be loaded', async () => {
+    __setMcpNodeAdapterLoaderForTests(() => {
+      throw new Error("Cannot find module '@modelcontextprotocol/node'");
+    });
+
+    await expect(
+      startControlHttpServer({
+        identity: { name: 'restura', version: '9.9.9' },
+        getToken: () => TOKEN,
+        dispatch: async () => ({ ok: true, data: null }),
+      })
+    ).rejects.toThrow(/@modelcontextprotocol\/node/);
+  });
+});
 
 describe('control server over streamable HTTP', () => {
   it('lists the full catalogue with titles and honest annotations, bound to loopback', async () => {

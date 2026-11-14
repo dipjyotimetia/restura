@@ -385,17 +385,21 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --dir --publish never
 
-      - name: Verify renderer is bundled into the app
+      - name: Verify packaged renderer and main-process requires
         # Guards against dist/web layout / files-glob drift that would otherwise
-        # ship an app that launches to a blank window. The verifier normalizes
-        # path separators so it works on Windows (listPackage returns backslash
-        # paths there). See scripts/verify-asar-renderer.mjs.
+        # ship an app that launches to a blank window, and against a main-process
+        # require that was not copied into app.asar (launch crash, #1353). The
+        # renderer verifier normalizes path separators so it works on Windows
+        # (listPackage returns backslash paths there). See
+        # scripts/verify-asar-renderer.mjs and
+        # scripts/verify-packaged-main-requires.mjs.
         shell: bash
         run: |
           set -euo pipefail
           asar=$(find dist/installers -name app.asar -print -quit)
           if [ -z "$asar" ]; then echo "::error::app.asar not found"; exit 1; fi
           node scripts/verify-asar-renderer.mjs "$asar"
+          node scripts/verify-packaged-main-requires.mjs "$asar"
 
   e2e:
     needs: [changes]

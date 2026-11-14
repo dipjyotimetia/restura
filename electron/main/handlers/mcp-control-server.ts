@@ -14,7 +14,6 @@
 
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { toNodeHandler } from '@modelcontextprotocol/node';
 import { CLIENT_INFO_META_KEY, createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import {
   CONTROL_SERVER_PATH,
@@ -33,6 +32,45 @@ import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { clientLabelFromHeaders, isAuthorized, rejectControlRequest } from './mcp-control-protocol';
 
 const log = createLogger('mcp-control');
+
+/**
+ * `@modelcontextprotocol/node` is only needed once the control server actually
+ * starts. A top-level import runs while main loads this module (main →
+ * mcp-control-handler → here) and an uncaught `Cannot find module` kills the
+ * packaged app before the window opens (#1353). Load it on start instead, and
+ * let the IPC start handler turn a failure into an error for that feature.
+ */
+type McpNodeAdapter = typeof import('@modelcontextprotocol/node');
+
+let mcpNodeAdapter: McpNodeAdapter | undefined;
+const requireMcpNodeAdapter = (): McpNodeAdapter =>
+  require('@modelcontextprotocol/node') as McpNodeAdapter;
+let loadMcpNodeAdapter: () => McpNodeAdapter = requireMcpNodeAdapter;
+
+function mcpNodeAdapterOrThrow(): McpNodeAdapter {
+  if (mcpNodeAdapter) return mcpNodeAdapter;
+  try {
+    const loaded = loadMcpNodeAdapter();
+    if (typeof loaded.toNodeHandler !== 'function') {
+      throw new Error('@modelcontextprotocol/node did not export toNodeHandler');
+    }
+    mcpNodeAdapter = loaded;
+    return loaded;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `The MCP control server is unavailable because @modelcontextprotocol/node could not be loaded (${detail}).`
+    );
+  }
+}
+
+/** Test seam for the lazy require. Pass `undefined` to restore the real loader. */
+export function __setMcpNodeAdapterLoaderForTests(
+  loader: (() => McpNodeAdapter) | undefined
+): void {
+  mcpNodeAdapter = undefined;
+  loadMcpNodeAdapter = loader ?? requireMcpNodeAdapter;
+}
 
 export interface ControlToolCall {
   tool: string;
@@ -204,6 +242,9 @@ function listen(server: http.Server, port: number): Promise<number> {
 export async function startControlHttpServer(
   options: ControlHttpServerOptions
 ): Promise<ControlHttpServerHandle> {
+  // Resolve the Node adapter before opening a socket so a missing package
+  // fails the start call and does not leave a listener behind.
+  const toNodeHandler = mcpNodeAdapterOrThrow().toNodeHandler;
   const limiter = createKeyedRateLimiter(options.rateLimit ?? CONTROL_HTTP_RATE_LIMIT, 60_000);
 
   const handler = createMcpHandler(
