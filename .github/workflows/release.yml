@@ -243,6 +243,10 @@ jobs:
       # is already public: retry would refuse, and the next patch is correct.
       - name: Refuse to skip an unpublished stable version
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_release_tag == '' }}
+        env:
+          # `gh` does not see the job token unless it is passed. github.token
+          # is this job's contents: read token.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           CURRENT="$(node -p "require('./package.json').version")"
@@ -251,8 +255,7 @@ jobs:
             echo "${CLI_NAME}@${CURRENT} is already on npm, so a new version bump is allowed."
             exit 0
           fi
-          # GITHUB_TOKEN is the job token (contents: read). Published releases
-          # are public; drafts are excluded and stay invisible to this check.
+          # Published releases are public; drafts are excluded.
           published="$(gh release list --exclude-drafts --exclude-pre-releases \
             --limit 100 --json tagName --jq '.[].tagName')"
           printf 'Published stable tags considered:\n%s\n' "$published"
@@ -645,6 +648,10 @@ jobs:
           fi
 
       - name: Configure git author
+        env:
+          # Public profile lookup. The read-only job token is enough; the App
+          # token stays out of this step.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Public profile of the App that pushes the tag. The ruleset checks

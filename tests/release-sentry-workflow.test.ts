@@ -213,6 +213,13 @@ describe('release workflow Sentry guardrails', () => {
     expect(push).toContain('creations being restricted');
     expect(push).toContain('tag-ruleset-rejected "$ACTUAL_TAG" create');
 
+    const author = releaseJob.slice(
+      releaseJob.indexOf('- name: Configure git author'),
+      releaseJob.indexOf('- name: Tag and push')
+    );
+    expect(author).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(author).toContain('gh api users/restura-bot%5Bbot%5D');
+
     const notes = releaseJob.slice(
       releaseJob.indexOf('- name: Generate release notes'),
       releaseJob.indexOf('- name: Download SBOM')
@@ -236,6 +243,7 @@ describe('release workflow Sentry guardrails', () => {
       "if: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_release_tag == '' }}"
     );
     expect(guard).toContain('npm view "${CLI_NAME}@${CURRENT}" version');
+    expect(guard).toContain('GH_TOKEN: ${{ github.token }}');
     expect(guard).toContain('unpublished-guard');
     expect(guard).not.toContain('secrets.');
 
