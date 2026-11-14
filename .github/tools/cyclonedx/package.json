@@ -1,11 +1,9 @@
 {
   "name": "restura-ci-tool-cyclonedx",
   "private": true,
-  "description": "Lockfile-pinned CI tool install for the release SBOM (supply-chain epic #1283). Bump the version here and regenerate package-lock.json with: npm install --package-lock-only --engine-strict=false --ignore-scripts",
+  "description": "Lockfile-pinned CI tool install for the release SBOM (supply-chain epic #1283). Bump the version here and regenerate package-lock.json with: npm install --package-lock-only --engine-strict=false --ignore-scripts. xmlbuilder2 is required for --output-format XML (optional peer of @cyclonedx/cyclonedx-library since cyclonedx-npm 7).",
   "dependencies": {
-    "@cyclonedx/cyclonedx-npm": "6.0.1"
-  },
-  "allowScripts": {
-    "libxmljs2": false
+    "@cyclonedx/cyclonedx-npm": "7.0.1",
+    "xmlbuilder2": "4.0.3"
   }
 }
