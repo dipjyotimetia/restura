@@ -170,10 +170,14 @@ export function hasGitMetadataSegment(resolved: string): boolean {
 // could return a system path).
 const BLOCKED_ROOT_PATHS = [
   '/etc',
+  // macOS realpath aliases — `/etc` and `/var` live under `/private`. Without
+  // these, `grantCollectionRoot('/etc')` would accept the resolved path.
+  '/private/etc',
   '/usr',
   '/bin',
   '/sbin',
   '/var',
+  '/private/var',
   '/root',
   '/System',
   '/Library',

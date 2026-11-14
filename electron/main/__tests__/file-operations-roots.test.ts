@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { mkdir, mkdtemp, rm, symlink, unlink } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -82,7 +81,9 @@ describe('dialog-granted collection roots', () => {
   let outside: string;
 
   beforeEach(async () => {
-    base = await mkdtemp(path.join(os.tmpdir(), 'restura-grant-'));
+    // Under `/tmp`, not `os.tmpdir()` — on macOS the latter is `/var/folders/...`,
+    // which BLOCKED_ROOT_PATHS rejects by design (same pattern as bruno-export tests).
+    base = await mkdtemp(path.join('/tmp', 'restura-grant-'));
     userData = path.join(base, 'ud');
     outside = path.join(base, 'work');
     await mkdir(userData, { recursive: true });
@@ -112,8 +113,11 @@ describe('dialog-granted collection roots', () => {
 
   it('refuses to grant system roots', async () => {
     expect(await grantCollectionRoot('/etc')).toBe(false);
+    // macOS realpath form must be refused too (`/etc` → `/private/etc`).
+    expect(await grantCollectionRoot('/private/etc')).toBe(false);
     expect(await grantCollectionRoot('/usr/local')).toBe(false);
     expect(isPathSafe('/etc/passwd')).toBe(false);
+    expect(isPathSafe('/private/etc/passwd')).toBe(false);
   });
 
   it('refuses to grant credential directories under home', async () => {
