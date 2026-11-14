@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { isVersionOnlyDiff, nextVersion, runCli } from '../../scripts/release-version.mjs';
+import {
+  formatExistingRelease,
+  formatTagRulesetRejection,
+  formatUnpublishedGuard,
+  isVersionOnlyDiff,
+  nextVersion,
+  runCli,
+  unpublishedStableAhead,
+} from '../../scripts/release-version.mjs';
 
 describe('nextVersion', () => {
   it.each([
@@ -82,16 +90,88 @@ describe('isVersionOnlyDiff', () => {
   });
 });
 
-describe('runCli', () => {
-  function io(files: Record<string, string>) {
-    const lines: string[] = [];
-    return {
-      lines,
-      read: (file: string | number) => files[String(file)] ?? '',
-      log: (line: string) => lines.push(line),
-    };
-  }
+function io(files: Record<string, string>) {
+  const lines: string[] = [];
+  return {
+    lines,
+    read: (file: string | number) => files[String(file)] ?? '',
+    log: (line: string) => lines.push(line),
+  };
+}
 
+describe('unpublishedStableAhead', () => {
+  it('blocks a dispatch that would skip an unpublished stable version', () => {
+    expect(unpublishedStableAhead('1.18.2', ['v1.18.0', 'v1.18.1'])).toEqual({
+      current: '1.18.2',
+      latest: '1.18.1',
+    });
+  });
+
+  it('compares numeric semver, ignoring prerelease and extension tags', () => {
+    expect(
+      unpublishedStableAhead('1.10.0', ['v1.9.0', 'v1.18.2-beta.1', 'vscode-v1.2.3', 'chrome-v9'])
+    ).toEqual({ current: '1.10.0', latest: '1.9.0' });
+  });
+
+  it('allows a normal bump once the current version is the latest published release', () => {
+    expect(unpublishedStableAhead('1.18.1', ['1.18.1', 'v1.18.0'])).toBeNull();
+  });
+
+  it('allows the first release, when nothing stable has been published', () => {
+    expect(unpublishedStableAhead('0.1.0', [])).toBeNull();
+    expect(unpublishedStableAhead('0.1.0', ['v1.2.3-beta.1'])).toBeNull();
+  });
+
+  it('rejects a non-stable package.json version', () => {
+    expect(() => unpublishedStableAhead('1.18.2-beta.1', ['v1.18.1'])).toThrow(/stable/);
+  });
+
+  it('prints the retry command and stays quiet when a bump is allowed', () => {
+    const blocked = formatUnpublishedGuard({ current: '1.18.2', latest: '1.18.1' });
+    expect(blocked).toContain(
+      'gh workflow run release.yml --ref main -f retry_release_tag=v1.18.2'
+    );
+    expect(blocked).toContain('ahead of the latest published stable release 1.18.1');
+
+    const fake = io({ 'package.json': '{"version":"1.18.2"}', '0': 'v1.18.1\nv1.18.0\n' });
+    expect(runCli(['unpublished-guard'], fake)).toBe(1);
+    expect(fake.lines.join('\n')).toContain('retry_release_tag=v1.18.2');
+
+    const current = io({ 'package.json': '{"version":"1.18.1"}', '0': 'v1.18.1\n' });
+    expect(runCli(['unpublished-guard'], current)).toBe(0);
+    expect(current.lines).toEqual([]);
+  });
+});
+
+describe('release recovery messages', () => {
+  it('tells the operator to put restura-bot on the tag ruleset bypass list', () => {
+    const created = formatTagRulesetRejection('v1.18.2', 'create');
+    expect(created).toContain('rejected creating v1.18.2');
+    expect(created).toContain('restura-bot GitHub App');
+    expect(created).toContain('not as github-actions[bot]');
+    expect(created).toContain('creation, update, and deletion');
+    expect(created).toContain('retry_release_tag=v1.18.2');
+    expect(created).toContain('GitHub Actions (GITHUB_TOKEN) does not need a bypass');
+
+    const deleted = formatTagRulesetRejection('v1.18.3-beta.1', 'delete');
+    expect(deleted).toContain('rejected deleting v1.18.3-beta.1');
+    expect(deleted).toContain('retry_release_tag accepts a stable vX.Y.Z only');
+  });
+
+  it('points an existing stable tag at retry and a prerelease at a new identifier', () => {
+    const stable = formatExistingRelease('v1.18.2');
+    expect(stable).toContain('will not overwrite it');
+    expect(stable).toContain('retry_release_tag=v1.18.2');
+    expect(stable).toContain('restura-bot');
+    expect(stable).toContain('public release is immutable');
+
+    const beta = formatExistingRelease('v1.18.3-beta.1');
+    expect(beta).toContain('prerelease_identifier');
+    expect(beta).not.toContain('retry_release_tag=v1.18.3-beta.1');
+  });
+});
+
+describe('runCli', () => {
   it('prints the next version from package.json', () => {
     const fake = io({ 'package.json': '{"version":"1.12.1"}' });
     expect(runCli(['next', 'minor', 'beta.2'], fake)).toBe(0);
