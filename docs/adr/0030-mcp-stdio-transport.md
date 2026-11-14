@@ -82,7 +82,7 @@ Each child is tracked by its `ChildProcess` handle from spawn until exit (never 
 
 - on disconnect;
 - on renderer destruction (claim and stream-registry cleanup);
-- when the `IPC_MODULES` entry is disposed at app quit (`stopMcpCleanup` awaits exit, inside the existing 3 s quit budget);
+- when the `mcp` feature disposer runs at app quit (`stopMcpCleanup` awaits exit, inside the existing 3 s quit budget; quit calls it only if that feature started);
 - by a synchronous `SIGKILL` sweep in the main process's `exit` handler, as a last resort.
 
 Termination sends `SIGTERM` and escalates to `SIGKILL` after 1 s. On Windows it runs `%SystemRoot%\System32\taskkill.exe /T /F` (an absolute path, never resolved through `PATH`), so the real server under a `cmd.exe` shim dies too.

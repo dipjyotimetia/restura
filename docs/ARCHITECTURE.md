@@ -235,7 +235,7 @@ restura/
 │
 ├── electron/
 │   └── main/                     # Main process — organised into purpose-based subfolders
-│       ├── main.ts               # Entry / orchestrator (IPC_MODULES registry)
+│       ├── main.ts               # Entry / orchestrator (starts lifecycle/ipc-features.ts)
 │       ├── window-manager.ts     # Window creation; loads SPA (__dirname-sensitive — stays at root)
 │       ├── preload.ts            # Secure IPC bridge (context-isolated)
 │       ├── notifications.ts      # OS notifications
@@ -436,7 +436,8 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 Files that compute `__dirname`-relative paths at runtime (`main.ts`, `window-manager.ts`, `preload.ts`, `notifications.ts`) stay at the `electron/main/` root; everything else is grouped into purpose-based subfolders.
 
 ```
-main.ts (entry — owns the IPC_MODULES register/dispose registry)
+main.ts (entry — startFeatures(createDesktopFeatures(...)); quit disposes only features that started)
+  ├── lifecycle/ipc-features.ts  # each register/dispose pair; start() require()s the handler
   ├── window-manager.ts          # Creates BrowserWindow
   │     ├── dev:  http://localhost:5173
   │     └── prod: dist/web/index.html (file://)

@@ -53,8 +53,8 @@ auth-signer runs. The preload bridge deliberately exposes only `store`,
   main-process-only `resolveSecretHandle` and `unwrapSecretValueMain`
 - `electron/main/preload.ts` — `electronAPI.secrets.{store, delete, describe}`
   exposed to the renderer (no `resolve`)
-- `electron/main/main.ts` — `registerSecretHandleIPC()` wired into the
-  startup sequence
+- `electron/main/lifecycle/ipc-features.ts` — the `secret-handles` feature
+  calls `registerSecretHandleIPC()` and returns `unregisterSecretHandleIPC`
 
 ## Per-descriptor migration (incremental)
 

@@ -178,7 +178,7 @@ Global stores live in `src/store/` (see its `README.md`) — notably `useRequest
 The main process is organised into purpose-based subfolders. Files that compute `__dirname`-relative paths at runtime (preload location, bundled resources, `dist/web/index.html`) **must stay at the `electron/main/` root** — moving them into a subfolder adds a path segment that nothing in `tsc` or the unit tests catches (only a packaged/e2e run would). See the NOTE block in `window-manager.ts`.
 
 - **Root (`electron/main/`)** — the `__dirname`-sensitive entry points:
-  - `main.ts` — entry / orchestrator. Owns the `IPC_MODULES` registry that couples each handler's `register` to its `dispose`, so teardown can't drift out of sync with registration.
+  - `main.ts` — entry / orchestrator. `lifecycle/ipc-features.ts` (`createDesktopFeatures`) couples each handler's `register` to its disposer: `start()` `require()`s the module and returns the disposer. `startFeatures` skips a feature that throws, and quit disposes only features that started.
   - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod; resolves resource/icon paths.
   - `preload.ts` — context-isolated IPC entry that composes domain APIs from `preload/`; bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against the modules under `electron/types/api/` via `satisfies ElectronAPI`.
   - `notifications.ts` — native notifications + its rate limiter.
