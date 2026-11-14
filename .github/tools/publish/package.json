@@ -3,9 +3,12 @@
   "private": true,
   "description": "Lockfile-pinned marketplace publishers for the extension release workflows (supply-chain epic #1283). Publish jobs install ONLY this folder (never the repo's npm ci), so dependency code from the app never runs next to a marketplace token. Bump versions here and regenerate package-lock.json with: npm install --package-lock-only --engine-strict=false --ignore-scripts",
   "dependencies": {
-    "@vscode/vsce": "4.1.0",
+    "@vscode/vsce": "4.1.1",
     "chrome-webstore-upload-cli": "4.0.2",
     "ovsx": "1.3.0"
+  },
+  "overrides": {
+    "minimatch@>=7.0.0 <11.0.1": "^11.0.3"
   },
   "allowScripts": {
     "@vscode/vsce-sign": true
