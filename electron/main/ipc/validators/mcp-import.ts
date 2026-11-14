@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
-// ===========================
 // MCP config import (#906) - desktop only
-// ===========================
 
 /**
  * `mcp:import:scan`. There is deliberately NO path field: main reads either

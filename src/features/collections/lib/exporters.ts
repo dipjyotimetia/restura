@@ -153,7 +153,6 @@ function exportSecretValue(value: SecretValue | undefined): string {
   return `{{handle:${value.label ?? value.id}}}`;
 }
 
-// Export to Insomnia Format
 export function exportToInsomnia(collection: Collection): {
   _type: string;
   __export_format: number;
@@ -352,7 +351,6 @@ function convertAuthToInsomnia(auth: AuthConfig): {
 
 const generateId = uuidv4;
 
-// Export to HAR (HTTP Archive) Format
 export function exportToHAR(collection: Collection): object {
   const entries: object[] = [];
 
@@ -457,7 +455,6 @@ function buildHarPostData(body: HttpRequest['body']): HarPostData | null {
   };
 }
 
-// Export to OpenAPI 3.0 Format
 /**
  * OpenAPI 3.0 path items only allow the fixed operation keys (get, put, post,
  * delete, options, head, patch, trace). Extension methods (#857) such as

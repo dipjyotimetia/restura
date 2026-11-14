@@ -2,9 +2,7 @@ import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { z } from 'zod';
 
-// ===========================
 // AI Chat Schemas
-// ===========================
 
 const AiChatToolCallSchema = z.object({
   id: z.string().min(1).max(200),

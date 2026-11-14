@@ -5,16 +5,12 @@ import { WS_IPC_MAX_MESSAGE_LENGTH } from '@shared/protocol/ws-binary-codec';
 import { httpVersionPreferenceSchema } from '@shared/schemas/app';
 import { z } from 'zod';
 
-// ===========================
 // Shared Size Constants
-// ===========================
 
 export const MAX_HTTP_BODY_BYTES = 50 * 1024 * 1024;
 export const MAX_PROTO_CONTENT_BYTES = 1024 * 1024;
 
-// ===========================
 // HTTP Request Schemas
-// ===========================
 
 const ProxyConfigSchema = z.object({
   enabled: z.boolean(),
@@ -316,9 +312,7 @@ export const HttpCancelSchema = z
   })
   .strict();
 
-// ===========================
 // gRPC Request Schemas
-// ===========================
 
 export const GrpcRequestConfigSchema = z
   .object({
@@ -382,9 +376,7 @@ export const GrpcRequestConfigSchema = z
 
 export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;
 
-// ===========================
 // File Operations Schemas
-// ===========================
 
 export const DialogOptionsSchema = z.object({
   // Window title the renderer's openFileDialog / saveFileDialog accept;
@@ -442,9 +434,7 @@ export const ShellUrlSchema = z
     message: 'Only http, https, and mailto URLs are allowed',
   });
 
-// ===========================
 // Notification Schemas
-// ===========================
 
 export const NotificationOptionsSchema = z.object({
   title: z.string().min(1, 'Title is required').max(256, 'Title too long'),
@@ -469,9 +459,7 @@ export const NotificationRequestCompleteSchema = z.object({
   url: z.url('Invalid URL format'),
 });
 
-// ===========================
 // Auto-updater Schemas
-// ===========================
 
 export const UpdaterConfigSchema = z.object({
   autoDownload: z.boolean(),
@@ -480,9 +468,7 @@ export const UpdaterConfigSchema = z.object({
 
 export type UpdaterConfig = z.infer<typeof UpdaterConfigSchema>;
 
-// ===========================
 // gRPC Reflection Schemas
-// ===========================
 
 export const ReflectionIpcConfigSchema = z.object({
   url: z.url('Invalid URL format'),
@@ -504,9 +490,7 @@ export const ReflectionIpcConfigSchema = z.object({
 
 export type ReflectionIpcConfig = z.infer<typeof ReflectionIpcConfigSchema>;
 
-// ===========================
 // gRPC Stream Schemas
-// ===========================
 
 export const GrpcStreamRequestIdSchema = z.string().min(1, 'Request ID is required');
 
@@ -526,9 +510,7 @@ export const GrpcCancelRequestSchema = z
   })
   .strict();
 
-// ===========================
 // Connection-based protocols (WebSocket / Socket.IO / SSE / MCP / Kafka / MQTT)
-// ===========================
 
 // Renderer-supplied connection id: a uuid-ish token used to route per-connection
 // IPC events. Shared by every streaming protocol so the validation (and its
@@ -542,9 +524,7 @@ export const ConnectionIdSchema = z
     'Connection ID must contain only alphanumeric characters, underscores, or hyphens'
   );
 
-// ===========================
 // WebSocket Schemas
-// ===========================
 
 export const WsConnectionIdSchema = ConnectionIdSchema;
 
@@ -613,9 +593,7 @@ export const WsSendSchema = z.object({
 export type WsConnectConfig = z.infer<typeof WsConnectSchema>;
 export type WsSendConfig = z.infer<typeof WsSendSchema>;
 
-// ===========================
 // SSE Schemas
-// ===========================
 
 // Header denylist for streaming HTTP requests we issue from Node.
 // These are either hop-by-hop (forbidden by spec to forward) or sensitive
@@ -692,9 +670,7 @@ export const SseDisconnectSchema = z.object({
 export type SseConnectConfig = z.infer<typeof SseConnectSchema>;
 export type SseDisconnectConfig = z.infer<typeof SseDisconnectSchema>;
 
-// ===========================
 // MCP Schemas
-// ===========================
 
 export const McpConnectionIdSchema = ConnectionIdSchema;
 

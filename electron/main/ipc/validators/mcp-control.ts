@@ -6,9 +6,7 @@ import {
 } from '@shared/mcp-server/control-bridge';
 import { z } from 'zod';
 
-// ===========================
 // MCP control server (ADR 0041)
-// ===========================
 
 export const ToolResultSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true), data: z.unknown() }),

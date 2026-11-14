@@ -10,9 +10,7 @@ import {
 } from '../../security/mcp-stdio-policy';
 import { McpConnectionIdSchema } from './core';
 
-// ===========================
 // MCP stdio transport (#854, ADR 0030) — desktop only
-// ===========================
 
 /** Unicode Cc/Cf/Zl/Zp (controls, bidi/zero-width format chars, separators). */
 const noControlChars = (value: string) => !hasControlChars(value);

@@ -35,7 +35,6 @@ export function minifyQuery(query: string): string {
   }
 }
 
-// Check if query can be parsed
 export function isValidSyntax(query: string): boolean {
   if (!query.trim()) {
     return true;

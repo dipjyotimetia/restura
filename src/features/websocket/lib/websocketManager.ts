@@ -170,7 +170,6 @@ class WebSocketManager {
       const ws = protocols?.length ? new WebSocket(url, protocols) : new WebSocket(url);
       let opened = false;
 
-      // Set connection timeout
       const timeoutId = setTimeout(() => {
         if (ws.readyState === WebSocket.CONNECTING) {
           // The timeout owns this close: detach first so the browser's
@@ -192,12 +191,10 @@ class WebSocketManager {
 
       this.connectionTimeouts.set(connectionId, timeoutId);
 
-      // Set binary type to arraybuffer for binary message support
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         opened = true;
-        // Clear connection timeout
         const timeout = this.connectionTimeouts.get(connectionId);
         if (timeout) {
           clearTimeout(timeout);
@@ -680,7 +677,6 @@ class WebSocketManager {
   }
 }
 
-// Export singleton instance
 /**
  * Main answers ws:send asynchronously; the frame is logged as sent when handed
  * over (keeping transcript order), so a refusal — not connected, a payload the

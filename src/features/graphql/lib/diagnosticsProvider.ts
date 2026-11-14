@@ -18,7 +18,6 @@ export function createDiagnostics(
   }));
 }
 
-// Set up diagnostics for a Monaco model
 export function setupDiagnostics(
   monaco: typeof Monaco,
   model: Monaco.editor.ITextModel,

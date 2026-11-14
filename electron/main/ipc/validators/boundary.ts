@@ -3,9 +3,7 @@ import { z } from 'zod';
 
 const log = createLogger('ipc');
 
-// ===========================
 // Store Schemas
-// ===========================
 
 // electron-store uses dot-notation for nested access (e.g. "a.b" reads obj.a.b).
 // Dots and colons are allowed here intentionally — callers must use flat keys only
@@ -25,9 +23,7 @@ export const StoreValueSchema = z.string().max(1024 * 1024, 'Value exceeds 1MB l
 // args as a tuple — same pattern as WriteFileSchema for fs:writeFile.
 export const StoreSetSchema = z.tuple([StoreKeySchema, StoreValueSchema]);
 
-// ===========================
 // Log Schemas
-// ===========================
 
 export const LogHistoryLimitSchema = z.number().int().positive().max(1000).optional();
 
@@ -37,9 +33,7 @@ export const BugReportScreenshotSchema = z
   .max(12 * 1024 * 1024, 'Screenshot exceeds 12MB')
   .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, 'Expected a PNG data URL');
 
-// ===========================
 // Validation Helper
-// ===========================
 
 // Fail closed: the Vite dev-server origin is untrusted unless main.ts opts in
 // at startup for an unpackaged dev run. A packaged build only ever trusts the

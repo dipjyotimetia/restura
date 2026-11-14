@@ -2,9 +2,7 @@
 import { z } from 'zod';
 import { ConnectionIdSchema } from './core';
 
-// ===========================
 // Socket.IO Schemas
-// ===========================
 
 // Hop-by-hop and security-sensitive headers that must not be forwarded to
 // arbitrary Socket.IO servers via extraHeaders.

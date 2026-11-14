@@ -1,6 +1,5 @@
 // @vitest-environment node
 import * as fsp from 'node:fs/promises';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -32,7 +31,8 @@ describe('collection:select-directory grants the picked folder', () => {
   let base: string;
 
   beforeEach(async () => {
-    base = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'select-dir-')));
+    // `/tmp`, not `os.tmpdir()` — macOS `/var/folders` is a blocked system root.
+    base = await fsp.realpath(await fsp.mkdtemp(path.join('/tmp', 'select-dir-')));
     h.userData = path.join(base, 'ud');
     await fsp.mkdir(h.userData);
     resetGrantedCollectionRootsForTests();

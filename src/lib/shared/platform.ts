@@ -1,9 +1,4 @@
 /**
- * Platform detection and Electron API utilities
- * This module provides utilities to detect the current platform and access Electron APIs safely
- */
-
-/**
  * Base URL for the Cloudflare Worker API.
  * In production the SPA lives on restura.dev and the Worker on api.restura.dev
  * (set via VITE_WORKER_URL at build time), so we need an absolute origin. In
@@ -24,9 +19,6 @@ export function workerAuthHeaders(): Record<string, string> {
 
 import type { ElectronAPI } from '../../../electron/types/electron-api';
 
-/**
- * Check if the application is running in Electron
- */
 export function isElectron(): boolean {
   if (typeof window === 'undefined') {
     return false;
@@ -34,17 +26,10 @@ export function isElectron(): boolean {
   return window.electron?.isElectron === true;
 }
 
-/**
- * Check if the application is running in a web browser
- */
 export function isWeb(): boolean {
   return !isElectron();
 }
 
-/**
- * Get the Electron API if available
- * @returns ElectronAPI or null if not in Electron
- */
 export function getElectronAPI(): ElectronAPI | null {
   if (typeof window === 'undefined') {
     return null;
@@ -52,9 +37,6 @@ export function getElectronAPI(): ElectronAPI | null {
   return window.electron ?? null;
 }
 
-/**
- * Get the current platform
- */
 export function getPlatform(): 'darwin' | 'win32' | 'linux' | 'web' {
   if (!isElectron()) {
     return 'web';
@@ -66,30 +48,18 @@ export function getPlatform(): 'darwin' | 'win32' | 'linux' | 'web' {
   return 'web';
 }
 
-/**
- * Check if running on macOS
- */
 export function isMac(): boolean {
   return getPlatform() === 'darwin';
 }
 
-/**
- * Check if running on Windows
- */
 export function isWindows(): boolean {
   return getPlatform() === 'win32';
 }
 
-/**
- * Check if running on Linux
- */
 export function isLinux(): boolean {
   return getPlatform() === 'linux';
 }
 
-/**
- * Safe wrapper for Electron file dialog operations
- */
 export async function openFileDialog(options?: {
   title?: string;
   defaultPath?: string;
@@ -97,7 +67,6 @@ export async function openFileDialog(options?: {
 }): Promise<{ canceled: boolean; filePaths: string[] }> {
   const api = getElectronAPI();
   if (!api) {
-    // Fallback for web: use file input
     return new Promise((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
@@ -119,9 +88,6 @@ export async function openFileDialog(options?: {
   return api.dialog.openFile(options);
 }
 
-/**
- * Safe wrapper for Electron save file dialog
- */
 export async function saveFileDialog(options?: {
   title?: string;
   defaultPath?: string;
@@ -129,15 +95,11 @@ export async function saveFileDialog(options?: {
 }): Promise<{ canceled: boolean; filePath?: string }> {
   const api = getElectronAPI();
   if (!api) {
-    // Fallback for web: use download
     return { canceled: false, filePath: options?.defaultPath || 'download' };
   }
   return api.dialog.saveFile(options);
 }
 
-/**
- * Read file from disk (Electron only)
- */
 export async function readFileFromDisk(
   filePath: string
 ): Promise<{ success: boolean; content?: string; error?: string }> {
@@ -148,9 +110,6 @@ export async function readFileFromDisk(
   return api.fs.readFile(filePath);
 }
 
-/**
- * Write file to disk (Electron only)
- */
 export async function writeFileToDisk(
   filePath: string,
   content: string
@@ -162,9 +121,6 @@ export async function writeFileToDisk(
   return api.fs.writeFile(filePath, content);
 }
 
-/**
- * Get application version (Electron only)
- */
 export async function getAppVersion(): Promise<string> {
   const api = getElectronAPI();
   if (!api) {
@@ -173,9 +129,6 @@ export async function getAppVersion(): Promise<string> {
   return api.app.getVersion();
 }
 
-/**
- * Open external URL in default browser
- */
 export async function openExternalUrl(url: string): Promise<void> {
   const api = getElectronAPI();
   if (api) {
@@ -185,9 +138,6 @@ export async function openExternalUrl(url: string): Promise<void> {
   }
 }
 
-/**
- * Subscribe to Electron menu events
- */
 export function onMenuEvent(event: string, callback: (...args: unknown[]) => void): () => void {
   const api = getElectronAPI();
   if (!api) {

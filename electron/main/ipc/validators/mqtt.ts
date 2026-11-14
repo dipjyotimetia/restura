@@ -2,9 +2,7 @@ import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema'
 import { z } from 'zod';
 import { ConnectionIdSchema } from './core';
 
-// ===========================
 // MQTT Schemas
-// ===========================
 
 export const MqttConnectionIdSchema = ConnectionIdSchema;
 
