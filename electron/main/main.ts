@@ -1,73 +1,17 @@
 import { createLogger } from '@shared/runtime/logger';
 import { app, BrowserWindow, session } from 'electron';
-import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
-import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
-import { registerBugReportIPC } from './handlers/bug-report-handler';
-import {
-  registerCaptureBridgeIPC,
-  stopCaptureBridge,
-  unregisterCaptureBridgeIPC,
-} from './handlers/capture-bridge-handler';
-import { registerDeepLinkImportIPC } from './handlers/deep-link-import-handler';
-import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
-import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
-import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
-import { registerHttpHandlerIPC } from './handlers/http-handler';
-import { registerKafkaHandlerIPC, stopKafkaCleanup } from './handlers/kafka-handler';
-import {
-  registerMcpConformanceIPC,
-  stopMcpConformanceCleanup,
-} from './handlers/mcp-conformance-handler';
-import { disposeMcpControlIPC, registerMcpControlIPC } from './handlers/mcp-control-handler';
-import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
-import { registerMcpImportIPC, unregisterMcpImportIPC } from './handlers/mcp-import-handler';
-import { startStdioMcpServer } from './handlers/mcp-server-handler';
-import {
-  registerMockServerIPC,
-  stopMockServer,
-  unregisterMockServerIPC,
-} from './handlers/mock-server-handler';
-import { registerMqttHandlerIPC, stopMqttCleanup } from './handlers/mqtt-handler';
-import { registerOwsWorkspaceHandlerIPC } from './handlers/ows-workspace-handler';
-import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './handlers/socketio-handler';
-import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
-import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
 import { setDevServerOriginTrusted } from './ipc/validators/boundary';
-import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
+import { failureFrom, type RunningFeature, startFeatures } from './lifecycle/feature-loader';
+import { createDesktopFeatures } from './lifecycle/ipc-features';
 import { initLogging } from './lifecycle/logging';
-import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
+import { installProcessGuards, reportFeatureFailures } from './lifecycle/process-guard';
+import { logRequest } from './lifecycle/request-logger';
 import { endSentrySessionForQuit, initSentry } from './lifecycle/sentry';
-import { createSystemTray, destroyTray } from './lifecycle/system-tray';
-import {
-  hasRecordedConsentSync,
-  readConsentSync,
-  registerTelemetryConsentIPC,
-} from './lifecycle/telemetry-consent';
-import { registerWindowControlsIPC } from './lifecycle/window-controls';
-import { registerNotificationIPC } from './notifications';
-import { registerExecutionPolicyIPC } from './security/execution-policy';
-import {
-  registerExternalSecretProfileIPC,
-  unregisterExternalSecretProfileIPC,
-} from './security/external-secret-profile-store';
-import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import { hasRecordedConsentSync, readConsentSync } from './lifecycle/telemetry-consent';
 import { primeStdioConsentMacKey } from './security/mcp-stdio-consent';
-import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { primeStoreKeys } from './security/store-keys';
-import {
-  disposeBrunoExportHandlerIPC,
-  registerBrunoExportHandlerIPC,
-} from './storage/bruno-export-handler';
-import {
-  cleanupCollectionWatchers,
-  isRegisteredCollectionDirectory,
-  registerCollectionManagerIPC,
-} from './storage/collection-manager';
-import { registerFileOperationsIPC } from './storage/file-operations';
-import { registerStoreHandlerIPC } from './storage/store-handler';
-import { registerVaultHandlers, unregisterVaultHandlers } from './storage/vault-handler';
-import { createMainWindow, getActiveWindow, registerNewWindowIPC } from './window-manager';
+import { createMainWindow, getActiveWindow } from './window-manager';
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -106,17 +50,11 @@ const log = createLogger('main');
 initSentry({ enabled: readConsentSync(), countSessions: hasRecordedConsentSync() });
 
 // Sentry's default integrations already capture main-process uncaught
-// exceptions/rejections; these handlers add structured local logging on top so
-// async paths (chokidar, dispatchers, stream errors) don't fail silently.
-process.on('uncaughtException', (err, origin) => {
-  log.error('uncaughtException', { origin, message: err.message, stack: err.stack });
-});
-process.on('unhandledRejection', (reason) => {
-  log.error('unhandledRejection', {
-    reason: reason instanceof Error ? reason.message : String(reason),
-    stack: reason instanceof Error ? reason.stack : undefined,
-  });
-});
+// exceptions/rejections. This extra listener logs them, points a dialog at
+// the log file, and (because Electron shows its raw crash box only when it
+// is the sole listener) replaces that box. A throw while a feature module
+// is first imported never reaches here — those loads are deferred below.
+installProcessGuards(log);
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 // Set when this process must not finish starting up (Squirrel install event,
@@ -166,105 +104,28 @@ if (!isMcpServerMode) {
 // Register security measures early so all web-contents are protected from creation
 setupSecurityMeasures();
 
-/**
- * One IPC subsystem: its `register` side and (for handlers that hold long-lived
- * state — streams, watchers, listeners) its `dispose` side. Registration and
- * teardown iterate this single array, so a streaming handler structurally
- * cannot be registered without also wiring up its cleanup (the old failure mode
- * was two hand-ordered lists drifting apart and leaking on quit).
- */
-interface IpcModule {
-  register: () => void;
-  dispose?: () => void | Promise<void>;
-}
+// Features whose start() completed. A feature that throws while its module
+// is first loaded is not in this list, so quit will not dispose it, and the
+// failure does not abort the features after it.
+const runningFeatures: RunningFeature[] = [];
 
-const IPC_MODULES: IpcModule[] = [
-  { register: () => registerDeepLinkImportIPC() },
-  { register: () => registerAutoUpdaterIPC(isDev) },
-  { register: () => registerFileOperationsIPC(getMainWindow) },
-  {
-    register: () => registerBrunoExportHandlerIPC(),
-    dispose: () => disposeBrunoExportHandlerIPC(),
-  },
-  { register: () => registerHttpHandlerIPC(logRequest) },
-  { register: () => registerGrpcHandlerIPC(logRequest), dispose: () => stopStreamCleanup() },
-  { register: () => registerGrpcReflectionIPC() },
-  { register: () => registerWebSocketHandlerIPC(), dispose: () => stopWebSocketCleanup() },
-  { register: () => registerSocketIoHandlerIPC(), dispose: () => stopSocketIoCleanup() },
-  { register: () => registerSseHandlerIPC(), dispose: () => stopSseCleanup() },
-  { register: () => registerMcpHandlerIPC(), dispose: () => stopMcpCleanup() },
-  {
-    register: () => registerMcpImportIPC(getMainWindow),
-    dispose: () => unregisterMcpImportIPC(),
-  },
-  { register: () => registerMcpConformanceIPC(), dispose: () => stopMcpConformanceCleanup() },
-  { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
-  { register: () => registerMqttHandlerIPC(logRequest), dispose: () => stopMqttCleanup() },
-  { register: () => registerRequestLoggerIPC() },
-  { register: () => registerWindowControlsIPC(getMainWindow) },
-  { register: () => registerNewWindowIPC(isDev) },
-  { register: () => registerNotificationIPC(getMainWindow, isDev) },
-  {
-    register: () => registerCollectionManagerIPC(getMainWindow),
-    dispose: () => cleanupCollectionWatchers(),
-  },
-  { register: () => registerOwsWorkspaceHandlerIPC() },
-  { register: () => registerStoreHandlerIPC() },
-  { register: () => registerSecretHandleIPC(), dispose: () => unregisterSecretHandleIPC() },
-  {
-    register: () => registerExternalSecretProfileIPC(),
-    dispose: () => unregisterExternalSecretProfileIPC(),
-  },
-  { register: () => registerVaultHandlers(), dispose: () => unregisterVaultHandlers() },
-  { register: () => registerKeychainStatusIPC() },
-  {
-    // Git operations are restricted to directories that are registered as
-    // file-backed collections — `isRegisteredCollectionDirectory` consults the
-    // active chokidar watchers in collection-manager.
-    register: () => {
-      setGitDirectoryAllowlist(isRegisteredCollectionDirectory);
-      registerGitHandlerIPC();
-    },
-  },
-  { register: () => registerTelemetryConsentIPC() },
-  { register: () => registerExecutionPolicyIPC() },
-  { register: () => registerBugReportIPC(getMainWindow) },
-  { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
-  { register: () => registerAiLabHandlers(), dispose: () => unregisterAiLabHandlers() },
-  {
-    register: () => registerMockServerIPC(),
-    dispose: async () => {
-      await stopMockServer();
-      unregisterMockServerIPC();
-    },
-  },
-  {
-    register: () => registerCaptureBridgeIPC(getMainWindow),
-    dispose: async () => {
-      await stopCaptureBridge();
-      unregisterCaptureBridgeIPC();
-    },
-  },
-  // MCP control server (ADR 0041): loopback listener + renderer tool bridge.
-  { register: () => registerMcpControlIPC(), dispose: () => disposeMcpControlIPC() },
-];
-
-// Modules whose `register` completed: only these are disposed on quit, and a
-// module whose registration threw no longer aborts every module after it.
-const registeredIpcModules: IpcModule[] = [];
-
-// Register all IPC handlers
-function registerIPCHandlers(): void {
-  for (const mod of IPC_MODULES) {
-    try {
-      mod.register();
-      registeredIpcModules.push(mod);
-    } catch (err) {
-      log.error('IPC module register failed', {
-        message: err instanceof Error ? err.message : String(err),
+function registerIPCHandlers(): { feature: string; message: string }[] {
+  const failures: { feature: string; message: string; stack?: string }[] = [];
+  runningFeatures.push(
+    ...startFeatures(createDesktopFeatures({ isDev, getMainWindow, logRequest }), (failure) => {
+      failures.push(failure);
+      log.error('startup feature failed', {
+        feature: failure.feature,
+        message: failure.message,
+        stack: failure.stack,
       });
-    }
+    })
+  );
+  if (failures.length > 0) {
+    log.error('startup degraded', { features: failures.map((failure) => failure.feature) });
+    reportFeatureFailures(failures);
   }
+  return failures;
 }
 
 // Setup Content Security Policy for production.
@@ -376,6 +237,8 @@ app.whenReady().then(async () => {
     // (`console.log`, banners) corrupts the JSON-RPC stream — keep this branch
     // minimal and route everything else to stderr (which agents capture).
     try {
+      const { startStdioMcpServer } =
+        require('./handlers/mcp-server-handler') as typeof import('./handlers/mcp-server-handler');
       const handle = startStdioMcpServer({
         identity: { name: 'restura', version: app.getVersion() },
         userDataDir: app.getPath('userData'),
@@ -428,20 +291,44 @@ app.whenReady().then(async () => {
 
   setupContentSecurityPolicy();
   setupPermissionHandlers();
-  registerIPCHandlers();
+  const startupFailures = registerIPCHandlers();
 
   // Collection watchers are owner-scoped: each is released when the webContents
   // that registered it goes away (collection-manager → bindRendererCleanup), so
   // closing one window never tears down another window's watchers / git
-  // allowlist. The global cleanup runs only on quit (IPC_MODULES dispose).
+  // allowlist. The global cleanup runs only on quit (running feature dispose).
   createMainWindow(isDev);
+  log.info('startup window created', {
+    failedFeatures: startupFailures.map((failure) => failure.feature),
+  });
 
   // Auto-updater resolves the target window lazily via getMainWindow so
   // dialogs land on the currently focused window — never a destroyed ref.
-  setupAutoUpdater(getMainWindow, isDev);
+  try {
+    const { setupAutoUpdater } =
+      require('./lifecycle/auto-updater') as typeof import('./lifecycle/auto-updater');
+    setupAutoUpdater(getMainWindow, isDev);
+  } catch (err) {
+    const failure = failureFrom('auto-updater', err);
+    log.error('startup feature failed', {
+      feature: failure.feature,
+      message: failure.message,
+      stack: failure.stack,
+    });
+  }
 
-  // Create system tray
-  createSystemTray(getMainWindow, isDev);
+  try {
+    const { createSystemTray } =
+      require('./lifecycle/system-tray') as typeof import('./lifecycle/system-tray');
+    createSystemTray(getMainWindow, isDev);
+  } catch (err) {
+    const failure = failureFrom('system-tray', err);
+    log.error('startup feature failed', {
+      feature: failure.feature,
+      message: failure.message,
+      stack: failure.stack,
+    });
+  }
 
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
@@ -449,6 +336,15 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createMainWindow(isDev);
     }
+  });
+});
+
+app.on('child-process-gone', (_event, details) => {
+  log.error('child process gone', {
+    type: details.type,
+    reason: details.reason,
+    exitCode: details.exitCode,
+    name: details.name,
   });
 });
 
@@ -466,11 +362,11 @@ app.on('window-all-closed', () => {
 // backstop keeps a hung broker from blocking quit.
 //
 // MCP-server mode is excluded: `registerIPCHandlers()` never ran (the
-// whenReady MCP branch returns early), so `IPC_MODULES` has nothing to
-// dispose, and this handler's `app.exit(0)` would race (and typically
-// pre-empt) the stdio transport teardown the MCP branch registers via
-// `handle.stop()` — cutting off the clean EOF the parent process expects.
-// The MCP branch owns its own `will-quit` shutdown.
+// whenReady MCP branch returns early), so there is nothing to dispose, and
+// this handler's `app.exit(0)` would race (and typically pre-empt) the stdio
+// transport teardown the MCP branch registers via `handle.stop()` — cutting
+// off the clean EOF the parent process expects. The MCP branch owns its own
+// `will-quit` shutdown.
 if (!isMcpServerMode) {
   const QUIT_DISPOSE_TIMEOUT_MS = 3000;
   let quitCleanupDone = false;
@@ -482,23 +378,37 @@ if (!isMcpServerMode) {
     // dispose again: the first cleanup already ends in `app.exit(0)`.
     if (quitCleanupStarted) return;
     quitCleanupStarted = true;
-    const disposals = registeredIpcModules
-      .filter((mod) => mod.dispose)
-      .map((mod) =>
+    const disposals = runningFeatures.flatMap((feature) => {
+      const stop = feature.stop;
+      if (!stop) return [];
+      return [
         Promise.resolve()
-          .then(() => mod.dispose!())
+          .then(() => stop())
           .catch((err) => {
-            log.error('IPC module dispose failed', {
+            log.error('startup feature dispose failed', {
+              feature: feature.name,
               message: err instanceof Error ? err.message : String(err),
             });
-          })
-      );
+          }),
+      ];
+    });
     void Promise.race([
       Promise.allSettled(disposals),
       new Promise((resolve) => setTimeout(resolve, QUIT_DISPOSE_TIMEOUT_MS)),
     ]).then(async () => {
       quitCleanupDone = true;
-      destroyTray();
+      try {
+        const { destroyTray } =
+          require('./lifecycle/system-tray') as typeof import('./lifecycle/system-tray');
+        destroyTray();
+      } catch (err) {
+        const failure = failureFrom('system-tray', err);
+        log.error('startup feature dispose failed', {
+          feature: failure.feature,
+          message: failure.message,
+          stack: failure.stack,
+        });
+      }
       await endSentrySessionForQuit();
       app.exit(0);
     });

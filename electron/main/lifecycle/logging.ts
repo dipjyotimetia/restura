@@ -84,8 +84,8 @@ export function initLogging(isDev: boolean, options: InitLoggingOptions = {}): v
 
   // Enables the renderer→main bridge (cheap; lets future renderer logs land in
   // the same file). We deliberately do NOT call log.errorHandler/catchErrors —
-  // main.ts already owns process.on('uncaughtException'|'unhandledRejection')
-  // and those now persist through this sink; the library catcher would dup.
+  // process-guard.ts owns process.on('uncaughtException'|'unhandledRejection')
+  // and those persist through this sink; the library catcher would dup.
   log.initialize();
 
   setLogSink(electronLogSink);

@@ -17,7 +17,7 @@
 2. `npm run size` under budget (`size-limit`).
 3. `npm run build` succeeds; web bundle present.
 4. `npm run electron:pack` succeeds on at least the host OS; CI `electron-pack-smoke` covers the matrix.
-5. `node scripts/verify-asar-renderer.mjs` passes — guards against `dist/web` layout drift breaking the packaged renderer entry.
+5. `node scripts/verify-asar-renderer.mjs` passes — guards against `dist/web` layout drift breaking the packaged renderer entry. `node scripts/verify-packaged-main-requires.mjs` passes — every bare `require` reachable from the packaged main and preload resolves inside `app.asar`. `electron:compile` also runs that script with `--check-dev-dependencies`. `node scripts/smoke-packaged-electron.mjs` launches the unpacked app and expects a loaded window (catches a main-process launch crash, as in #1353).
 6. Docs in parity (`references/docs-parity.md`), `npm run docs:check` clean.
 7. `npm audit --audit-level=critical` clean (weekly CI is non-blocking — check it for a release).
 8. Capability matrix current (`npm run capabilities:check`).

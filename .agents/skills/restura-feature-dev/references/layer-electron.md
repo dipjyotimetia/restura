@@ -43,7 +43,7 @@ export function registerMyFeatureIPC(): void {
 
 The wrapper Zod-parses the input before calling the handler. If parsing fails it throws a formatted error, which Electron serializes as an IPC rejection on the renderer side.
 
-Then call `registerMyFeatureIPC()` from `electron/main/main.ts` during app init.
+Add a `feature(...)` entry in `electron/main/lifecycle/ipc-features.ts` whose `start()` `require()`s the handler, calls `registerMyFeatureIPC()`, and returns the disposer. Do not statically import the handler from `main.ts`.
 
 ## Zod schema under `electron/main/ipc/validators/`
 
@@ -174,7 +174,7 @@ ipcMain.handle(
 - `reserveClaim` returns `undefined` when this owner and id already has a live claim, or the sender is already destroyed. `commitClaim` registers the entry only through a live claim and returns `false` otherwise, in which case the caller tears the unregistered entry down. `releaseClaim` drops the claim without running `disposeClaim`.
 - Whether an explicit disconnect cancels an in-flight claim is handler policy: call `connections.cancelClaim(connectionId, event.sender.id)` to cancel, or don't. Give the registry a `disposeClaim` option when a claim holds something to abort (an `AbortController`, an in-flight transport).
 - Emit per-connection events with `connections.emit(connectionId, webContentsId, eventName, payload)` (needs the `prefixes` option, from `EVENT_PREFIX`), or build the channel yourself with `eventChannel(prefix, id)` from `electron/shared/channels.ts`. Never hand-write `'myproto:event:' + id` strings.
-- Call `connections.disposeAll()` and `connections.disposeAllClaims()` from the handler's `stop*Cleanup()` (the `IPC_MODULES` dispose half).
+- Call `connections.disposeAll()` and `connections.disposeAllClaims()` from the handler's `stop*Cleanup()` (the disposer that feature returns from `createDesktopFeatures`).
 - See `electron/main/handlers/sse-handler.ts` for a complete example.
 
 `bindRendererCleanup` and `disposeByOwner` in `electron/main/ipc/connection-cleanup.ts` remain the lower-level primitives the registry is built on. Reach for them directly only for a resource that is not a stream connection (a map the registry doesn't fit). `bindRendererCleanup(map, wc, onDeath)` is idempotent per `(map, webContents)` pair, so reconnects do not stack `destroyed` listeners; `disposeByOwner(map, deadId, fn)` disposes exactly that renderer's entries.

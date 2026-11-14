@@ -134,7 +134,7 @@ export function registerSseHandlerIPC(): void {
 
 Streaming protocols **must** track open connections and provide a close channel, or sockets leak when the user navigates away. Use a `StreamRegistry` (`electron/main/ipc/stream-registry.ts`) rather than a bare `Map`: it also owns the connect claim across the awaited dial (`reserveClaim`, then `commitClaim` or `releaseClaim`) and renderer-destroyed cleanup. The pattern is in `references/layer-electron.md`; `sse-handler.ts` is the working example.
 
-Call `registerSseHandlerIPC()` from `electron/main/main.ts`.
+The `sse` feature in `electron/main/lifecycle/ipc-features.ts` `require()`s the handler, calls `registerSseHandlerIPC()`, and returns `stopSseCleanup`.
 
 ### 4c. Preload bridge in `electron/main/preload.ts`
 
