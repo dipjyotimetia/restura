@@ -21,11 +21,37 @@
 
 </div>
 
+<!-- TODO: add a product screenshot or short GIF here.
+     No app screenshot is in the repo yet (.github/assets has the banner only;
+     docs/assets does not exist). Commit one under .github/assets/ — see
+     .github/assets/ASSETS.md — and reference it above this comment. -->
+
 Restura lets you debug an HTTP API, inspect a gRPC service, keep a WebSocket transcript, and work with Kafka or MQTT without switching tools—or surrendering your collections to a hosted account. Run it in your browser, as a native desktop app for macOS, Windows, and Linux, or self-host it in Docker behind your firewall.
 
 No account. No cloud sync. Your collections, history, and environments stay on your machine, in browser storage or encrypted desktop storage. Crash reporting is scrubbed and can be turned off. Native networking and AI features are deliberately desktop-only where browser security boundaries make them impossible.
 
 > **Try it your way:** [open the web app](https://restura.dev/app/) for HTTP-first workflows, [download desktop](https://github.com/dipjyotimetia/restura/releases/latest) for native protocols and OS-backed secrets, or [self-host with Docker](docs/SELF_HOSTING.md) for a controlled deployment.
+
+## Install
+
+No account on any of these. The [CLI package](https://www.npmjs.com/package/restura-cli) is `restura-cli` (the binary is `restura`, Node.js 24+). The self-hosted image is [`ghcr.io/dipjyotimetia/restura`](https://github.com/dipjyotimetia/restura/pkgs/container/restura).
+
+```bash
+npm install -g restura-cli
+docker pull ghcr.io/dipjyotimetia/restura:latest
+```
+
+Desktop installers for macOS, Windows, and Linux are on the [latest release](https://github.com/dipjyotimetia/restura/releases/latest). The hosted app is [restura.dev/app](https://restura.dev/app/). How to run each target, including the image, is in [Start in the right place](#start-in-the-right-place).
+
+## Why Restura vs Postman / Insomnia
+
+| | Restura | Postman / Insomnia |
+| --- | --- | --- |
+| **Account** | None. The web app, desktop app, and Docker image run without a sign-up. | A signed-in workspace is the default way to keep your work. |
+| **Where data lives** | Local-first. Collections, history, and environments stay in browser storage or in encrypted desktop storage. There is no cloud sync. | Hosted sync is the path those products are built around. |
+| **Protocols** | One client for HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, and MCP. Desktop adds Kafka, MQTT, native gRPC streaming, and Restura as an MCP server. | HTTP-first clients, with a narrower set of protocols around that. |
+
+Platform limits for the protocol row are in the [table below](#everything-your-api-stack-speaks) and the [capability matrix](docs/CAPABILITY_MATRIX.md).
 
 ## Everything your API stack speaks
 
@@ -156,7 +182,7 @@ npm run lint             # Biome lint
 npm run format:check     # formatting check
 ```
 
-Contributions to protocol support, bug fixes, docs, and UX are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions, and look for a [good first issue](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) to get started. For a new protocol or a larger change, [open an issue](https://github.com/dipjyotimetia/restura/issues/new/choose) first so the design can be discussed.
+Contributions to protocol support, bug fixes, docs, and UX are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions, start from a [good first issue](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue), and see what's shipped and what's next on the [roadmap](docs/ROADMAP.md). For a new protocol or a larger change, [open an issue](https://github.com/dipjyotimetia/restura/issues/new/choose) first so the design can be discussed.
 
 Please report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in public issues. Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
