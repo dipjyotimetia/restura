@@ -28,9 +28,9 @@ did not ship. Unit tests that mock `start()` do not catch that.
 3. **Launch unpackaged with the smoke contract.** `npm run electron:smoke:unpacked`
    (`scripts/smoke-unpacked-electron.mjs`). It sets `RESTURA_SMOKE=1` and
    `NODE_ENV=production`, gives the process its own user-data dir, and waits
-   until the main frame prints `restura-smoke-ready` and exits 0. On Linux
+   until the main frame prints the smoke-ready line and exits 0. On Linux
    without `DISPLAY` it uses `xvfb-run`. A contained feature failure may log
-   and still pass. `restura-smoke-failed` or an uncaught exception is a failure.
+   and still pass. The smoke-failed line or an uncaught exception is a failure.
    This is the local stand-in for the packaged smoke: it does not run
    electron-builder. Budget a minute, not a full installer build.
 4. **When an `app.asar` is already built** (`dist/installers/**/app.asar`), also
