@@ -36,6 +36,9 @@ jobs:
     timeout-minutes: 5
     outputs:
       app: ${{ steps.filter.outputs.app }}
+      # Pack smoke also runs for packaging-only edits (builder config, the smoke
+      # and asar verifiers) that do not touch the e2e path set.
+      pack: ${{ steps.filter.outputs.pack }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,22 +57,33 @@ jobs:
           set -euo pipefail
           # Paths that can change app behaviour covered by the e2e jobs (plus this
           # workflow, so CI edits exercise them).
-          pattern='^(src/features/|src/components/|electron/|e2e/|e2e-electron/|shared/|worker/|scripts/e2e-shard\.mjs$|\.github/workflows/ci\.yml$)'
+          app_pattern='^(src/features/|src/components/|electron/|e2e/|e2e-electron/|shared/|worker/|scripts/e2e-shard\.mjs$|\.github/workflows/ci\.yml$)'
+          # Packaging and launch-smoke files. A change here must run pack smoke
+          # even when the e2e path set is untouched (#1353 was a packaging miss).
+          pack_pattern='^(electron-builder\.json|scripts/(smoke-packaged-electron|smoke-unpacked-electron|verify-packaged-main-requires|verify-asar-renderer|verify-electron-runtime-imports|clean-electron-dist)\.mjs)$'
           case "$EVENT_NAME" in
             pull_request) range="$PR_BASE_SHA...$PR_HEAD_SHA" ;;
             push) range="$PUSH_BEFORE..$PUSH_SHA" ;;
-            *) echo 'app=true' >> "$GITHUB_OUTPUT"; echo "event $EVENT_NAME: run always"; exit 0 ;;
+            *) echo 'app=true' >> "$GITHUB_OUTPUT"; echo 'pack=true' >> "$GITHUB_OUTPUT"; echo "event $EVENT_NAME: run always"; exit 0 ;;
           esac
           # New branch / force-push: the base commit may be missing; be conservative.
           if ! git diff --name-only "$range" > changed.txt 2> diff.err; then
             echo "diff failed for $range, running e2e:"; cat diff.err
-            echo 'app=true' >> "$GITHUB_OUTPUT"; exit 0
+            echo 'app=true' >> "$GITHUB_OUTPUT"
+            echo 'pack=true' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           cat changed.txt
-          if grep -Eq "$pattern" changed.txt; then
+          if grep -Eq "$app_pattern" changed.txt; then
             echo 'app=true' >> "$GITHUB_OUTPUT"
           else
             echo 'app=false' >> "$GITHUB_OUTPUT"
+          fi
+          # Pack smoke follows app paths plus the packaging files above.
+          if grep -Eq "$app_pattern|$pack_pattern" changed.txt; then
+            echo 'pack=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'pack=false' >> "$GITHUB_OUTPUT"
           fi
 
   vitest-shards:
@@ -338,8 +352,11 @@ jobs:
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
     # Runs for Dependabot too: every CI install skips install scripts, so a
-    # Dependabot run is no different. Not a required check.
-    if: ${{ needs.changes.outputs.app == 'true' }}
+    # Dependabot run is no different. These per-OS legs are not the required
+    # check — `Electron pack smoke` (electron-smoke-gate) is. A skipped leg
+    # still has to publish this exact name; the gate is what branch protection
+    # requires, because it always runs and passes when `pack` is false.
+    if: ${{ needs.changes.outputs.pack == 'true' }}
     # Only `changes` is needed: these desktop jobs build the app themselves, so
     # gating them on `validate` just delayed their start by ~4.5 minutes (the
     # Vitest shards + merge). A red unit run still fails the PR via the required
@@ -413,6 +430,39 @@ jobs:
         # Headless on Linux (xvfb). The app exits 0 after the main frame loads
         # when RESTURA_SMOKE=1, and exits 1 on an uncaught main-process error.
         run: node scripts/smoke-packaged-electron.mjs
+
+  # Stable required check for the matrix above. A job-level `if` that skips a
+  # matrix does not always publish `Electron pack smoke (ubuntu-latest)` (and
+  # the macOS/Windows names) as skipped successes, so requiring those names
+  # blocks docs-only PRs. This gate always runs: it passes when packaging
+  # paths did not change, and it fails when any OS leg failed or was cancelled.
+  electron-smoke-gate:
+    name: Electron pack smoke
+    needs: [changes, electron-smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require pack smoke when packaging paths changed
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          PACK: ${{ needs.changes.outputs.pack }}
+          SMOKE_RESULT: ${{ needs.electron-smoke.result }}
+        run: |
+          set -euo pipefail
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "::error::change detection did not succeed ($CHANGES_RESULT); refusing to treat pack smoke as skipped"
+            exit 1
+          fi
+          if [ "$PACK" != "true" ]; then
+            echo "Packaging and app paths unchanged. Pack smoke was skipped and counts as a pass."
+            exit 0
+          fi
+          if [ "$SMOKE_RESULT" != "success" ]; then
+            echo "::error::Electron pack smoke did not succeed (matrix result: $SMOKE_RESULT)"
+            exit 1
+          fi
+          echo "Electron pack smoke passed on every OS."
 
   e2e:
     needs: [changes]
@@ -562,7 +612,11 @@ jobs:
           retention-days: 7
 
   e2e-electron:
-    # Runs for Dependabot too (see electron-smoke). Not a required check.
+    # Runs for Dependabot too (see electron-smoke). Stays optional: the suite
+    # needs Docker brokers, xvfb and an Electron binary download that has
+    # failed intermittently on hosted runners (missing path.txt). Pack smoke
+    # is the launch-crash gate; do not mark this job required until that
+    # flake is gone. See docs/CI_CD.md.
     if: ${{ needs.changes.outputs.app == 'true' }}
     # Desktop e2e: launches the compiled, unpacked app via Playwright's
     # `_electron` API (no electron-builder packaging, no Vite dev server). The
