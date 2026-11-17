@@ -23,6 +23,10 @@ export default defineConfig({
       'electron/main/__tests__/http-handler*.test.ts',
       'electron/main/ipc/__tests__/**/*.test.ts',
       'electron/main/ipc/validators/__tests__/**/*.test.ts',
+      'electron/main/__tests__/startup-resilience.test.ts',
+      'electron/main/__tests__/startup-missing-native.test.ts',
+      'electron/main/__tests__/window-manager-cascade.test.ts',
+      'electron/main/lifecycle/__tests__/process-guard.test.ts',
     ],
     coverage: {
       provider: 'v8',
@@ -34,6 +38,10 @@ export default defineConfig({
         'electron/main/ipc/validators/boundary.ts',
         'electron/main/security/execution-policy.ts',
         'electron/main/security/secret-handle-store.ts',
+        'electron/main/lifecycle/feature-loader.ts',
+        'electron/main/lifecycle/process-guard.ts',
+        'electron/main/lifecycle/renderer-recovery.ts',
+        'electron/main/window-manager.ts',
       ],
       thresholds: {
         'electron/main/handlers/http-handler.ts': {
@@ -71,6 +79,34 @@ export default defineConfig({
           branches: 75,
           functions: 94,
           lines: 90,
+        },
+        // Launch path (#1353). feature-loader's one uncovered branch is an
+        // Error with an empty stack, which Node does not produce here.
+        'electron/main/lifecycle/feature-loader.ts': {
+          statements: 100,
+          branches: 80,
+          functions: 100,
+          lines: 100,
+        },
+        'electron/main/lifecycle/process-guard.ts': {
+          statements: 100,
+          branches: 100,
+          functions: 100,
+          lines: 100,
+        },
+        'electron/main/lifecycle/renderer-recovery.ts': {
+          statements: 100,
+          branches: 100,
+          functions: 100,
+          lines: 100,
+        },
+        // createMainWindow, saved state, and the smoke-window hook. The menu
+        // and renderer-crash dialog stay outside this floor.
+        'electron/main/window-manager.ts': {
+          statements: 46,
+          branches: 26,
+          functions: 60,
+          lines: 50,
         },
       },
     },

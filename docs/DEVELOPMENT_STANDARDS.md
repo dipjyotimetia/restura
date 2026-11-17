@@ -649,7 +649,7 @@ Tooling:
 - `node scripts/build-eval.mjs` runs the build-loop eval (real fix-PR tasks, hidden tests; `--dry-run` validates the tasks); see `evals/build/README.md`.
 - `npm run skills:report` summarizes skill usage plus subagent and stop outcomes from `.claude/metrics`.
 - Renderer changes are verified with `verify-ui-change`. Electron main, packaging, and launch-smoke changes are verified with `verify-desktop-change` (`npm run electron:compile`, then `npm run electron:smoke:unpacked`).
-- The `eval-harness` PR label (or a manual dispatch) runs the evals in CI; never on push. Changes to reviewer topology, skill routing or the vendored-skill set need a before/after eval ([ADR 0033](./adr/0033-evals-gate-harness-changes.md)).
+- The `eval-harness` PR label (or a manual dispatch) runs the evals in CI; never on push. A pull request that edits `REVIEW.md` or the `code-review` skill also starts a non-blocking observe run against the committed baseline ([ADR 0033](./adr/0033-evals-gate-harness-changes.md)). Changes to reviewer topology, skill routing or the vendored-skill set still need the full before/after eval.
 
 Hooks in `.claude/hooks/` enforce staging, merge and push rules for agent
 sessions. Edit them with `npm run type-check:all` (they are type-checked via

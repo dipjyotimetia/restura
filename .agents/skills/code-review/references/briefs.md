@@ -30,6 +30,8 @@ You review for correctness only, not style, not spec. Find:
 
 For a bug fix, also ask whether the change fixes the root cause or a symptom.
 
+7. **Reliability checklist.** Read `REVIEW.md`'s checklist. For every item whose trigger matches a path in this diff, answer its check with a `file:line` (or say the trigger matched but the check does not apply, and why). Skip items whose trigger does not match. The launch-crash item (#1353) is the one for packaging, `electron/main/lifecycle/`, and a new top-level require of an optional native.
+
 Depth rules: at **deep** the parent runs two of you; the second one reads this brief with emphasis on items 5–6 (consumers and combinations) and the first on items 1–4. At **quick** fold this brief into the `quick` brief below.
 
 Severity filter: style, diagnostics, naming and cleanup are not correctness findings; drop them (the Standards axis owns them). Do not report anything you cannot tie to a concrete scenario.

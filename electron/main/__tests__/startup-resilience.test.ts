@@ -37,6 +37,30 @@ describe('startFeatures', () => {
     expect(running.map((feature) => feature.name)).toEqual(['http', 'kafka']);
     expect(running[1]?.stop).toEqual(expect.any(Function));
   });
+
+  it('records a non-error throw and a start that returns no disposer', () => {
+    const failures: { feature: string; message: string; stack?: string }[] = [];
+    const running = startFeatures(
+      [
+        {
+          name: 'plain',
+          start: () => {
+            throw 'not-an-error';
+          },
+        },
+        {
+          name: 'silent',
+          start: () => {
+            /* registered, nothing to dispose */
+          },
+        },
+      ],
+      (failure) => failures.push(failure)
+    );
+    expect(failures).toEqual([{ feature: 'plain', message: 'not-an-error' }]);
+    expect(failures[0]?.stack).toBeUndefined();
+    expect(running).toEqual([{ name: 'silent' }]);
+  });
 });
 
 describe('startup dialogs', () => {

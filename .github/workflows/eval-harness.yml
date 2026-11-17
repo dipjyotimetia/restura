@@ -15,9 +15,16 @@
 # `model: claude-opus-5-5` (the self-judge warning fires on that run; `judge-repeat: 3` and the
 # human read-back in evals/harness/baselines/README.md cover it).
 #
-# WHY LABEL-GATED: because of that cost (and because the result is a measurement, not a gate),
-# this never runs on push or on every PR update. It runs only when someone dispatches it by
-# hand, or adds the `eval-harness` label to a same-repo PR (fork PRs never get the secret).
+# WHY NOT ON EVERY PUSH: because of that cost (and because the result is a measurement, not a
+# gate), this never runs on push. It runs when someone dispatches it, when a same-repo PR gets
+# the `eval-harness` label (forks never get the secret), or — observe mode — when a same-repo,
+# non-draft, non-bot PR touches REVIEW.md or the code-review skill.
+#
+# OBSERVE MODE is not a merge gate. It runs the harness test split once (budget cap $4 per
+# case) against the latest committed file in evals/harness/baselines/, continue-on-error, and
+# does not call the model at all when no baseline JSON is committed yet (ADR 0033 has nothing
+# to compare). The label and workflow_dispatch paths stay the 3-run gate. Do not mark this
+# workflow required.
 # Remove and re-add the label to re-run. Results are uploaded as an artifact; nothing is
 # committed or commented.
 name: Eval harness
@@ -66,21 +73,75 @@ on:
         options: [strict, 'off']
         default: strict
   pull_request:
-    types: [labeled]
+    types: [labeled, opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 jobs:
+  # Cheap path filter. `on.pull_request.paths` cannot be combined with the label
+  # trigger, which must keep working for any same-repo PR. Forks may run this
+  # job (filenames only, no Claude token). The eval job below refuses them.
+  observe-scope:
+    name: Eval scope
+    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      review: ${{ steps.filter.outputs.review }}
+    steps:
+      - name: Detect review-rule changes
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename' > files.txt
+          review=false
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              REVIEW.md|.github/workflows/eval-harness.yml)
+                review=true ;;
+              .agents/skills/code-review|.agents/skills/code-review/*)
+                review=true ;;
+              .claude/skills/code-review|.claude/skills/code-review/*)
+                review=true ;;
+            esac
+            if [ "$review" = true ]; then
+              break
+            fi
+          done < files.txt
+          echo "review=$review" >> "$GITHUB_OUTPUT"
+          echo "review=$review"
+
   eval:
-    name: Eval (${{ inputs.suite || 'harness' }})
-    # Bot-authored PRs (Dependabot etc.) are excluded: labeling one would run its install
-    # scripts in the job that holds the Claude token.
+    name: Eval (${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && 'harness, observe' || inputs.suite || 'harness' }})
+    needs: [observe-scope]
+    # always(): a skipped scope job (dispatch, or the label) must not skip the eval.
+    # Bot-authored PRs are excluded: their install would run in the job that holds the Claude token.
+    # Observe mode is same-repo, non-draft, and only when review rules changed. It is not required.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.label.name == 'eval-harness' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.user.type != 'Bot')
+      always() &&
+      (needs.observe-scope.result == 'success' || needs.observe-scope.result == 'skipped') &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'pull_request' &&
+         github.event.action == 'labeled' &&
+         github.event.label.name == 'eval-harness' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.user.type != 'Bot') ||
+        (github.event_name == 'pull_request' &&
+         github.event.action != 'labeled' &&
+         needs.observe-scope.outputs.review == 'true' &&
+         github.event.pull_request.draft == false &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         github.event.pull_request.user.type != 'Bot')
+      )
     # Job-level (not workflow-level) so skipped events, such as adding any other label, never
     # cancel a running eval; a second eval of the same PR and suite queues instead of
     # cancelling paid work in progress.
@@ -97,15 +158,43 @@ jobs:
           # The eval hands a model Bash; never leave a git credential on disk.
           persist-credentials: false
 
+      # Observe mode compares against a committed baseline. With none on disk,
+      # ADR 0033 has nothing to judge, so skip the install and the model call.
+      - name: Plan eval
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+        run: |
+          set -euo pipefail
+          observe=false
+          if [[ "$EVENT_NAME" == pull_request && "$EVENT_ACTION" != labeled ]]; then
+            observe=true
+          fi
+          echo "observe=$observe" >> "$GITHUB_OUTPUT"
+          if [[ "$observe" == true ]]; then
+            baseline="$(find evals/harness/baselines -maxdepth 1 -type f -name '*.json' | sort | tail -1 || true)"
+            if [[ -z "$baseline" ]]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::No committed harness baseline under evals/harness/baselines. Observe mode does not call the model until one exists (ADR 0033)."
+              exit 0
+            fi
+            echo "baseline=$baseline" >> "$GITHUB_OUTPUT"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
       - uses: ./.github/actions/setup-node-npm
+        if: steps.plan.outputs.skip != 'true'
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
 
       - name: Install dependencies
+        if: steps.plan.outputs.skip != 'true'
         run: npm ci --prefer-offline --no-audit --no-fund --ignore-scripts
 
       - name: Install Claude Code CLI
+        if: steps.plan.outputs.skip != 'true'
         # Lockfile-pinned in .github/tools/claude-code (Scorecard Pinned-Dependencies);
         # bump deliberately there (eval results depend on it; every result records `claude --version`).
         run: |
@@ -123,7 +212,7 @@ jobs:
       # false` fail closed: a review that cannot be sandboxed is a harness error, never a quiet
       # unsandboxed run. `sandbox: off` is for diagnosing a sandbox regression, not for routine runs.
       - name: Enable the Claude Code sandbox (egress allowlist)
-        if: ${{ (inputs.sandbox || 'strict') == 'strict' }}
+        if: steps.plan.outputs.skip != 'true' && (inputs.sandbox || 'strict') == 'strict'
         run: |
           set -euo pipefail
           sudo apt-get update -qq
@@ -158,16 +247,21 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
       - name: Run eval
+        if: steps.plan.outputs.skip != 'true'
+        # Observe mode logs what a gate would have flagged. A harness error or a
+        # score change must not fail the pull request.
+        continue-on-error: ${{ steps.plan.outputs.observe == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          SUITE: ${{ inputs.suite || 'harness' }}
-          SPLIT: ${{ inputs.split || 'test' }}
-          RUNS: ${{ inputs.runs || '3' }}
-          BUDGET: ${{ inputs.max-budget || '' }}
+          SUITE: ${{ steps.plan.outputs.observe == 'true' && 'harness' || inputs.suite || 'harness' }}
+          SPLIT: ${{ steps.plan.outputs.observe == 'true' && 'test' || inputs.split || 'test' }}
+          RUNS: ${{ steps.plan.outputs.observe == 'true' && '1' || inputs.runs || '3' }}
+          BUDGET: ${{ steps.plan.outputs.observe == 'true' && '4' || inputs.max-budget || '' }}
           MODEL: ${{ inputs.model || 'claude-sonnet-5-5' }}
           JUDGE_MODEL: ${{ inputs.judge-model || 'claude-opus-5-5' }}
-          JUDGE_REPEAT: ${{ inputs.judge-repeat || '3' }}
-          SAVE_BASELINE: ${{ inputs.save-baseline && 'true' || 'false' }}
+          JUDGE_REPEAT: ${{ steps.plan.outputs.observe == 'true' && '1' || inputs.judge-repeat || '3' }}
+          SAVE_BASELINE: ${{ steps.plan.outputs.observe == 'true' && 'false' || inputs.save-baseline && 'true' || 'false' }}
+          BASELINE: ${{ steps.plan.outputs.baseline }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -188,6 +282,10 @@ jobs:
             harness)
               extra=()
               [[ "$SAVE_BASELINE" == true ]] && extra+=(--save-baseline)
+              if [[ -n "${BASELINE:-}" ]]; then
+                extra+=(--compare "$BASELINE")
+                echo "Comparing against ${BASELINE} (ADR 0033). Observe mode does not fail the PR."
+              fi
               npm run eval:harness -- --split "$SPLIT" --runs "$RUNS" --max-budget-usd "$BUDGET" \
                 --model "$MODEL" --judge-model "$JUDGE_MODEL" --judge-repeat "$JUDGE_REPEAT" \
                 --harness-ref HEAD --config "ci-${SHA::12}" "${extra[@]}"
@@ -200,7 +298,7 @@ jobs:
           esac
 
       - name: Clean up harness worktrees
-        if: always() && (inputs.suite || 'harness') == 'harness'
+        if: always() && steps.plan.outputs.skip != 'true' && (inputs.suite || 'harness') == 'harness'
         run: npm run eval:harness -- --cleanup
 
       # The baseline is summary-only (no review text), so it is safe to commit: download it and

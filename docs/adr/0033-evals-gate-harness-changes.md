@@ -107,6 +107,18 @@ never read, and the review prompt announced itself as an eval. Changes:
 Still open: a 20-case suite cannot reach a 10-point half-width at any affordable run count; the
 cure is cases, added as defects escape, not more rounds.
 
+### Amendment 2026-11-17: observe mode on review-rule pull requests
+
+Per-PR evals stay rejected as a merge gate (they cost real model usage, and a noisy
+1-run result must not block a merge). A non-blocking observe run is the exception:
+when a same-repo, non-draft, non-bot pull request touches `REVIEW.md` or the
+`code-review` skill, `eval-harness.yml` runs the harness **test** split **once**
+(per-case budget cap $4, judge once) against the latest committed file in
+`evals/harness/baselines/` and uploads the flip report. `continue-on-error` is set,
+and the check is not required. Forks never receive the Claude token. If no baseline
+JSON is committed, the job logs that and does not call the model. The label and
+`workflow_dispatch` paths are unchanged and remain the 3-run regression gate.
+
 ## References
 
 - Code: `scripts/harness-eval.mjs`, `scripts/routing-eval.mjs`, `scripts/eval-new-case.mjs`, `scripts/build-eval.mjs`, `evals/`, `.github/workflows/eval-harness.yml`, `.claude/skills/code-review/SKILL.md`, `skills-lock.json`
