@@ -97,6 +97,33 @@ function agentsMdMessage(all) {
 const TS_ROOTS = ['src/', 'shared/', 'electron/', 'worker/', 'cli/', 'echo/', 'echo-local/'];
 const isTypedSource = (p) => /\.(ts|tsx|mts|cts)$/.test(p) && TS_ROOTS.some((r) => p.startsWith(r));
 
+// --- desktop launch: electron, packaging, or the pack-smoke scripts changed ---
+const DESKTOP_PREFIXES = ['electron/'];
+const DESKTOP_FILES = new Set([
+  'electron-builder.json',
+  'scripts/smoke-packaged-electron.mjs',
+  'scripts/smoke-unpacked-electron.mjs',
+  'scripts/verify-packaged-main-requires.mjs',
+  'scripts/verify-asar-renderer.mjs',
+  'scripts/verify-electron-runtime-imports.mjs',
+  'scripts/clean-electron-dist.mjs',
+]);
+
+function desktopVerifyMessage(all) {
+  const hit = [...all]
+    .filter((p) => DESKTOP_PREFIXES.some((prefix) => p.startsWith(prefix)) || DESKTOP_FILES.has(p))
+    .sort();
+  if (hit.length === 0) return null;
+  if (!unseen('restura-desktop-verify-reminder', hit.join('\n'))) return null;
+  const sample = hit.slice(0, 4).join(', ') + (hit.length > 4 ? ', …' : '');
+  return (
+    `🖥️ desktop verify reminder: this branch changed Electron main, packaging, or launch smoke ` +
+    `(${sample}). Type-check does not launch the app. Use the verify-desktop-change skill: ` +
+    `\`npm run electron:compile\`, then \`npm run electron:smoke:unpacked\` (RESTURA_SMOKE=1). ` +
+    `Compile already runs \`verify-packaged-main-requires.mjs --check-dev-dependencies\`.`
+  );
+}
+
 function typeCheckMessage(all) {
   const typed = [...all].filter(isTypedSource).sort();
   if (typed.length === 0) return null;
@@ -196,6 +223,7 @@ try {
         { name: 'docs-site', run: () => docsSiteMessage(all) },
         { name: 'agents-md', run: () => agentsMdMessage(all) },
         { name: 'type-check', run: () => typeCheckMessage(all) },
+        { name: 'desktop-verify', run: () => desktopVerifyMessage(all) },
         { name: 'lint', run: () => lintMessage(working) },
       ];
       const results = [];

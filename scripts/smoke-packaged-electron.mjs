@@ -72,8 +72,16 @@ const timer = setTimeout(() => {
 
 child.on('exit', (code) => {
   clearTimeout(timer);
-  const crashed = /uncaughtException|Uncaught Exception|Cannot find module/i.test(output);
-  if (code === 0 && output.includes('restura-smoke-ready') && !crashed) {
+  // An optional native (Kafka, MQTT, MCP control) may log "Cannot find module"
+  // and the window still opens (#1353). A required feature that fails to load
+  // prints `restura-smoke-failed` and exits 1, as does an uncaught exception.
+  const uncaught = /uncaughtException|Uncaught Exception/i.test(output);
+  if (
+    code === 0 &&
+    output.includes('restura-smoke-ready') &&
+    !output.includes('restura-smoke-failed') &&
+    !uncaught
+  ) {
     console.log(`OK: packaged app reached a window (${binary})`);
     return;
   }

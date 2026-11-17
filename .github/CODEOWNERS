@@ -35,3 +35,10 @@
 /AGENTS.md                               @dipjyotimetia
 /CLAUDE.md                               @dipjyotimetia
 /.codex/                                 @dipjyotimetia
+
+# Review gating. CI loads these from the default branch
+# (claude-code-review.yml) so a pull request cannot be judged by a copy of
+# the rules it edited. Keep them in this sensitive set.
+/REVIEW.md                               @dipjyotimetia
+/.agents/skills/code-review/             @dipjyotimetia
+/.claude/skills/code-review              @dipjyotimetia

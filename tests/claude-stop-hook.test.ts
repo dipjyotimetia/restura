@@ -37,6 +37,39 @@ describe('Claude Stop hook', () => {
     expect(parsed.reason).toContain('type-check reminder');
   });
 
+  it('reminds to launch the desktop app when electron paths changed', () => {
+    const temp = mkdtempSync(join(tmpdir(), 'restura-stop-hook-desktop-'));
+    const hooksDir = join(temp, '.claude', 'hooks');
+    mkdirSync(hooksDir, { recursive: true });
+    mkdirSync(join(temp, 'electron', 'main'), { recursive: true });
+    cpSync(resolve(process.cwd(), '.claude/hooks/_shared.mjs'), join(hooksDir, '_shared.mjs'));
+    cpSync(
+      resolve(process.cwd(), '.claude/hooks/stop-checks.mjs'),
+      join(hooksDir, 'stop-checks.mjs')
+    );
+    writeFileSync(join(temp, 'electron', 'main', 'main.ts'), 'export {}\n');
+
+    execFileSync('git', ['init'], { cwd: temp, stdio: 'ignore' });
+    execFileSync('git', ['add', 'electron/main/main.ts'], { cwd: temp, stdio: 'ignore' });
+
+    const output = execFileSync('node', [join(hooksDir, 'stop-checks.mjs')], {
+      cwd: temp,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: temp },
+      input: JSON.stringify({
+        session_id: 'test-desktop',
+        transcript_path: join(temp, 'transcript.jsonl'),
+        hook_event_name: 'Stop',
+        stop_hook_active: false,
+      }),
+      encoding: 'utf8',
+    });
+
+    const parsed = JSON.parse(output) as { decision?: string; reason?: string };
+    expect(parsed.decision).toBe('block');
+    expect(parsed.reason).toContain('verify-desktop-change');
+    expect(parsed.reason).toContain('electron:smoke:unpacked');
+  });
+
   it('does not block again when stop_hook_active is true, and logs it as reentrant', () => {
     const temp = mkdtempSync(join(tmpdir(), 'restura-stop-hook-active-'));
     const hooksDir = join(temp, '.claude', 'hooks');

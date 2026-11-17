@@ -36,6 +36,14 @@ Generated, vendored or evidence-only files; the diff command in the `code-review
 
 `package-lock.json`, `openwiki/**`, `docs/CAPABILITY_MATRIX.md`, `shared/opencollection/spec-types.ts`, `e2e/mocks/proto/gen/**`, `**/*.generated.ts`, `**/*.snap`, `evals/harness/fixtures/**`, `evals/harness/baselines/**`, `.claude/metrics/**`, `vendor/**`.
 
+## Reliability checklist
+
+Each item has a trigger that can be read from a diff. Apply an item only when a changed path matches its trigger, answer the check, and name the incident it comes from. Do not walk the whole list on every review.
+
+| Trigger | Check | Behind it |
+|---|---|---|
+| `electron/main/lifecycle/`, `electron-builder.json`, `scripts/verify-packaged-main-requires.mjs`, `scripts/verify-asar-renderer.mjs`, `scripts/smoke-packaged-electron.mjs`, `scripts/smoke-unpacked-electron.mjs`, or a new/moved top-level `require(` / `import` of an optional native (`@modelcontextprotocol/node`, `electron-store`, `@platformatic/kafka`, `mqtt`, `kerberos`, and the same class of package) under `electron/main/` | A missing optional module must not kill the process before the window opens. The `require` belongs inside a feature `start()` that `startFeatures` can skip, or behind a lazy loader whose failure stays on that feature. `verify-packaged-main-requires` still has to be able to see a devDependency electron-builder will not ship. Say whether `verify-desktop-change` (unpackaged `RESTURA_SMOKE=1`) or the pack-smoke gate covers the diff. | Launch crash #1353, fixed in #1361 (`feature-loader`, `process-guard`, startup-resilience, asar require check, pack smoke). |
+
 ## Review depth
 
 The `code-review` skill picks **Quick / Standard / Deep** from the diff, not from the author (see its SKILL.md). Any change under the paths below is **Deep** regardless of size, because one missed bug there costs more than the extra review:

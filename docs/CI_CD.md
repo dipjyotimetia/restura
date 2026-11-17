@@ -18,8 +18,8 @@ secret scanning, required reviewers, secrets).
 | **CodeQL**                | _GitHub default setup_ (no workflow file)        | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                                                   |
 | **Scorecard**             | `.github/workflows/scorecard.yml`                | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                                                             |
 | **Merge lane**            | `.github/workflows/merge-lane.yml`               | push to `main`, CI completion, auto-merge enabled, every 30 min, manual | Keeps one auto-merge PR at a time up to date with `main` so its required checks run on the real tip (see [Merging](#merging-the-merge-lane)). |
-| **Claude Code Review**    | `.github/workflows/claude-code-review.yml`       | PR opened / ready / reopened; `claude-review` label | Sonnet review of the PR. Skips drafts, bots, forks and docs/lockfile-only PRs, and PRs whose body carries a `/ship-check` READY marker for the exact head sha (`<!-- restura:ship-check verdict=READY sha=<sha> -->`, the local review already ran). The label always forces a run, plus the repo Correctness/Standards/Spec `code-review` skill. Both jobs follow `REVIEW.md` (evidence rule, Important / Nit / Pre-existing tags, nit cap, skip paths) and the label re-run counts rounds so findings are not repeated and the fourth round asks for a rethink. |
-| **Eval harness**          | `.github/workflows/eval-harness.yml`             | manual dispatch; `eval-harness` label on a same-repo PR | Runs the seam-bug harness eval or the routing eval. **Costs money** (real model calls): default split `test`, 2 runs per case, per-run budget cap. The reviewer's Bash runs in the Claude Code sandbox with egress limited to the Claude API hosts and the npm registry (`sandbox: off` only to diagnose the sandbox). `save-baseline` also uploads a summary-only baseline to commit under `evals/harness/baselines/`. Uploads `.claude/metrics/evals/`. Never runs on push; not a required check. |
+| **Claude Code Review**    | `.github/workflows/claude-code-review.yml`       | `pull_request_target`: PR opened / ready / reopened; `claude-review` label | Sonnet review of the PR. The workflow file, `REVIEW.md`, and `.agents/skills/code-review/` are taken from the default branch, so a PR cannot loosen the rules it is judged by. The plugin job never checks out PR code (it reads the diff through `gh`). The skill job checks out the merge ref only to diff and read, then overwrites those rule files from the default branch before the model starts. No PR package scripts run. Skips drafts, bots, forks and docs/lockfile-only PRs (a `REVIEW.md` or code-review skill edit is still reviewed), and PRs whose body carries a `/ship-check` READY marker for the exact head sha (`<!-- restura:ship-check verdict=READY sha=<sha> -->`, the local review already ran). The label always forces a run, plus the repo Correctness/Standards/Spec `code-review` skill. Both jobs follow `REVIEW.md` (evidence rule, Important / Nit / Pre-existing tags, nit cap, skip paths) and the label re-run counts rounds so findings are not repeated and the fourth round asks for a rethink. |
+| **Eval harness**          | `.github/workflows/eval-harness.yml`             | manual dispatch; `eval-harness` label on a same-repo PR; observe mode when a same-repo PR touches `REVIEW.md` or the `code-review` skill | Runs the seam-bug harness eval or the routing eval. **Costs money** (real model calls): default split `test`, 3 runs per case on the label/dispatch path, per-run budget cap. Observe mode is not a gate: one run of the test split, $4 cap, compared with the latest `evals/harness/baselines/*.json`, `continue-on-error`, and it skips the model call when no baseline JSON is committed (ADR 0033). Forks never get the secret. The reviewer's Bash runs in the Claude Code sandbox with egress limited to the Claude API hosts and the npm registry (`sandbox: off` only to diagnose the sandbox). `save-baseline` also uploads a summary-only baseline to commit under `evals/harness/baselines/`. Uploads `.claude/metrics/evals/`. Never runs on push; not a required check. |
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps; warns on new deps with an OpenSSF Scorecard below 3.                                            |
 | **Workflow lint**         | `.github/workflows/workflow-lint.yml`            | PR / push touching `.github/**`, weekly, manual | [zizmor](https://docs.zizmor.sh) static analysis of every workflow, action and `dependabot.yml`; SARIF to code scanning (category `zizmor`); fails on medium+ findings. |
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
@@ -100,15 +100,61 @@ rules_) for `main`:
   | `Static, build, and workspace validation`            | CI / `validate-static-build` |
   | `Docs site (type-check + build + production deploy)` | CI / `docs`                  |
   | `Review dependency changes`                          | Dependency Review            |
+  | `Electron pack smoke`                                | CI / `electron-smoke-gate`   |
 
   `validate` alone is **not** enough: type-check, lint, format, codegen and the
   production builds run in `validate-static-build`, and Dependabot auto-merge
   waits only on required checks.
 
-  **Skipped jobs count as passing.** A job skipped by its job-level `if:` (for
-  example the e2e jobs when the `Detect app changes` job reports `app=false`, or
-  the Electron jobs on Dependabot PRs) reports a successful required check. So
-  the e2e checks below can be required without blocking docs-only PRs.
+  **Skipped jobs count as passing** only when GitHub still publishes the check
+  under the exact required name. A job skipped by its job-level `if:` (for
+  example the e2e jobs when `Detect app changes` reports `app=false`) usually
+  does. A **matrix** skipped the same way does not reliably publish
+  `Electron pack smoke (ubuntu-latest)` / `(macos-latest)` / `(windows-latest)`
+  as skipped successes, and a required name that never appears blocks the PR.
+  That is why pack smoke's required check is the single gate job
+  `Electron pack smoke`, which **always runs**:
+
+  - `pack=false` (no app path and no packaging file changed) → the gate exits 0.
+    The per-OS legs are skipped. The required check is a pass.
+  - `pack=true` → the gate fails unless every OS leg succeeded.
+  - `Detect app changes` itself failed → the gate fails. A broken detector must
+    not look like "nothing to smoke".
+
+  `pack` is `app` plus packaging-only paths (`electron-builder.json`, the
+  smoke / asar verifier scripts, and the root `package.json` /
+  `package-lock.json`). A dependency-only edit runs pack smoke and does not
+  run the Playwright suites. `docs-site/package-lock.json` is not the desktop
+  app. Web e2e and Electron desktop e2e stay on `app` alone. The nightly
+  schedule sets both outputs to true.
+
+  Do **not** also require the three per-OS names. They are the legs the gate
+  reads. Requiring them brings back the skipped-matrix name problem.
+
+  ### Mark `Electron pack smoke` required (maintainer, once)
+
+  Repo settings cannot be changed from a pull request. After the gate has gone
+  green on `main` at least once (a required check that has never reported on
+  the default branch is rejected by the ruleset API):
+
+  1. **Settings → Rules → Rulesets** (or classic **Branches**) and open the
+     ruleset that protects `main` — the one described below as **Main
+     protection with release-bot bypass**.
+  2. Under **Require status checks to pass**, add the check whose name is
+     exactly `Electron pack smoke` (capital E, no OS suffix). It comes from
+     the CI workflow job `electron-smoke-gate`.
+  3. Leave these names **off** the required list:
+     `Electron pack smoke (ubuntu-latest)`,
+     `Electron pack smoke (macos-latest)`,
+     `Electron pack smoke (windows-latest)`.
+  4. Save. Open a docs-only PR and confirm `Electron pack smoke` is green
+     without the three OS legs running. Open an app-path PR and confirm the
+     gate stays pending until all three legs finish, and fails if any leg fails.
+
+  `gh api` equivalent (edit the existing ruleset; do not create a second one).
+  List rulesets, then PATCH the `main` ruleset's required checks to include
+  `"Electron pack smoke"` next to `validate` and the other names in the table
+  above. The check context is the job `name:`, not the job id.
 
   Recommended-but-heavier (enable once you're comfortable with their runtime /
   flakiness budget):
@@ -121,10 +167,17 @@ rules_) for `main`:
   | `Playwright E2E (shard 4/4)`           | CI / `e2e`                     |
   | `Electron desktop E2E`                 | CI / `e2e-electron`            |
   | `Electron critical-path coverage`      | CI / `electron-critical-coverage` |
-  | `Electron pack smoke (ubuntu-latest)`  | CI / `electron-smoke`          |
-  | `Electron pack smoke (macos-latest)`   | CI / `electron-smoke`          |
-  | `Electron pack smoke (windows-latest)` | CI / `electron-smoke`          |
   | `Extension build + E2E`                | CI / `e2e-extension`           |
+
+  **Electron desktop E2E stays optional on purpose.** It is the right test for
+  protocol behaviour in the unpacked app, and it is not a reliable merge gate:
+  it needs Docker (Kafka/MQTT), xvfb, and an Electron binary whose postinstall
+  download has left `path.txt` missing on hosted runners. A required check that
+  flakes trains people to re-run it. Pack smoke is the launch-crash gate
+  (#1353): one window, `RESTURA_SMOKE=1`, three OSes, no broker stack. Revisit
+  making `Electron desktop E2E` required only after the binary-download flake
+  is gone and a few weeks of nightlies are clean. Until then, read a red
+  desktop e2e on an app-path PR; do not click through it.
 
   `Vitest (shard 1/4)` … `(4/4)` need not be required: `validate` fails when
   any shard fails. Leave `VS Code extension integration` optional (it
@@ -564,10 +617,11 @@ validate, install, and relaunch into that patch.
   weight); refresh `SPEC_SECONDS` from the `list` report in the CI log when
   specs change a lot. `scripts/__tests__/e2e-shard.test.mjs` fails if the table
   and `e2e/` drift apart.
-- The Electron desktop E2E, Electron pack smoke and VS Code integration jobs do
-  not wait for `validate` (they build the app themselves), so they start with
-  the Vitest shards instead of ~4.5 minutes later. A red unit run still blocks
-  merge through the required `validate` check.
+- The Electron desktop E2E, Electron pack smoke legs and VS Code integration
+  jobs do not wait for `validate` (they build the app themselves), so they
+  start with the Vitest shards instead of ~4.5 minutes later. The
+  `Electron pack smoke` gate waits only on change detection and those legs. A
+  red unit run still blocks merge through the required `validate` check.
 - Vitest runs two projects (`vitest.config.ts`): `dom` (jsdom) for `src/**` and
   `node` for `shared/`, Electron main, Worker, echo and `tests/`. Only the two
   DOM suites in `tests/security/` are pinned to jsdom (`domTests`). jsdom setup

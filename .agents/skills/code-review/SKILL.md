@@ -37,6 +37,8 @@ From the diff stat, not the author. The caller's `--depth` wins.
 | **Standard** | everything else | `correctness`, `standards`, `spec` in parallel; one `verify` pass on Important findings |
 | **Deep** | any path in `REVIEW.md` "Review depth", or > 800 changed lines | two `correctness` agents (bugs / seams emphasis), `standards`, `spec`; two independent `verify` agents |
 
+Also read `REVIEW.md`'s reliability checklist. For each item whose trigger matches a changed path, the correctness review must answer that item's check. Items whose trigger does not match are skipped. `electron/main/lifecycle/` is on that checklist (#1353); it is not by itself a Deep path.
+
 ### 3. Find the spec and the standards
 
 Spec, in order: issue references in commits or the PR body (`gh issue view <n>`, per `docs/agents/issue-tracker.md`); `--spec <path>`; a file under `docs/`, `specs/` or `.scratch/` matching the branch. None → skip the Spec axis and say "no spec available".

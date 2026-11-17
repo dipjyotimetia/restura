@@ -1,6 +1,6 @@
 ---
 title: End-to-end tests
-description: Two Playwright harnesses — one drives the web app against a live dev server, the other launches the packaged Electron build directly.
+description: Two Playwright harnesses — one drives the web app against a live dev server, the other launches the unpacked Electron app. Packaged launch is a separate smoke.
 ---
 
 import { Aside } from '@astrojs/starlight/components';
@@ -39,6 +39,10 @@ Two protocols need more than an in-process mock:
 npm run test:e2e:electron:build   # electron:build:web + electron:compile
 npm run test:e2e:electron
 ```
+
+## Packaged launch smoke
+
+Desktop e2e does not run `electron-builder`. A missing module inside `app.asar` still opens a window here and crashes the packaged app (#1353). CI's `Electron pack smoke` gate packs an unsigned dir build on macOS, Windows and Ubuntu, checks that main-process requires resolve inside `app.asar`, and launches with `RESTURA_SMOKE=1`. The gate always runs: it passes without the OS legs when app and packaging paths did not change, and it fails if any leg fails. Locally, `npm run electron:smoke:unpacked` is the same launch without packing. Marking the gate required is a branch-protection step; the check name and the steps are in [`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md).
 
 ## Related
 

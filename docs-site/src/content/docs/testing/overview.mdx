@@ -19,7 +19,7 @@ A dedicated `tests/security/` suite pins the fixes for previously-found classes 
 
 ## End-to-end
 
-Playwright drives the real web app end-to-end, both against **route-mocked** network calls for fast UI assertions and against **real local mock servers** for genuine socket/TLS/proxy behavior. A separate Electron-native suite (`e2e-electron/`) exercises the packaged **desktop** build. See [End-to-end tests](/testing/end-to-end/) for the split between web and desktop coverage.
+Playwright drives the real web app end-to-end, both against **route-mocked** network calls for fast UI assertions and against **real local mock servers** for genuine socket/TLS/proxy behavior. A separate Electron-native suite (`e2e-electron/`) launches the **unpacked** desktop app. Packaged launch (a window after `electron-builder`) is a different check. See [End-to-end tests](/testing/end-to-end/).
 
 ## Local test stack
 

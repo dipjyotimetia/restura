@@ -60,3 +60,6 @@ The more measurable the check, the more of this you can self-verify:
 - Desktop-only features (Kafka, mTLS, SOCKS/PAC — see
   `src/lib/shared/capabilities.ts`) cannot be verified this way; run the
   Electron e2e path instead and say so.
+- Changes under `electron/`, packaging, or main-process startup are not
+  covered here. Use `verify-desktop-change`: compile, the packaged-require
+  check, and an unpackaged `RESTURA_SMOKE=1` launch.

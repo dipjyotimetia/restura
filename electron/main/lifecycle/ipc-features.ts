@@ -85,12 +85,12 @@ export function createDesktopFeatures(deps: DesktopFeatureDeps): StartupFeature[
       m.registerMcpConformanceIPC();
       return () => m.stopMcpConformanceCleanup();
     }),
-    feature('kafka', () => {
+    optionalFeature('kafka', () => {
       const m = require('../handlers/kafka-handler') as typeof import('../handlers/kafka-handler');
       m.registerKafkaHandlerIPC(logRequest);
       return () => m.stopKafkaCleanup();
     }),
-    feature('mqtt', () => {
+    optionalFeature('mqtt', () => {
       const m = require('../handlers/mqtt-handler') as typeof import('../handlers/mqtt-handler');
       m.registerMqttHandlerIPC(logRequest);
       return () => m.stopMqttCleanup();
@@ -198,7 +198,7 @@ export function createDesktopFeatures(deps: DesktopFeatureDeps): StartupFeature[
         m.unregisterCaptureBridgeIPC();
       };
     }),
-    feature('mcp-control', () => {
+    optionalFeature('mcp-control', () => {
       const m =
         require('../handlers/mcp-control-handler') as typeof import('../handlers/mcp-control-handler');
       m.registerMcpControlIPC();
@@ -209,4 +209,9 @@ export function createDesktopFeatures(deps: DesktopFeatureDeps): StartupFeature[
 
 function feature(name: string, start: StartupFeature['start']): StartupFeature {
   return { name, start };
+}
+
+/** Optional native stack. Pack smoke still passes if this one fails to load. */
+function optionalFeature(name: string, start: StartupFeature['start']): StartupFeature {
+  return { name, optional: true, start };
 }
