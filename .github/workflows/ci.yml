@@ -60,7 +60,10 @@ jobs:
           app_pattern='^(src/features/|src/components/|electron/|e2e/|e2e-electron/|shared/|worker/|scripts/e2e-shard\.mjs$|\.github/workflows/ci\.yml$)'
           # Packaging and launch-smoke files. A change here must run pack smoke
           # even when the e2e path set is untouched (#1353 was a packaging miss).
-          pack_pattern='^(electron-builder\.json|scripts/(smoke-packaged-electron|smoke-unpacked-electron|verify-packaged-main-requires|verify-asar-renderer|verify-electron-runtime-imports|clean-electron-dist)\.mjs)$'
+          # Root manifests too: a dependency or lockfile edit can drop a module
+          # from the packaged app without touching electron/. docs-site's own
+          # lockfile is not the desktop app.
+          pack_pattern='^(package\.json|package-lock\.json|electron-builder\.json|scripts/(smoke-packaged-electron|smoke-unpacked-electron|verify-packaged-main-requires|verify-asar-renderer|verify-electron-runtime-imports|clean-electron-dist)\.mjs)$'
           case "$EVENT_NAME" in
             pull_request) range="$PR_BASE_SHA...$PR_HEAD_SHA" ;;
             push) range="$PUSH_BEFORE..$PUSH_SHA" ;;

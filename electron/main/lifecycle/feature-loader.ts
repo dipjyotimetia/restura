@@ -9,6 +9,8 @@ export interface FeatureFailure {
   feature: string;
   message: string;
   stack?: string;
+  /** Optional native stack. Pack smoke still opens the window. */
+  optional?: boolean;
 }
 
 export interface RunningFeature {
@@ -18,15 +20,21 @@ export interface RunningFeature {
 
 export interface StartupFeature {
   name: string;
+  /**
+   * Optional native stack (Kafka, MQTT, MCP control). A throw here is reported
+   * and skipped. A required feature that throws fails pack smoke.
+   */
+  optional?: boolean;
   /** Register the feature. Return a disposer, or nothing. */
   start: () => void | (() => void | Promise<void>);
 }
 
-export function failureFrom(feature: string, err: unknown): FeatureFailure {
-  if (err instanceof Error) {
-    return { feature, message: err.message, ...(err.stack ? { stack: err.stack } : {}) };
-  }
-  return { feature, message: String(err) };
+export function failureFrom(feature: string, err: unknown, optional?: boolean): FeatureFailure {
+  const base =
+    err instanceof Error
+      ? { feature, message: err.message, ...(err.stack ? { stack: err.stack } : {}) }
+      : { feature, message: String(err) };
+  return optional ? { ...base, optional: true } : base;
 }
 
 /** Run each feature. A throw skips that feature and is handed to `onFailure`. */
@@ -42,7 +50,7 @@ export function startFeatures(
         typeof stop === 'function' ? { name: feature.name, stop } : { name: feature.name }
       );
     } catch (err) {
-      onFailure(failureFrom(feature.name, err));
+      onFailure(failureFrom(feature.name, err, feature.optional));
     }
   }
   return running;

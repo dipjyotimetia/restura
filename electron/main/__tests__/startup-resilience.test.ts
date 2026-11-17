@@ -8,7 +8,7 @@ import { rendererGoneAction } from '../lifecycle/renderer-recovery';
 
 describe('startFeatures', () => {
   it('keeps later features running when one fails to load', () => {
-    const failures: string[] = [];
+    const failures: { feature: string; optional?: boolean }[] = [];
     const running = startFeatures(
       [
         {
@@ -19,6 +19,7 @@ describe('startFeatures', () => {
         },
         {
           name: 'mcp-control',
+          optional: true,
           start: () => {
             throw new Error("Cannot find module '@modelcontextprotocol/node'");
           },
@@ -30,10 +31,11 @@ describe('startFeatures', () => {
           },
         },
       ],
-      (failure) => failures.push(failure.feature)
+      (failure) => failures.push(failure)
     );
 
-    expect(failures).toEqual(['mcp-control']);
+    expect(failures.map((failure) => failure.feature)).toEqual(['mcp-control']);
+    expect(failures[0]?.optional).toBe(true);
     expect(running.map((feature) => feature.name)).toEqual(['http', 'kafka']);
     expect(running[1]?.stop).toEqual(expect.any(Function));
   });

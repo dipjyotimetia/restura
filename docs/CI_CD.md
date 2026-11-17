@@ -121,9 +121,12 @@ rules_) for `main`:
   - `Detect app changes` itself failed → the gate fails. A broken detector must
     not look like "nothing to smoke".
 
-  `pack` is `app` plus packaging-only paths (`electron-builder.json` and the
-  smoke / asar verifier scripts). Web e2e and Electron desktop e2e stay on
-  `app` alone. The nightly schedule sets both outputs to true.
+  `pack` is `app` plus packaging-only paths (`electron-builder.json`, the
+  smoke / asar verifier scripts, and the root `package.json` /
+  `package-lock.json`). A dependency-only edit runs pack smoke and does not
+  run the Playwright suites. `docs-site/package-lock.json` is not the desktop
+  app. Web e2e and Electron desktop e2e stay on `app` alone. The nightly
+  schedule sets both outputs to true.
 
   Do **not** also require the three per-OS names. They are the legs the gate
   reads. Requiring them brings back the skipped-matrix name problem.

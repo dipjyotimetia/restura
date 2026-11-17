@@ -46,7 +46,7 @@ Run the whole thing locally before opening a PR:
 npm run validate
 ```
 
-Playwright end-to-end jobs (web, Electron, and extensions), packaging smoke, the docs site, and PR preview deployment remain separate environment-specific jobs. The pack-smoke check to require in branch protection is the single job `Electron pack smoke`, not the three per-OS legs; it passes when those paths did not change. See [`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md) for the full workflow and the ruleset steps.
+Playwright end-to-end jobs (web, Electron, and extensions), packaging smoke, the docs site, and PR preview deployment remain separate environment-specific jobs. The pack-smoke check to require in branch protection is the single job `Electron pack smoke`, not the three per-OS legs. It also runs for a root `package.json` or `package-lock.json` change, and it passes when those paths did not change. See [`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md) for the full workflow and the ruleset steps.
 
 ## Related
 

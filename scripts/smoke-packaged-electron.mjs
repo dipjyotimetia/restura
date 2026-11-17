@@ -72,9 +72,9 @@ const timer = setTimeout(() => {
 
 child.on('exit', (code) => {
   clearTimeout(timer);
-  // A contained feature failure may log "Cannot find module" and still open
-  // the window (#1353). That is a pass. An uncaught main-process error is not:
-  // process-guard prints `restura-smoke-failed` and exits 1.
+  // An optional native (Kafka, MQTT, MCP control) may log "Cannot find module"
+  // and the window still opens (#1353). A required feature that fails to load
+  // prints `restura-smoke-failed` and exits 1, as does an uncaught exception.
   const uncaught = /uncaughtException|Uncaught Exception/i.test(output);
   if (
     code === 0 &&

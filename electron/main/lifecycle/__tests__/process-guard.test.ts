@@ -100,22 +100,35 @@ describe('process guard', () => {
     );
   });
 
-  it('stays quiet in smoke mode and shows one dialog otherwise', () => {
-    const failure = [{ feature: 'mcp-control', message: 'Cannot find module' }];
+  it('lets an optional native fail during smoke and fails the launch when a required feature is missing', () => {
     reportFeatureFailures([]);
     expect(showErrorBox).not.toHaveBeenCalled();
 
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.env.RESTURA_SMOKE = '1';
-    reportFeatureFailures(failure);
+    reportFeatureFailures([
+      { feature: 'mcp-control', message: 'Cannot find module', optional: true },
+    ]);
     expect(spy).toHaveBeenCalled();
     expect(showErrorBox).not.toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+    expect(spy.mock.calls.some((call) => String(call[0]).includes('restura-smoke-failed'))).toBe(
+      false
+    );
+
+    reportFeatureFailures([{ feature: 'http', message: "Cannot find module 'undici'" }]);
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(spy.mock.calls.some((call) => String(call[0]).includes('restura-smoke-failed'))).toBe(
+      true
+    );
     spy.mockRestore();
 
     delete process.env.RESTURA_SMOKE;
-    reportFeatureFailures(failure);
+    exit.mockClear();
+    reportFeatureFailures([{ feature: 'http', message: 'Cannot find module' }]);
     expect(showErrorBox).toHaveBeenCalledTimes(1);
-    expect(showErrorBox.mock.calls[0]?.[1]).toContain('mcp-control');
+    expect(showErrorBox.mock.calls[0]?.[1]).toContain('http');
+    expect(exit).not.toHaveBeenCalled();
   });
 
   it('exits 0 when the smoke window loads and 1 when the main frame fails', () => {

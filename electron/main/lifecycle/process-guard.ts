@@ -54,12 +54,24 @@ export function installProcessGuards(log: ProcessGuardSink): void {
   });
 }
 
-/** One dialog for every feature that failed to load. Smoke runs stay quiet. */
+/**
+ * One dialog for every feature that failed to load. Smoke runs stay quiet
+ * when only optional natives failed. A required feature that failed to load
+ * is a broken app: smoke exits 1 (`restura-smoke-failed`) instead of treating
+ * the later window as a pass.
+ */
 export function reportFeatureFailures(failures: readonly FeatureFailure[]): void {
   if (failures.length === 0) return;
   const text = featureFailureDialog(failures, logFilePath());
   if (isSmokeLaunch()) {
     console.error(text.body);
+    const required = failures.filter((failure) => !failure.optional);
+    if (required.length > 0) {
+      console.error(
+        `restura-smoke-failed required feature ${required.map((failure) => failure.feature).join(', ')}`
+      );
+      app.exit(1);
+    }
     return;
   }
   dialog.showErrorBox(text.title, text.body);
