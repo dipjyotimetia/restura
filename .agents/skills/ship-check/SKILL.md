@@ -24,9 +24,10 @@ Determine the diff under review: `git diff --stat main...HEAD` and `git status -
    - `restura-parity-checker` — if the diff adds/changes a protocol, auth, or networked feature (it also reviews `cli/` executors). With several branches, pass it every branch's diff so duplicate transforms across branches are visible.
    - `restura-docs-steward` — always (CI has no content-parity gate). Run `npm run docs:check` alongside it.
    - **Fresh-context code review** — for any non-trivial diff, also invoke the repo's `code-review` skill (`.claude/skills/code-review`, three parallel axes: Correctness, Standards, Spec) against the same base. A reviewer that did not write the code is not influenced by the authoring session's reasoning; the agents above check domain properties, its Correctness axis checks bugs, edge cases, error paths and cross-harness seams, picks Quick/Standard/Deep from the diff (`REVIEW.md`) and verifies Important findings before posting them. Treat its **Important (blocking)** Correctness findings as ship blockers; `Nit` and `Pre-existing` never block.
-6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the two slowest gates.
-7. **Bundle size** (only `--full`) — `npm run size`.
-8. **e2e** (only `--full`, or if protocol/transport changed) — `npm run test:e2e`.
+6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the two slowest gates. `electron:compile` includes `verify-packaged-main-requires.mjs --check-dev-dependencies`.
+7. **Desktop launch** (unless `--quick`, and only when the diff touches `electron/`, `electron-builder.json`, or `scripts/smoke-packaged-electron.mjs` / `scripts/smoke-unpacked-electron.mjs` / `scripts/verify-packaged-main-requires.mjs` / `scripts/verify-asar-renderer.mjs`) — follow `verify-desktop-change`: `npm run electron:build:web` if `dist/web/index.html` is missing, then `npm run electron:smoke:unpacked`. That is the unpackaged `RESTURA_SMOKE=1` launch. If `dist/installers` already contains an `app.asar`, run the two asar verifiers and `node scripts/smoke-packaged-electron.mjs` as well. On `--quick`, say the launch was not run.
+8. **Bundle size** (only `--full`) — `npm run size`.
+9. **e2e** (only `--full`, or if protocol/transport changed) — `npm run test:e2e`.
 
 ## Output
 
@@ -45,6 +46,7 @@ Produce a checklist. For each gate: ✅/❌ and a one-line result. For every fai
 | docs parity | … |
 | code review | … |
 | build | … |
+| desktop smoke | … / skipped (diff does not touch Electron launch paths, or `--quick`) |
 Verdict: READY / NOT READY — <blockers>
 ```
 

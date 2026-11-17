@@ -9,7 +9,7 @@ apply to any runtime.
 
 How to run agentic work in this repo (loop primitives → repo tooling):
 
-- **Verify before declaring done** — for any renderer/UI change, use the `verify-ui-change` skill (dev server + real browser + console check). An edit that compiles is not a verified change.
+- **Verify before declaring done** — for any renderer/UI change, use the `verify-ui-change` skill (dev server + real browser + console check). For `electron/` main-process, packaging, or launch-smoke changes, use `verify-desktop-change` (compile, devDependency require check, unpackaged `RESTURA_SMOKE=1` launch). An edit that compiles is not a verified change.
 - **Goal loops** — `/fix-until-green [attempts]` iterates until `npm run validate` passes with a hard cap (or `/goal make npm run validate pass, stop after 5 tries`). Deterministic exit criteria beat "looks done".
 - **Time loops** — `/babysit-prs` is one idempotent iteration of PR care (CI fixes, review comments); prefers `--auto` (merge lane) over rebase loops; drive it with `/loop 15m /babysit-prs` locally, or `subscribe_pr_activity` in remote sessions (events beat polling).
 - **Proactive loops** — `/triage-maintenance` sweeps six streams (`--deps`, `--security`, `--skills`, `--ratchets`, `--worktrees`, `--eval-upkeep`; `--evals` is an opt-in harness eval) in one pass: dependabot PRs, security-audit findings, skill metrics, ratchet tightening, worktree pruning, and eval upkeep (escaped defects to cases, saturation); pilot manually, then `/schedule` it.

@@ -16,6 +16,7 @@
     "ship-check",
     "skill-report",
     "triage-maintenance",
+    "verify-desktop-change",
     "verify-ui-change"
   ]
 }

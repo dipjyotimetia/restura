@@ -72,8 +72,16 @@ const timer = setTimeout(() => {
 
 child.on('exit', (code) => {
   clearTimeout(timer);
-  const crashed = /uncaughtException|Uncaught Exception|Cannot find module/i.test(output);
-  if (code === 0 && output.includes('restura-smoke-ready') && !crashed) {
+  // A contained feature failure may log "Cannot find module" and still open
+  // the window (#1353). That is a pass. An uncaught main-process error is not:
+  // process-guard prints `restura-smoke-failed` and exits 1.
+  const uncaught = /uncaughtException|Uncaught Exception/i.test(output);
+  if (
+    code === 0 &&
+    output.includes('restura-smoke-ready') &&
+    !output.includes('restura-smoke-failed') &&
+    !uncaught
+  ) {
     console.log(`OK: packaged app reached a window (${binary})`);
     return;
   }

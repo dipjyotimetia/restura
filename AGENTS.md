@@ -53,6 +53,7 @@ Full catalogue (e2e, desktop e2e, echo stacks, Docker, deploy): `docs/agents/arc
 | Verifying / shipping / release gates | `.agents/skills/restura-production-checks/SKILL.md`, `.agents/skills/ship-check/SKILL.md` |
 | Reviewing a diff / PR | `.agents/skills/code-review/SKILL.md`, `REVIEW.md` (what failure looks like per area, evidence rule, caps, depth, rounds); use `restura-parity-checker` for transport/protocol changes and `restura-docs-steward` for doc parity |
 | UI change | `.agents/skills/verify-ui-change/SKILL.md` — compiling is not verified |
+| Electron main, packaging, launch | `.agents/skills/verify-desktop-change/SKILL.md` — compile, devDependency require check, unpackaged `RESTURA_SMOKE=1` launch |
 | Multi-PR / parallel agent delivery | `docs/agents/delivery.md`, `.agents/skills/batch-ship/SKILL.md` |
 | Security boundary (SSRF, IPC, secrets, sandboxes) | `.agents/skills/restura-security-auditor/SKILL.md`, `tests/security/` |
 | Domain terms, ADRs | `CONTEXT.md`, `docs/adr/`, `docs/agents/domain.md` |
@@ -66,7 +67,7 @@ Vitest (jsdom) with colocated `*.test.ts(x)`; tests importing `worker/` live und
 
 Full version: `docs/agents/delivery.md`. Identical in `CLAUDE.md` and `AGENTS.md` — change both together.
 
-- **Verify before done** — for renderer/UI changes, run the app (`npm run dev`), drive the change in a real browser and check the console (`verify-ui-change` skill); iterate against a deterministic gate (`npm run validate`, `/fix-until-green`) with an attempt cap, not "looks done".
+- **Verify before done** — for renderer/UI changes, run the app (`npm run dev`), drive the change in a real browser and check the console (`verify-ui-change` skill). For `electron/` main-process, packaging, or launch-smoke changes, run `verify-desktop-change` (compile, packaged-require check, unpackaged `RESTURA_SMOKE=1` launch). Iterate against a deterministic gate (`npm run validate`, `/fix-until-green`) with an attempt cap, not "looks done".
 - **Plan by file ownership** — two PRs touching the same non-registry file are one PR; ≤5 PRs per batch; independent PRs off `main`, stack only real dependencies (≤3 layers); one topic per branch/worktree.
 - **Review the combined result** — `npm run integration-check -- <branches>` plus `/ship-check <branches>` (security per branch; correctness, parity and docs on the combined diff, plus a fresh-context code review per `.claude/skills/code-review/SKILL.md` — Correctness, Standards, Spec); seam bugs are invisible per branch.
 - **Merge via the merge lane** (`gh pr merge <n> --auto --squash`); `--admin` is emergencies only and is hook-gated.
