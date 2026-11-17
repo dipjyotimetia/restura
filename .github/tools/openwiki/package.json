@@ -3,7 +3,7 @@
   "private": true,
   "description": "Lockfile-pinned CI tool install (OpenSSF Scorecard Pinned-Dependencies). Bump the version here and regenerate package-lock.json with: npm install --package-lock-only --engine-strict=false",
   "dependencies": {
-    "openwiki": "0.7.0"
+    "openwiki": "0.7.3"
   },
   "allowScripts": {
     "better-sqlite3": true
