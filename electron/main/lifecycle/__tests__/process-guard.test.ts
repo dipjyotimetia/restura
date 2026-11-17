@@ -1,5 +1,11 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  installProcessGuards,
+  logFilePath,
+  reportFeatureFailures,
+  watchSmokeWindow,
+} from '../process-guard';
 
 const exit = vi.hoisted(() => vi.fn());
 const showErrorBox = vi.hoisted(() => vi.fn());
@@ -31,12 +37,7 @@ afterEach(() => {
   showErrorBox.mockClear();
   getFile.mockReset();
   getFile.mockImplementation(() => ({ path: '/tmp/restura/main.log' }));
-  vi.resetModules();
 });
-
-async function loadGuard() {
-  return import('../process-guard');
-}
 
 function lastListener(event: 'uncaughtException' | 'unhandledRejection') {
   const listeners = process.listeners(event);
@@ -46,8 +47,7 @@ function lastListener(event: 'uncaughtException' | 'unhandledRejection') {
 }
 
 describe('process guard', () => {
-  it('reads the log path and falls back when electron-log throws', async () => {
-    const { logFilePath } = await loadGuard();
+  it('reads the log path and falls back when electron-log throws', () => {
     expect(logFilePath()).toBe('/tmp/restura/main.log');
     getFile.mockImplementation(() => {
       throw new Error('no log yet');
@@ -55,12 +55,14 @@ describe('process guard', () => {
     expect(logFilePath()).toBe('the Restura log');
   });
 
-  it('exits 1 on an uncaught exception during pack smoke and does not show a dialog', async () => {
+  it('exits 1 on an uncaught exception during pack smoke and does not show a dialog', () => {
     process.env.RESTURA_SMOKE = '1';
     const error = vi.fn();
-    const { installProcessGuards } = await loadGuard();
     installProcessGuards({ error });
-    const listener = lastListener('uncaughtException') as (err: unknown, origin: string) => void;
+    const listener = lastListener('uncaughtException') as unknown as (
+      err: unknown,
+      origin: string
+    ) => void;
     listener(new Error('missing native'), 'uncaughtException');
     expect(exit).toHaveBeenCalledWith(1);
     expect(showErrorBox).not.toHaveBeenCalled();
@@ -70,11 +72,13 @@ describe('process guard', () => {
     );
   });
 
-  it('shows one dialog for an uncaught exception and logs a rejection', async () => {
+  it('shows one dialog for an uncaught exception and logs a rejection', () => {
     const error = vi.fn();
-    const { installProcessGuards } = await loadGuard();
     installProcessGuards({ error });
-    const onException = lastListener('uncaughtException') as (err: unknown, origin: string) => void;
+    const onException = lastListener('uncaughtException') as unknown as (
+      err: unknown,
+      origin: string
+    ) => void;
     onException('boom', 'uncaughtException');
     onException(new Error('again'), 'uncaughtException');
     expect(showErrorBox).toHaveBeenCalledTimes(1);
@@ -83,7 +87,7 @@ describe('process guard', () => {
     expect(showErrorBox.mock.calls[0]?.[1]).toContain('/tmp/restura/main.log');
     expect(exit).not.toHaveBeenCalled();
 
-    const onRejection = lastListener('unhandledRejection') as (reason: unknown) => void;
+    const onRejection = lastListener('unhandledRejection') as unknown as (reason: unknown) => void;
     onRejection(new Error('rejected'));
     onRejection('plain');
     expect(error).toHaveBeenCalledWith(
@@ -96,8 +100,7 @@ describe('process guard', () => {
     );
   });
 
-  it('stays quiet in smoke mode and shows one dialog otherwise', async () => {
-    const { reportFeatureFailures } = await loadGuard();
+  it('stays quiet in smoke mode and shows one dialog otherwise', () => {
     const failure = [{ feature: 'mcp-control', message: 'Cannot find module' }];
     reportFeatureFailures([]);
     expect(showErrorBox).not.toHaveBeenCalled();
@@ -115,11 +118,10 @@ describe('process guard', () => {
     expect(showErrorBox.mock.calls[0]?.[1]).toContain('mcp-control');
   });
 
-  it('exits 0 when the smoke window loads and 1 when the main frame fails', async () => {
+  it('exits 0 when the smoke window loads and 1 when the main frame fails', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.env.RESTURA_SMOKE = '1';
-    const { watchSmokeWindow } = await loadGuard();
 
     const listeners = new Map<string, (...args: unknown[]) => void>();
     const win = {

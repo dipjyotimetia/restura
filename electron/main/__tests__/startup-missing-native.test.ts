@@ -12,73 +12,78 @@ import Module, { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { consoleSink, noopSink, setLogSink } from '@shared/runtime/logger';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import {
+  __setMcpNodeAdapterLoaderForTests,
+  startControlHttpServer,
+} from '../handlers/mcp-control-server';
+import { startFeatures } from '../lifecycle/feature-loader';
+import { createDesktopFeatures } from '../lifecycle/ipc-features';
+import { createMainWindow } from '../window-manager';
 
-const ipcHandlers = vi.hoisted(() => new Map<string, (...args: unknown[]) => unknown>());
-const openedWindows = vi.hoisted(() => [] as FakeWindow[]);
+const nodeRequire = createRequire(__filename);
 
-interface FakeContents {
-  id: number;
-  listeners: Map<string, Array<(...args: unknown[]) => void>>;
-  once: (event: string, cb: (...args: unknown[]) => void) => void;
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-  setWindowOpenHandler: ReturnType<typeof vi.fn>;
-  openDevTools: ReturnType<typeof vi.fn>;
-  loadFile: ReturnType<typeof vi.fn>;
-  loadURL: ReturnType<typeof vi.fn>;
-  reload: ReturnType<typeof vi.fn>;
-  send: ReturnType<typeof vi.fn>;
-}
-
-class FakeWindow {
-  destroyed = false;
-  webContents: FakeContents;
-  constructor(_opts: unknown) {
-    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-    const add = (event: string, cb: (...args: unknown[]) => void) => {
-      const list = listeners.get(event) ?? [];
-      list.push(cb);
-      listeners.set(event, list);
+const { ipcHandlers, openedWindows, FakeWindow } = vi.hoisted(() => {
+  const ipcHandlers = new Map<string, (...args: unknown[]) => unknown>();
+  const openedWindows: Array<{
+    destroyed: boolean;
+    loadFile: ReturnType<typeof vi.fn>;
+  }> = [];
+  class FakeWindow {
+    destroyed = false;
+    webContents: {
+      id: number;
+      once: (event: string, cb: (...args: unknown[]) => void) => void;
+      on: (event: string, cb: (...args: unknown[]) => void) => void;
+      setWindowOpenHandler: ReturnType<typeof vi.fn>;
+      openDevTools: ReturnType<typeof vi.fn>;
+      loadFile: ReturnType<typeof vi.fn>;
+      loadURL: ReturnType<typeof vi.fn>;
+      reload: ReturnType<typeof vi.fn>;
+      send: ReturnType<typeof vi.fn>;
     };
-    this.webContents = {
-      id: openedWindows.length + 1,
-      listeners,
-      once: add,
-      on: add,
-      setWindowOpenHandler: vi.fn(),
-      openDevTools: vi.fn(),
-      loadFile: vi.fn(),
-      loadURL: vi.fn(),
-      reload: vi.fn(),
-      send: vi.fn(),
-    };
-    openedWindows.push(this);
+    loadFile = vi.fn();
+    loadURL = vi.fn();
+    constructor(_opts: unknown) {
+      const add = () => {};
+      this.webContents = {
+        id: openedWindows.length + 1,
+        once: add,
+        on: add,
+        setWindowOpenHandler: vi.fn(),
+        openDevTools: vi.fn(),
+        loadFile: vi.fn(),
+        loadURL: vi.fn(),
+        reload: vi.fn(),
+        send: vi.fn(),
+      };
+      openedWindows.push(this);
+    }
+    on() {
+      return this;
+    }
+    once() {
+      return this;
+    }
+    isDestroyed() {
+      return this.destroyed;
+    }
+    maximize() {}
+    show() {}
+    getBounds() {
+      return { x: 0, y: 0, width: 1400, height: 900 };
+    }
+    isMaximized() {
+      return false;
+    }
+    static getAllWindows() {
+      return openedWindows.filter((w) => !w.destroyed);
+    }
+    static getFocusedWindow() {
+      return null;
+    }
   }
-  on() {
-    return this;
-  }
-  once() {
-    return this;
-  }
-  loadFile = vi.fn();
-  loadURL = vi.fn();
-  isDestroyed() {
-    return this.destroyed;
-  }
-  maximize() {}
-  show() {}
-  getBounds() {
-    return { x: 0, y: 0, width: 1400, height: 900 };
-  }
-  isMaximized() {
-    return false;
-  }
-  static getAllWindows() {
-    return openedWindows.filter((w) => !w.destroyed);
-  }
-  static getFocusedWindow() {
-    return null;
-  }
-}
+  return { ipcHandlers, openedWindows, FakeWindow };
+});
 
 vi.mock('electron', () => ({
   app: {
@@ -163,15 +168,7 @@ describe('startup with @modelcontextprotocol/node blocked', () => {
   it('still registers the rest of the app and opens a window', async () => {
     setLogSink(noopSink);
     installBlock();
-    const nodeRequire = createRequire(import.meta.url);
     expect(() => nodeRequire(BLOCKED)).toThrow(/Cannot find module '@modelcontextprotocol\/node'/);
-
-    const { createDesktopFeatures } = await import('../lifecycle/ipc-features');
-    const { startFeatures } = await import('../lifecycle/feature-loader');
-    const { createMainWindow } = await import('../window-manager');
-    const { startControlHttpServer, __setMcpNodeAdapterLoaderForTests } = await import(
-      '../handlers/mcp-control-server'
-    );
     __setMcpNodeAdapterLoaderForTests(undefined);
 
     const failures: { feature: string; message: string }[] = [];
