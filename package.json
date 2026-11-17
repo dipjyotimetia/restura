@@ -261,6 +261,7 @@
     "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
     "fake-indexeddb": "^6.2.7",
+    "fast-check": "^4.10.2",
     "husky": "^9.1.7",
     "jsdom": "^30.1.3",
     "json-schema-to-typescript": "^16.0.0",
