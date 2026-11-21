@@ -5,7 +5,97 @@ All notable changes to Restura will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+[GitHub Releases](https://github.com/dipjyotimetia/restura/releases) are the
+canonical notes (`docs/RELEASE_NOTES_TEMPLATE.md`). The sections from 1.16.0
+through 1.19.0 below are those published bodies, with the SBOM footer omitted.
+Older tags are not copied here. `main` is v1.19.0, so there is nothing unreleased.
+
 ## [Unreleased]
+
+No changes since 1.19.0.
+
+## [1.19.0] - 2026-11-17
+
+### Changed
+
+- Add install paths and a local-first comparison (#1368)
+
+### Fixed
+
+- Refresh Claude action pins (#1359)
+- Don't crash launch when the MCP node adapter is missing (#1361)
+- Harden icon labels, native list buttons, and async UI states (#1363)
+- Clear open Dependabot and zizmor alerts (#1362)
+- Create v* release tags as restura-bot (#1366)
+
+The generated notes list #1366. #1367 reverted that change in the same tag, so `v*` tags are not created as restura-bot.
+
+## [1.18.1] - 2026-11-08
+
+### Fixed
+
+- Package MCP node runtime dependency (#1352)
+
+## [1.18.0] - 2026-11-07
+
+### Fixed
+
+- Close illegal transitions in implicit state machines (#1348)
+- Cross-app bug sweep (security, parity, importers, CLI) (#1349)
+- Cross-app usability batch — HTTP, GraphQL/gRPC, streaming, collections, AI/MCP, app shell (#1350)
+
+## [1.17.0] - 2026-11-07
+
+### Added
+
+- Desktop MCP control server for Claude Code, Codex and other agents (#1336)
+- Serve in-app release notes from a static feed (#1343)
+- Path variables, streamed-send scripts, desktop unary gRPC cancel, unhandled script rejections (#1344)
+
+### Fixed
+
+- Harden producer streams, transactions and consumer-group repositioning (#1337)
+- Confluent-compatible Schema Registry serde for Avro, Protobuf and JSON Schema (#1335)
+- Correct fallback, wire mapping, Any, CSP-safe .proto compile (#1338)
+- Collection runner review — GraphQL dispatch, transport verdict, CLI parity (#1339)
+- Upstream-proxy framing parity across Worker and Node twins (#1340)
+- 55 bugs from a full-codebase review, each with a regression test (#1341)
+- ~70 bugs from a second full-codebase review, each with a regression test (#1342)
+- 19 bugs from an untangle-codebase audit (security, parity, persistence) (#1345)
+- Scope Bruno export environments; redact credentials in history (#1346)
+
+## [1.16.1] - 2026-11-02
+
+### Fixed
+
+- Explain a GitHub rate limit in the release notes panel (#1330)
+- Pass io() the canonical connect URL (#1328)
+
+## [1.16.0] - 2026-11-02
+
+This release includes security fixes. No Docker image was published for 1.16.0.
+
+### Breaking changes
+
+- **`REQUIRE_CF_ACCESS` now verifies the signed Cloudflare Access JWT.** Set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`, or `/api/*` returns 503. Other SSO gateways no longer work through this mode: set `WORKER_PROXY_TOKEN` and have the gateway add `X-Restura-Proxy-Token`.
+- **MCP servers that redirect need their final URL**, such as `/mcp/` rather than `/mcp`, on the Worker, self-hosted server and desktop app.
+- **Desktop WebSocket and Socket.IO connections no longer follow redirects.**
+- **A keychain or external secret on an SSE connection now refuses to connect**, including in workflows. Enter the credential inline.
+- **A secret variable resolves only where it is written.** A variable that points to a secret now fails the send.
+
+### Changed
+
+- Deepen connect, Collection run, script, IPC, stream, Protocol and tree-edit modules (#1324)
+
+### Fixed
+
+- Stop auto-redirecting returning visitors from restura.dev to /app/ (#1320)
+- Tighten variable resolution and saved credential handling (#1325)
+- Verify Cloudflare Access assertions and stop following upstream redirects (#1326)
+
+## Notes kept in this file before version headings were cut
+
+These notes were appended under "Unreleased" as the work landed and were not moved when tags were cut. They overlap the releases above and earlier tags. They are not a second changelog.
 
 ### Added
 

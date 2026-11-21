@@ -57,13 +57,13 @@ Platform limits for the protocol row are in the [table below](#everything-your-a
 
 | Protocol | What works today | Platform |
 | --- | --- | --- |
-| **REST / HTTP** | All methods, params, headers, body types, cookies, code generation | Web · Desktop |
+| **REST / HTTP** | Params, headers, body types, cookies, code generation. The hosted Worker sends workerd's fixed method list (standard methods, WebDAV, `PURGE`, `QUERY`, and a few more), upper-cased; other extension methods need desktop or self-host | Web · Desktop |
 | **GraphQL** | Query builder, schema introspection, subscriptions | Web · Desktop |
 | **gRPC** | Unary calls, server streaming, reflection; native client/bidi streaming | Web · Desktop¹ |
 | **WebSocket** | Connect, send/receive, full message history | Web · Desktop |
 | **Socket.IO** | Connect, emit/listen events, acknowledgements | Web · Desktop |
 | **SSE** | Live event-stream viewer with reconnection | Web · Desktop |
-| **Kafka** | Produce, consume, transactions, admin, SASL/OAuth, TLS | Desktop |
+| **Kafka** | Produce, consume, transactions, admin, SASL/OAuth, TLS, Schema Registry (Avro, Protobuf, JSON Schema) | Desktop |
 | **MQTT** | Publish/subscribe, QoS, TLS | Desktop |
 | **MCP** | Connect to MCP servers—or expose Restura as one | Web · Desktop² |
 
@@ -75,9 +75,9 @@ Platform limits for the protocol row are in the [table below](#everything-your-a
 | --- | --- |
 | **Bring your existing work** | Import Postman (v2.x and v3), Insomnia (v4 and v5), OpenAPI 3.x / Swagger 2.0, OpenCollection, Hoppscotch, Bruno, `.http` files, HAR captures, and cURL commands. Export when you need to move on. |
 | **Reuse requests safely** | Organise collections and environments; inherit auth; switch `{{base_url}}` between staging and production without copying requests. |
-| **Automate without a fragile script runner** | Run pre-request and test scripts in a bounded QuickJS WASM sandbox with no DOM, filesystem, or network access. Build portable workflows from saved HTTP and GraphQL requests. |
+| **Automate without a fragile script runner** | Run pre-request and test scripts in a bounded QuickJS WASM sandbox with no DOM or filesystem. `pm.sendRequest` is an explicit host bridge through the same SSRF-guarded proxy as a normal send. Build portable workflows from saved HTTP and GraphQL requests. |
 | **Keep authentication close to the wire** | Send with Basic, Bearer, API Key, OAuth 2.0 (with PKCE and token refresh), OAuth 1.0a, WSSE, Digest, and AWS SigV4. Desktop adds NTLM, mTLS, custom CAs, and SOCKS proxies. |
-| **Work with AI on sensitive requests** | Desktop AI chat and AI Lab use request context with secrets and internal URLs redacted before provider calls. Evaluate prompts, models, and bounded agent suites locally. |
+| **Work with AI on sensitive requests** | Desktop AI chat and AI Lab send request context to the provider you configure. Secret-shaped header and body values are redacted; the request URL is sent as written, with environment values of 8+ characters replaced. Evaluate prompts, models, and bounded agent suites locally. |
 | **Use MCP in both directions** | Inspect MCP server traffic as a client, or let Claude Code, Codex and other agents build and run your collections through Restura’s MCP server — only what you share, with your approval. |
 
 ## Start in the right place
@@ -88,7 +88,7 @@ Open [restura.dev](https://restura.dev/app/) to send HTTP, GraphQL, WebSocket, S
 
 ### Develop locally
 
-**Prerequisites:** Node.js 24 (see `.nvmrc`) and npm 12.1.0. Both are enforced, so `npm ci` refuses older versions.
+**Prerequisites:** Node.js **24.18.0** (`.nvmrc`) and npm **12.1.0**. `npm ci` runs `scripts/verify-toolchain.mjs` and refuses any other version, including a newer Node 24. The published CLI's own `engines` field is `>=24`.
 
 ```bash
 git clone https://github.com/dipjyotimetia/restura.git
@@ -137,7 +137,7 @@ Read [Self-hosting](docs/SELF_HOSTING.md) before deploying: it covers authentica
 - **Local persistence with clear boundaries.** Browser data lives in local IndexedDB and is not encrypted. On desktop, storage is encrypted with Electron `safeStorage` and the OS keychain, and secret handles keep plaintext out of the renderer where supported.
 - **Outbound-request protection.** Shared SSRF validation blocks private, link-local, and cloud-metadata targets by default. Desktop adds DNS-rebind protection; self-hosted deployments can explicitly enable private-network access when needed.
 - **Wire-accurate signing.** AWS SigV4 is signed in the Worker or Electron handler, not the renderer, so the upstream receives the exact signed bytes.
-- **Sandboxed user code.** Pre-request and test scripts run with time and memory limits and have no host bridge.
+- **Sandboxed user code.** Pre-request and test scripts run with time and memory limits (64 MB; 5 s, or 30 s when a host bridge is in use). There is no DOM, filesystem, or raw `fetch`. `pm.sendRequest`, `pm.cookies`, `pm.vault`, and `rs.judge` are explicit host bridges.
 - **Transparent telemetry.** Error reporting is opt-out and can be disabled in **Settings → Privacy**. It excludes request URLs, headers, bodies, secrets, and identity. On desktop, the same setting controls session health with a random install ID, used to count active installs. Self-hosted deployments collect no usage analytics.
 
 Read the [security architecture](docs/adr/0004-security-hardening.md), [privacy and telemetry decision](docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md), and [capability matrix](docs/CAPABILITY_MATRIX.md) for the full model and platform caveats.

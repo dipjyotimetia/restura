@@ -118,7 +118,7 @@ For a new handler with SSRF, always test:
 
 ## Local dev
 
-`npm run dev` runs Vite + the Worker locally via Miniflare (the `@cloudflare/vite-plugin` glue). One command boots both. The Worker bundles into `dist/web/_worker.js` on production build.
+`npm run dev` runs Vite + the Worker locally via Miniflare (the `@cloudflare/vite-plugin` glue). One command boots both. Production `npm run build` emits the SPA under `dist/web/client/` and the Worker bundle plus `wrangler.json` under `dist/web/restura/`.
 
 ## Compatibility flags
 
@@ -132,4 +132,4 @@ The Worker has its own tsconfig:
 npx tsc --noEmit -p worker/tsconfig.json
 ```
 
-`npm run validate` runs the renderer's tsc but **not** the Worker's. Run the Worker tsc explicitly when you change Worker code.
+`npm run validate` runs `type-check:all`, which includes `tsc -p worker/tsconfig.json`. `npm run type-check` is renderer-only.

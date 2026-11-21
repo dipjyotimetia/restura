@@ -14,7 +14,7 @@ The app supports distribution on:
 
 ### Required Software
 
-- Node.js 24.x or later
+- Node.js 24.18.0 (`.nvmrc`; `npm ci` refuses any other version)
 - npm 12.1.0
 - Git
 
@@ -54,8 +54,8 @@ npm run electron:dist
 
 | Command                       | Description                              |
 | ----------------------------- | ---------------------------------------- |
-| `npm run electron:dev`        | Start development server with hot reload |
-| `npm run electron:dist`       | Build for all platforms                  |
+| `npm run electron:dev`        | Vite plus one Electron launch. The renderer hot-reloads; the main process is compiled once |
+| `npm run electron:dist`       | Installer for the OS you are on (`electron-builder` with no platform flag) |
 | `npm run electron:dist:mac`   | Build for macOS only                     |
 | `npm run electron:dist:win`   | Build for Windows only                   |
 | `npm run electron:dist:linux` | Build for Linux only                     |

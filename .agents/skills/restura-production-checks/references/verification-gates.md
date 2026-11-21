@@ -44,7 +44,7 @@ Root `tsconfig.json` `exclude` = `node_modules, dist, out, worker, electron/main
 ## CI jobs (`.github/workflows/ci.yml`)
 
 - `validate` — runs the type-checks as separate steps, then lint, generated-code verification, `test:ci` (coverage), build (renderer + electron compile), bundle size.
-- `electron-pack-smoke` — matrix build on macOS/Windows/Ubuntu (PRs only).
+- `electron-smoke` / `electron-smoke-gate` — matrix build on macOS/Windows/Ubuntu. The required check name is `Electron pack smoke` (the gate). Legs also run on the nightly schedule and when the root `package.json` or lockfile changes, not only on app-path PRs.
 - Separate workflows: `security-audit.yml` (weekly `npm audit --audit-level=critical`, non-blocking), `dependency-review.yml` (PR license/severity gate).
 
 ## Fast triage when a gate fails

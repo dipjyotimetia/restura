@@ -12,7 +12,7 @@ Restura ships from a **single React renderer** to three targets. The workspace a
 | Target | How it runs | Where data lives |
 |---|---|---|
 | **Web** | SPA on Cloudflare Pages, requests proxied through a Cloudflare Worker on `api.restura.dev`. | IndexedDB (browser). |
-| **Desktop** | Electron app on macOS / Windows / Linux. Requests sent directly from the main process. | Encrypted electron-store, key wrapped by the OS keychain. |
+| **Desktop** | Electron app on macOS / Windows / Linux. Requests sent from the main process (HTTP via undici). | Dexie, AES-GCM, key wrapped by the OS keychain. Secret material is a separate electron-store. |
 | **Self-hosted** | Single Node container that serves both the SPA and the API proxy on one port. | IndexedDB (browser); the server is stateless. |
 
 ## Web vs desktop — the asymmetry
@@ -28,7 +28,7 @@ The browser sandbox can't expose raw TCP, custom CAs, or SOCKS. Restura surfaces
 - **mTLS client certificates** — sign with a client cert.
 - **SOCKS5** proxies.
 - **Custom CA bundle** / disable TLS verification.
-- **Pre-flight DNS guard** against DNS-rebind (Electron `net.lookup` integration).
+- **DNS pinning** on HTTP, gRPC, WebSocket, SSE, Socket.IO, MCP, and MQTT. Kafka bootstrap brokers are still pre-flight only.
 - **Filesystem-backed collections** + git operations on a workspace.
 - **OS keychain** storage for encryption keys (via `safeStorage`).
 - **Local mock HTTP server**, system tray, native notifications.
@@ -45,13 +45,13 @@ The exact, machine-generated truth lives in [`src/lib/shared/capabilities.ts`](h
 
 ## How the network path differs
 
-On **web**, the SPA on Cloudflare Pages `fetch`es `/api/*` on the Worker at `api.restura.dev` — a different origin, allowed through a CORS allowlist (`ALLOWED_ORIGIN`). The Worker performs SSRF validation, applies the auth signing, and forwards to the upstream, giving the renderer a uniform fetch surface. (Only the self-hosted Node server serves the SPA and `/api/*` from one origin.)
+On **web**, the SPA on Cloudflare Pages calls `https://api.restura.dev/api/...` (`VITE_WORKER_URL`) — a different origin, allowed through a CORS allowlist (`ALLOWED_ORIGIN`). A relative `/api/*` is the dev and self-host shape. The Worker performs SSRF validation, applies the auth signing, and forwards to the upstream. (Only the self-hosted Node server serves the SPA and `/api/*` from one origin.)
 
 WebSocket, Socket.IO and GraphQL WebSocket subscriptions are the exception: on web they connect **browser-direct**, so the Worker's SSRF guard never sees them. Restura applies an in-app check instead — loopback (`localhost`, `127.0.0.1`, `::1`), private-network (RFC 1918, link-local, CGNAT) and cloud-metadata targets are refused unless you turn on **Settings → Security → Allow private / internal IPs** (cloud metadata stays blocked regardless), and Restura asks for confirmation before sending credentials over unencrypted `ws://` / `http://`.
 
-gRPC server streaming over the Connect wire protocol also connects browser-direct on web (that is why it needs upstream CORS). It does not get the in-app check; only the browser's own rules apply. gRPC unary calls and gRPC-Web server streaming go through the Worker.
+gRPC server streaming over the Connect wire protocol also connects browser-direct on web (that is why it needs upstream CORS). It runs `assertBrowserGrpcStreamTarget` first: the same private-network check as the other browser sockets, and a production build refuses cleartext `http://`. gRPC unary calls and gRPC-Web server streaming go through the Worker.
 
-On **desktop**, the renderer talks to the Electron main process over a context-isolated IPC bridge (`window.electron`), and the main process executes the request directly with Node's `http` / `https` / `net` / `tls` — so all the capabilities above are available.
+On **desktop**, the renderer talks to the Electron main process over a context-isolated IPC bridge (`window.electron`). HTTP uses undici. The other native protocols use Node `net` / `tls`.
 
 On **self-hosted**, the same Hono app that runs in the Worker runs in a Node process via `worker/node-entry.ts`. One process serves both the SPA and `/api/*` on one port.
 

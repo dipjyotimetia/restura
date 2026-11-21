@@ -49,10 +49,10 @@ I got tired of opening a different tool for every protocol. Postman for HTTP, a 
     Runs as a web app on Cloudflare, a native desktop app for macOS / Windows / Linux, or a Docker container behind your own firewall. They share one renderer and protocol core; native networking features remain intentionally desktop-only.
   </Card>
   <Card title="Nothing leaves your machine" icon="seti:lock">
-    No account to create. Collections, history, environments, and secrets live in your browser's IndexedDB or your OS keychain on desktop. The only thing that can leave is opt-out crash reports, which are scrubbed of request content before they go anywhere. You can turn that off in Settings too.
+    No account to create. Collections, history, and environments live in your browser's IndexedDB (plaintext) or in encrypted desktop storage. Opt-out crash reports are scrubbed of request content. On desktop, AI chat and AI Lab also send the current request to the provider you configure, with secrets redacted and the URL sent as written.
   </Card>
   <Card title="Scripts that can't escape the sandbox" icon="seti:code-search">
-    Pre-request and test scripts run in a QuickJS WASM sandbox. No DOM, no filesystem, no network. Memory and execution time are capped. If someone sends you a collection with a dodgy pre-request script, it doesn't get far. Fully `pm.*` compatible if you're coming from Postman.
+    Pre-request and test scripts run in a QuickJS WASM sandbox. No DOM, no filesystem, no raw `fetch`. `pm.sendRequest` goes out through the same SSRF-guarded proxy as a normal send. Memory and execution time are capped. Postman `pm.*` scripts mostly run; the gaps are listed in the scripts guide.
   </Card>
   <Card title="Chain requests together" icon="seti:plan">
     Sequence saved HTTP and GraphQL requests as portable OWS workflows with typed bindings, guards, loops, `try`/`catch` recovery, and cancellation. Run them in the app or in CI with `restura workflow run`.

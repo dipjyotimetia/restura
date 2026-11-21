@@ -11,13 +11,13 @@ Restura ships from a **single React renderer** to web, desktop, and self-hosted 
 
 <CardGrid>
   <Card title="Web — Cloudflare" icon="rocket">
-    SPA on Cloudflare Pages → `fetch('/api/*')` → Cloudflare Worker (Hono) on `api.restura.dev` → upstream. The Worker is cross-origin to the SPA and allows it through a CORS allowlist (`ALLOWED_ORIGIN`); the self-hosted Node server serves SPA and API on one origin.
+    SPA on Cloudflare Pages → `https://api.restura.dev/api/...` (`VITE_WORKER_URL`) → Cloudflare Worker (Hono) → upstream. The Worker is cross-origin to the SPA and allows it through a CORS allowlist (`ALLOWED_ORIGIN`). A relative `/api/*` is the dev and self-host shape. The self-hosted Node server serves SPA and API on one origin.
   </Card>
   <Card title="Self-hosted — Node + Docker" icon="seti:docker">
     One Node process running the same Hono app that runs in the Worker. Serves both the SPA and `/api/*` on one port. Native WebSocket and CONNECT proxy adapters.
   </Card>
   <Card title="Desktop — Electron" icon="laptop">
-    SPA loaded via `file://` → IPC over `window.electron` → Electron main process → Node `http`/`https`/`net`/`tls`. Native capabilities (mTLS, SOCKS, Kafka, MQTT).
+    SPA loaded via `file://` → IPC over `window.electron` → Electron main process. HTTP uses undici; other native protocols use Node `net`/`tls`. Native capabilities (mTLS, SOCKS, Kafka, MQTT). The first renderer crash reloads; a second shows "Restura window crashed".
   </Card>
 </CardGrid>
 
@@ -70,10 +70,10 @@ See [Shared protocol layer](/architecture/shared-protocol/) for the deep dive.
 
 ## State + persistence
 
-All global state lives in **Zustand** stores with the `persist` middleware. Stores are validated with Zod schemas in `src/lib/shared/store-validators.ts`.
+All global state lives in **Zustand** stores with the `persist` middleware. Zod hydration checks run only for stores that wire a validator from `src/lib/shared/store-validators.ts`.
 
-- **Web** — `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie).
-- **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
+- **Web and desktop** — `src/lib/shared/dexie-storage.ts` (IndexedDB via Dexie).
+- **Desktop encryption** — the Dexie key comes from `ElectronSafeStorageKeyProvider` in `src/lib/shared/keyProvider.ts` (Electron `safeStorage` → OS keychain). `src/lib/shared/secure-storage.ts` holds secret material only. Web uses `PlaintextKeyProvider`.
 
 Secret-bearing fields use the **`SecretRef` handle pattern** — see [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/) — so plaintext never enters the Zustand store, the persistence layer, or exported collections.
 

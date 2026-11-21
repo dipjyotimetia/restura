@@ -23,8 +23,8 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 
 ### Prerequisites
 
-- **Node.js** >= 24.x
-- **npm** 12.1.0 (enforced by `npm run toolchain:check`)
+- **Node.js** 24.18.0 (`.nvmrc`). `scripts/verify-toolchain.mjs` compares with `!==`, so a newer 24.x is refused too. `package.json` `engines.node` is `>=24`, which is the runtime floor, not the install gate.
+- **npm** 12.1.0 (the same check; `npm ci` runs it from `preinstall`)
 - **Git**
 
 ### Quick Start
@@ -46,7 +46,7 @@ npm run dev
 `scripts/verify-toolchain.mjs` pins npm to `12.1.0`. npm 12 blocks dependency install scripts by default, so native and binary packages only get their binaries if they are listed in the `allowScripts` field of the root `package.json` (esbuild, workerd, protobufjs, fsevents, `@sentry/cli`, `electron-winstaller`, `@vscode/vsce-sign`). That allowlist is committed, so `npm ci` works out of the box. `npm run lockfile:check` (part of `validate`) fails if any lockfile entry with an install script has no `allowScripts` decision, so a dependency bump can't add one unnoticed.
 
 - If `npm ci` ends with an `install-scripts ... blocked` warning after a dependency bump, review with `npm install-scripts ls`. Read what the script does, then record the decision: `npm install-scripts approve <pkg> --no-allow-scripts-pin` if the package needs it, or `npm install-scripts deny <pkg>` if it works without it. Commit the `package.json` change; reviewers treat it as a security change (see [Adding a dependency](#adding-a-dependency)).
-- The Electron binary is not downloaded by `npm ci`. Run `node node_modules/electron/install.js` once (needed for `npm run electron:dev` and the desktop e2e).
+- `electron` is not in `allowScripts`, so `npm ci` does not run its installer. The `electron` package downloads the binary the first time it is loaded (`npm run electron:dev`, desktop e2e, `RESTURA_SMOKE=1`). You do not need to run `node node_modules/electron/install.js` first.
 - If you installed with `--ignore-scripts` or an older allowlist, repair with `npm rebuild esbuild workerd protobufjs fsevents`.
 - **Optional, stricter local setup** (what CI does): `npm ci --ignore-scripts`, then `npm rebuild` only what you need. Nothing in the dev loop requires install scripts: prebuilt binaries arrive as optional dependencies and Electron downloads itself on first launch. Add `@sentry/cli electron-winstaller` to the rebuild only if you package desktop installers locally.
 
@@ -90,8 +90,9 @@ npm run validate
 # Development mode
 npm run electron:dev
 
-# Build for distribution
+# Installer for the OS you are on (electron-builder with no --mac/--win/--linux)
 npm run electron:dist
+# One OS explicitly: npm run electron:dist:mac | :win | :linux
 ```
 
 ## Project Structure

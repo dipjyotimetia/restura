@@ -5,13 +5,15 @@ How to ship the two browser/editor extensions that live in `extension/`:
 - **VS Code** — `extension/vscode` (`restura-vscode`) → VS Code Marketplace + Open VSX.
 - **Chrome** — `extension/chrome` (Restura Capture, `@restura/extension`) → Chrome Web Store.
 
-Each extension **publishes on its own, opt-in tag**, but its `package.json`
-version follows the app: the main
-[`release.yml`](../.github/workflows/release.yml) runs `npm version --workspaces`
-and commits both extension `package.json` files with every app release. For
-VS Code that file is authoritative, so its version is the app version. Chrome's
-authoritative version is `public/manifest.json`, which `release.yml` never
-touches, so it is still bumped by hand.
+Each extension **publishes on its own, opt-in tag**. The app
+[`release.yml`](../.github/workflows/release.yml) bumps versions with
+`npm version` on `--workspace cli`, `--workspace extension/vscode`, and
+`--include-workspace-root`. It commits `package.json`, `package-lock.json`,
+`cli/package.json`, and `extension/vscode/package.json`. `extension/chrome` is
+a workspace and is excluded on purpose. VS Code's `package.json` is
+authoritative, so its version is the app version. Chrome's authoritative
+version is `public/manifest.json`, which `release.yml` never touches, so it
+is still bumped by hand.
 
 | Extension | Workflow                                         | Tag pattern     | Authoritative version file              |
 | --------- | ------------------------------------------------ | --------------- | --------------------------------------- |
@@ -140,8 +142,9 @@ Run workflow**. Download the artifact from the run summary:
 - VS Code: `code --install-extension restura-vscode-<version>.vsix`
 - Chrome: extract the zip, then **chrome://extensions → Developer mode → Load unpacked**.
 
-> A real publish happens **only** on a `*-v*.*.*` tag push. A `workflow_dispatch`
-> run can never publish, even with `dry_run` unticked.
+> A `workflow_dispatch` on `main` does not publish (`github.ref_type` is not `tag`).
+> A dispatch on a tag ref with `dry_run` false does publish: the publish job's
+> condition is `github.ref_type == 'tag' && !(workflow_dispatch && dry_run)`.
 
 ---
 
