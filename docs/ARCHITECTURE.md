@@ -33,13 +33,13 @@ Restura is a multi-protocol API testing client that ships to three targets from 
 ### Web path
 
 ```
-User → Vite SPA → fetch /api/* → Cloudflare Worker (Hono) → Target API
+User → Vite SPA → https://api.restura.dev/api/* → Cloudflare Worker (Hono) → Target API
 ```
 
-The Worker runs as a Cloudflare Pages Function, co-deployed with the SPA. It handles:
+The hosted Worker is its own deploy (`dist/web/restura/`, custom domain `api.restura.dev`). The SPA is a separate Pages project. A relative `/api/*` is the dev and self-host shape. It handles:
 
 - HTTP proxying (`/api/proxy`)
-- gRPC unary + streaming (`/api/grpc`)
+- gRPC unary (`/api/grpc`). Connect server-streaming is browser-direct; gRPC-Web server-streaming is `/api/grpc-web`
 - gRPC reflection (`/api/grpc/reflection`)
 - gRPC-Web unary + server streaming (`/api/grpc-web`)
 - MCP server proxy (`/api/mcp`)
@@ -52,7 +52,7 @@ SSRF guards in `shared/protocol/url-validation.ts` block private/localhost URLs 
 User → Vite SPA → window.electron (preload IPC) → main process handlers → Target API
 ```
 
-The Electron main process exposes native handlers via a secure context-isolated preload script. No Worker is bundled; the desktop app uses Node.js APIs directly for all protocols.
+The Electron main process exposes native handlers via a secure context-isolated preload script. No Worker is bundled. HTTP uses undici; other native protocols use Node `net` / `tls`.
 
 ---
 
@@ -141,7 +141,7 @@ Each backend supplies a `Fetcher` — `(req: FetcherRequest) => Promise<FetcherR
 
 1. Add a `shared/protocol/<name>-proxy.ts` module exposing an `execute<Name>Proxy(spec, fetcher, options)` orchestrator that returns `ExecuteResult`.
 2. Add a Worker handler (~30 lines) that builds a `Fetcher` over `globalThis.fetch` and forwards the result.
-3. Add an Electron handler (~30 lines) that builds a `Fetcher` over Node `http`/`https` (or whatever transport the protocol needs) and forwards the result. The Electron HTTP handler is the exception and is far larger: PAC, SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher closure (see ADR-0006).
+3. Add an Electron handler (~30 lines) that builds a `Fetcher` over the transport the protocol needs and forwards the result. The Electron HTTP handler is the exception and is far larger: it uses undici (not `node:http`), and SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher closure (see ADR-0006). PAC is not wired end to end.
 
 SSRF rules, header sanitisers, body construction, error mapping, and timeouts come for free.
 
@@ -163,10 +163,10 @@ SSRF rules, header sanitisers, body construction, error mapping, and timeouts co
 | gRPC (web)       | `@connectrpc/connect-web` + `@bufbuild/protobuf`                              |
 | gRPC (desktop)   | `@connectrpc/connect-node` + `@bufbuild/protobuf` (ADR 0022; grpc-js removed) |
 | Worker framework | Hono                                                                          |
-| Desktop shell    | Electron 42                                                                   |
+| Desktop shell    | Electron 45 (`electron` ^45.3.0)                                              |
 | Auto-updates     | `electron-updater`                                                            |
 | Testing          | Vitest + React Testing Library                                                |
-| Deployment       | Cloudflare Pages + Functions                                                  |
+| Deployment       | Cloudflare Pages (SPA) + a separate Worker on `api.restura.dev`              |
 
 ---
 
@@ -363,7 +363,7 @@ Restura streams `text/event-stream`, `application/x-ndjson`, and `application/js
 
 **Response decoding (desktop):** undici returns compressed bytes as-is, so `electron/main/handlers/http-response-stream.ts` removes `Content-Encoding` itself: `gzip`/`x-gzip`, `br`, `deflate` and `zstd`, including stacked codings decoded in reverse order of application. Limits against decompression amplification: at most 3 stacked codings (a longer list is left raw); zstd frames are refused above an 8 MB window (`ZSTD_d_windowLogMax` 23, per RFC 9659) instead of zstd's 128 MB default; and the 10 MB `MAX_RESPONSE_SIZE` cap runs after **every** decode stage, so an intermediate layer that inflates past it fails the request even if the next layer would shrink it. When the body can't be decoded (unknown coding, or too many), the raw bytes are returned with `Content-Encoding` kept and a human-readable `bodyNotice` on the response, which the response viewer shows above the body. HEAD, 204 and 304 responses — and empty bodies — are never run through a decoder. The Worker and self-host paths rely on the runtime's `fetch`, which decodes on its own and never sets `bodyNotice`.
 
-**gRPC streaming:** The renderer ships server-streaming via `src/features/grpc/lib/grpcStreamingClient.ts`, which sends Connect-protocol envelopes (1-byte flags + 4-byte big-endian length + JSON payload) directly to the upstream and parses the streaming response framing. This bypasses the worker — Connect-Web speaks HTTP/2 to the upstream when CORS permits. Client-streaming and bidirectional-streaming throw with a clear "not yet implemented" message; UI for those is a follow-up.
+**gRPC streaming:** Desktop runs unary calls and server, client, and bidirectional streams over IPC (`startElectronInteractiveStream` in `src/features/grpc/lib/grpcStreamingClient.ts`, connect-node in the main process). On the web, unary Connect uses `/api/grpc` and gRPC-Web server-streaming uses `/api/grpc-web`. Connect server-streaming connects browser-direct (CORS required) after `assertBrowserGrpcStreamTarget` (the same private-network check as other browser sockets, plus a production-build refusal of cleartext `http://`). Client and bidirectional streaming throw a desktop-only error on web and the method picker disables them.
 
 **ALPN indicator:** `Response.negotiatedAlpn` is populated by the Electron path (undici exposes it) and surfaces as a small "HTTP/2" / "HTTP/1.1" badge in the response metadata bar. Worker path leaves it undefined (CF runtime doesn't expose ALPN).
 
@@ -377,9 +377,9 @@ Some Restura features depend on capabilities the browser doesn't expose. They're
 - **Custom CA certificates**: same restriction — the browser uses the system trust store and doesn't let pages override it. Electron honours a user-supplied PEM via undici's `Agent.connect.ca`.
 - **SOCKS proxies** (SOCKS4 / SOCKS5): browsers can't open raw TCP. Electron tunnels via Node `net` and a custom undici dispatcher.
 - **PAC files** (Proxy Auto-Config): **not wired end-to-end** — the renderer `ProxyType` cannot emit a PAC proxy and the PAC script is never loaded via `session.setProxy()`. Marked `❌ / ❌` in the capability matrix; tracked as future work.
-- **System proxy detection**: Electron reads OS proxy settings; browsers only honour what the OS configures globally and don't let pages introspect.
+- **System proxy detection**: when no proxy is configured, desktop falls back to `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`. PAC / `session.resolveProxy` is not reachable from the renderer (`http.proxy.pac` is off on both targets).
 - **"Verify SSL = off"**: browsers always validate TLS regardless of any app toggle. Only Electron can opt out (`rejectUnauthorized: false`) for self-signed dev certificates.
-- **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); web defaults to in-memory ephemeral encryption per session.
+- **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret) to wrap the Dexie key. Web uses `PlaintextKeyProvider`: IndexedDB is plaintext. `WebSessionPassphraseProvider` exists, but its UI has not shipped.
 
 The web client surfaces a "Desktop only" badge (`src/components/shared/DesktopOnlyBadge.tsx`) on UI fields that depend on these capabilities, with a tooltip explaining the difference. Inside Electron the badge renders nothing.
 
@@ -397,7 +397,7 @@ grpcClient.ts
               → fetch('/api/grpc', ...)                    // Worker
 ```
 
-This branching is identical for WebSocket, SSE, and MCP clients, so the renderer is behaviorally identical regardless of delivery target.
+SSE and MCP follow the same split (web SSE is `fetch` through `/api/proxy`, not `EventSource`; web MCP streamable HTTP goes through the Worker). WebSocket does not: on web the renderer opens `new WebSocket` itself, and the Worker `/api/ws` relay is not on that path. Desktop WebSocket goes through IPC.
 
 ### Lazy Components
 
@@ -407,12 +407,12 @@ This branching is identical for WebSocket, SSE, and MCP clients, so the renderer
 
 ## Cloudflare Worker (Web Only)
 
-The Worker is a Hono application deployed as a Cloudflare Pages Function (`_worker.js`).
+The Worker is a Hono application deployed on its own (`wrangler deploy --config dist/web/restura/wrangler.json`), not as a Pages Function next to the SPA.
 
 ### Key Facts
 
-- Bundled into `dist/web/_worker.js` by `@cloudflare/vite-plugin` during `vite build`
-- Excluded from the Electron build (`VITE_IS_ELECTRON_BUILD=true` skips the Cloudflare plugin)
+- `npm run build` writes the SPA to `dist/web/client/` and the Worker bundle plus `wrangler.json` to `dist/web/restura/`
+- Excluded from the Electron build (`VITE_IS_ELECTRON_BUILD=true` skips the Cloudflare plugin; `electron-builder.json` also excludes `dist/web/restura/**` and `_worker.js`)
 - Compatibility flag: `nodejs_compat`
 - SSRF protection: `shared/protocol/url-validation.ts` blocks private/loopback IPs in production; the `ENVIRONMENT` var gates `allowLocalhost`. The same module runs on the Electron side — see [Shared Protocol Layer](#shared-protocol-layer)
 
@@ -468,7 +468,8 @@ main.ts (entry — startFeatures(createDesktopFeatures(...)); quit disposes only
   │     └── connection-cleanup.ts# Idempotent renderer-destroyed cleanup
   ├── security/                  # dns-guard, safe-connect, broker guards, secret-handle-store
   ├── storage/                   # store-handler, collection-manager, vault, file-operations
-  └── lifecycle/                 # request-logger, auto-updater, menu, system-tray, deep-link, sentry
+  └── lifecycle/                 # request-logger, updater, menu, tray, deep-link, sentry,
+                                 # process-guard, renderer-recovery
 ```
 
 ### IPC Security
@@ -492,11 +493,11 @@ main.ts (entry — startFeatures(createDesktopFeatures(...)); quit disposes only
 | ------------------- | ---------------------- | ---------------------------- |
 | HTTP/HTTPS          | `/api/proxy`           | `http-handler.ts`            |
 | gRPC unary          | `/api/grpc`            | `grpc-handler.ts`            |
-| gRPC streaming      | `/api/grpc`            | `grpc-handler.ts`            |
+| gRPC streaming      | Connect server-stream is browser-direct; gRPC-Web server-stream is `/api/grpc-web`; client/bidi are desktop-only | `grpc-handler.ts` |
 | gRPC reflection     | `/api/grpc/reflection` | `grpc-reflection-handler.ts` |
-| WebSocket           | `/api/ws` (+ ticket)   | `websocket-handler.ts`       |
+| WebSocket           | Browser `WebSocket` (the Worker `/api/ws` relay is not used by the renderer) | `websocket-handler.ts` |
 | Socket.IO           | Browser native         | `socketio-handler.ts`        |
-| Server-Sent Events  | Browser native         | `sse-handler.ts`             |
+| Server-Sent Events  | `fetch` via `/api/proxy` (not `EventSource`) | `sse-handler.ts` |
 | GraphQL (over HTTP) | `/api/proxy`           | `http-handler.ts`            |
 | Kafka               | ❌ (no browser TCP)    | `kafka-handler.ts`           |
 | MQTT                | ❌ (no browser TCP)    | `mqtt-handler.ts`            |
@@ -527,7 +528,7 @@ The `KeyProvider` interface (`src/lib/shared/keyProvider.ts`) abstracts where th
 
 ### Auth-at-the-wire
 
-Auth that requires byte-for-byte signature fidelity (currently AWS SigV4) signs INSIDE the shared protocol core (`shared/protocol/auth-signer.ts`), after body construction and before the fetcher call. `RequestSpec.auth: AuthConfig | undefined` is the contract; the renderer passes auth config through to the proxy/IPC layer instead of pre-signing. Other auth types (Bearer, Basic, API-key, OAuth2) are still applied client-side because they don't depend on the body.
+Auth that requires byte-for-byte signature fidelity (AWS SigV4, OAuth 1.0a, and WSSE) signs inside the shared protocol core (`shared/protocol/auth-signer.ts` `applyAuth`), after body construction and before the fetcher call. Digest and NTLM are challenge handshakes at the proxy, not renderer-applied headers. Inline Bearer, Basic, API-key, and OAuth 2.0 values are applied in the renderer (`src/features/auth/lib/applyAuthHeaders.ts`). A desktop secret handle, including Basic auth that references one, is not: the renderer sets `requiresMainSideApply` and Electron main builds the header (`electron/main/security/http-auth-materializer.ts`).
 
 ### Sandbox
 
@@ -535,7 +536,7 @@ User pre-request/test scripts run in a QuickJS WASM sandbox (`shared/scripts/scr
 
 ### Network — SSRF prevention
 
-SSRF guards on the Worker, the Node/Docker server (`shared/protocol/url-validation.ts`), and the Electron path block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. **HTTP, gRPC, WebSocket, and SSE additionally pin the connect to the validated address** (closing the DNS-rebind window): HTTP via undici's `Agent.connect.lookup` (`createSecureLookup`); WebSocket/SSE via `createPinnedLookup` / `createPinnedFetch` (`electron/main/security/safe-connect.ts`); gRPC via `connect-node`'s `nodeOptions.lookup` (ADR 0022 replaced the old grpc-js IP-literal dial). **MQTT** (all four transports — `mqtt`, `mqtts`, `ws`, `wss`) is pinned too: `broker-dns-guard.ts` resolves + checks every record and the dial uses the IP literal (TCP/TLS, SNI kept) or `createPinnedLookup` (WebSocket). The remaining transports (Socket.IO, MCP, gRPC reflection, Kafka) use the **pre-flight** guard in `electron/main/security/dns-guard.ts`: `assertUrlHostnameSafe(url, ...)` (Kafka: `assertKafkaBrokerHostsResolveSafe` on every bootstrap broker) resolves the hostname and applies `assertResolvedAddressAllowed` to every record before connect, but cannot pin — a TTL=0 rebind between resolve and connect is not mitigated for them. Kafka and MQTT broker addresses additionally go through the string-level `kafka-broker-guard.ts` / `mqtt-broker-guard.ts`. Tracked as future work in ADR-0006.
+SSRF guards on the Worker, the Node/Docker server (`shared/protocol/url-validation.ts`), and the Electron path block RFC 1918, CGNAT (100.64.0.0/10), link-local (169.254.0.0/16), cloud metadata endpoints, IPv6 unique-local + link-local, and IPv4-mapped IPv6 addresses. **HTTP, gRPC, WebSocket, and SSE additionally pin the connect to the validated address** (closing the DNS-rebind window): HTTP via undici's `Agent.connect.lookup` (`createSecureLookup`); WebSocket/SSE via `createPinnedLookup` / `createPinnedFetch` (`electron/main/security/safe-connect.ts`); gRPC via `connect-node`'s `nodeOptions.lookup` (ADR 0022 replaced the old grpc-js IP-literal dial). **MQTT** (all four transports — `mqtt`, `mqtts`, `ws`, `wss`) is pinned too: `broker-dns-guard.ts` resolves + checks every record and the dial uses the IP literal (TCP/TLS, SNI kept) or `createPinnedLookup` (WebSocket). Socket.IO (`createPinnedLookup` in `socketio-handler.ts`), MCP (`createPolicyPinnedFetch`), and gRPC reflection (`resolveGrpcDialAddress`) pin the dial as well. Kafka bootstrap brokers are still pre-flight only (`electron/main/handlers/kafka/connect-preflight.ts` → `assertKafkaBrokerHostsResolveSafe`): the hostname is resolved and every record is checked, but the connect is not pinned, so a TTL=0 rebind between resolve and connect is not mitigated. Kafka and MQTT broker addresses additionally go through the string-level `kafka-broker-guard.ts` / `mqtt-broker-guard.ts`.
 
 The `ENVIRONMENT=development` var in `.dev.vars` enables localhost proxying for local development on the Worker; the Electron path receives the same `allowLocalhost` flag through the fetcher options.
 
@@ -559,7 +560,7 @@ Stores built with `createPersistedStore` (`src/lib/shared/persistence/createPers
 - Removed unnecessary `com.apple.security.network.server` entitlement from `electron/resources/entitlements.mac.plist` (the app is a client only)
 - Encryption key for persisted store fetched from OS keychain via `safeStorage`; if unavailable, a startup warning is surfaced and the user is told plaintext fallback is active. A plaintext fallback key is re-sealed (same key) once the keychain is available; a sealed key with no keychain fails closed (that store is unavailable for the session, never reset); Linux `basic_text` counts as plaintext in the keychain status (`electron/main/security/encrypted-key.ts`)
 - Renderer-cleanup deduplication via `electron/main/ipc/connection-cleanup.ts` prevents `destroyed` listener stacking across reconnects in streaming handlers; `StreamRegistry` also holds the connect claim across the awaited dial (reserve, then commit or release), and a claim is dropped when its renderer is destroyed
-- Connect-time DNS-rebind pinning for HTTP, gRPC, WebSocket, and SSE (undici `Agent.connect.lookup`, `connect-node`'s `nodeOptions.lookup`, and `electron/main/security/safe-connect.ts`'s `createPinnedLookup` / `createPinnedFetch`); pre-flight DNS guard via `electron/main/security/dns-guard.ts` covers the rest (Socket.IO, MCP, gRPC reflection, Kafka, MQTT)
+- Connect-time DNS-rebind pinning for HTTP, gRPC (including reflection), WebSocket, SSE, Socket.IO, MCP, and MQTT (`Agent.connect.lookup`, `connect-node`'s `nodeOptions.lookup`, `createPinnedLookup` / `createPolicyPinnedFetch`). Kafka bootstrap brokers stay on the pre-flight guard in `electron/main/security/dns-guard.ts`
 
 See `docs/adr/0004-security-hardening.md` and `docs/adr/0006-electron-connection-and-dns-hardening.md` for design rationale.
 
@@ -577,7 +578,7 @@ Components:
 - `cli/src/reporters/{json,junit,html,live}.ts` — implementations of the `Reporter` interface
 - `cli/src/commands/run.ts` — Commander wire-up
 
-Built with `tsup` into a single 40 KB esm file at `cli/dist/index.js`. Exit codes: 0 if all passed, 1 if any failed, 2 on internal error.
+Built with `tsup` into a single ESM bundle at `cli/dist/index.js` (`cli/tsup.config.ts`). Exit codes: 0 if all passed, 1 if any failed, 2 on internal error.
 
 The CLI runs HTTP, GraphQL, gRPC (Connect), SSE, and MCP requests, and executes pre-request/test scripts in the same QuickJS sandbox the app uses (pass/fail comes from script assertions, not just HTTP 2xx). See `docs/cli/README.md` for the current capability list.
 
@@ -612,19 +613,18 @@ Run them all at once with `npm run type-check:all` (which `npm run validate` cal
 
 ## Deployment
 
-### Web (Cloudflare Pages)
+### Web (Cloudflare Pages + Worker)
 
 - CI builds with `npm run build` → `vite build`
-- `@cloudflare/vite-plugin` bundles the Hono Worker into `dist/web/_worker.js`
-- Cloudflare Pages serves the SPA and routes `api/*` to the Worker function
-- Production: `wrangler pages deploy dist/web --project-name=restura --branch=main`
+- The Cloudflare plugin emits the SPA under `dist/web/client/` and the Worker bundle plus `wrangler.json` under `dist/web/restura/`
+- Production is two deploys: `wrangler deploy --config dist/web/restura/wrangler.json` (the Worker on `api.restura.dev`) and `wrangler pages deploy dist/web/client --project-name=restura` (the SPA). `npm run deploy` runs both, with `VITE_WORKER_URL=https://api.restura.dev`. The hosted app calls that origin; a relative `/api/*` is the dev and self-host shape
 - Previews: auto-deployed on each PR, URL commented on the PR
 
 ### Desktop
 
 - `electron-builder` packages `dist/web/` (renderer) and `dist/electron/` (main process)
 - Releases published to GitHub via `electron-updater`
-- macOS: notarized DMG + ZIP (x64 + arm64)
+- macOS: notarized DMG + ZIP (arm64 only; `electron-builder.json` `mac.target`)
 - Windows: NSIS installer + portable (x64)
 - Linux: AppImage + deb + rpm (x64)
 
@@ -636,6 +636,6 @@ Run them all at once with `npm run type-check:all` (which `npm run validate` cal
 2. **Feature co-location**: Each feature owns its components, hooks, stores, and tests in `src/features/<name>/`
 3. **No server-side rendering**: Pure SPA with hash routing for portability across `https://` and `file://`
 4. **Zero Worker in desktop**: The Electron build excludes `_worker.js` entirely; no Cloudflare runtime in the desktop app
-5. **Zod at boundaries**: All external inputs (persisted-store hydration, IPC payloads, API responses) are validated with Zod schemas
+5. **Zod at boundaries**: IPC payloads are validated with Zod. Persisted-store hydration is validated only where a store wires a schema (see Validation above); `createPersistedStore` merge-time checks are a no-op until a descriptor declares `schema`
 6. **Sandbox scripts**: User-provided scripts never run in the browser's JavaScript context
 7. **Checked architecture**: Dependency direction, runtime cycles, and module-size debt are executable CI policy (ADR 0028)

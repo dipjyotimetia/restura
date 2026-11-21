@@ -23,7 +23,7 @@ Choose where the key lives — a header or a query parameter — and its name.
 
 ### OAuth 2.0
 
-Four grants supported, all with optional **PKCE**:
+Four grants. **PKCE (S256) is always sent on the authorization-code grant** and is not sent on the other three. There is no PKCE toggle:
 
 - **Authorization code** — on the web, **Get token** opens the authorization URL in a popup and reads the redirect. The desktop app denies renderer popups, so the button is disabled with a notice there: use client credentials, password or device code, or paste a token. Desktop loopback support is a planned follow-up; the system-browser flow in the desktop app is MCP OAuth ([ADR 0031](/architecture/adrs/0031-mcp-oauth-in-electron-main/)).
 - **Client credentials** — service-to-service.
@@ -42,11 +42,11 @@ A client secret or password stored in the desktop keychain or an external secret
 
 ### OAuth 1.0a
 
-Full HMAC-SHA1 signing per request — useful for legacy APIs (Twitter v1, Magento, Etsy, Tumblr). Nonce and timestamp generated per send.
+HMAC-SHA1 (the default), HMAC-SHA256, or PLAINTEXT, per request — useful for legacy APIs (Twitter v1, Magento, Etsy, Tumblr). Nonce and timestamp generated per send.
 
 ### AWS Signature v4
 
-For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura computes the canonical request and signs at the wire. Works for HTTP and SSE; gRPC isn't signed yet, so a gRPC call using it is blocked (see [gRPC authentication](/protocols/grpc/#authentication)).
+For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura computes the canonical request and signs at the wire. Works for HTTP. SSE refuses AWS SigV4 (and OAuth 1.0a, WSSE, Digest, and NTLM) instead of connecting unsigned. gRPC isn't signed yet, so a gRPC call using it is blocked (see [gRPC authentication](/protocols/grpc/#authentication)).
 
 ### WSSE
 

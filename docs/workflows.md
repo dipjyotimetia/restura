@@ -30,7 +30,7 @@ The editor imports native OWS JSON or YAML, then normalizes it to canonical OWS 
 - A task or workflow timeout, including cancellation propagation.
 - HTTP and GraphQL `call` tasks that use `restura://saved-request` and an approved typed binding. GraphQL calls are dispatched through Restura's normal GraphQL adapter; a GraphQL response containing `errors` fails its workflow task.
 
-The workflow task never supplies a real endpoint, headers, body, authentication, or transport. At run time, Restura resolves the bound saved request and sends it through the same protocol adapter, inherited authentication, SSRF policy, header policy, secret resolution, timeout, and cancellation boundary as a normal request. GraphQL mutations require a visible desktop confirmation and `restura workflow run --allow-mutations` in the CLI.
+The workflow task never supplies a real endpoint, headers, body, authentication, or transport. At run time, Restura resolves the bound saved request and sends it through the same protocol adapter, inherited authentication, SSRF policy, header policy, secret resolution, timeout, and cancellation boundary as a normal request. GraphQL mutations require the shared renderer confirmation (**Confirm & run**) on web and desktop, and `restura workflow run --allow-mutations` in the CLI.
 
 Restura currently rejects controls and transports without a complete safe runtime: `fork`, `switch`, event tasks, `run`, OpenAPI, AsyncAPI, MCP, A2A, inline authentication/secrets, schedules, opaque extensions, arbitrary scripts, and non-finite loops. Rejection occurs during import, save, and execution preflight; unsupported constructs are never displayed as runnable.
 

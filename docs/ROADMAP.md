@@ -1,6 +1,6 @@
 # Restura — Roadmap
 
-Current package version: **v1.12.1**
+Current package version: **v1.19.0**
 
 This is an honest picture of what's done, what's being worked on, and what's next. It's not a commitment or a sprint board — things move around based on what surfaces as the most painful problem.
 
@@ -34,7 +34,7 @@ Postman (import v2.0 / v2.1 / v3 folder, zip or file, with an import report; exp
 
 ### Scripting
 
-Pre-request and test scripts in a QuickJS WASM sandbox — memory and time capped, no DOM, no network. Native `rs.*` API with full Postman `pm.*` compatibility.
+Pre-request and test scripts in a QuickJS WASM sandbox — memory and time capped, no DOM or filesystem. `pm.sendRequest`, cookies, `pm.vault`, and `rs.judge` are explicit host bridges; there is no raw `fetch`. Native `rs.*` API with a Postman `pm.*` alias. Known gaps (Set-Cookie `get` returns every cookie joined, no `xml2Json`, `require` is a fixed library set) are in [postman-compat.md](./postman-compat.md). The CLI does not wire `pm.sendRequest`, `pm.cookies`, or `pm.vault`.
 
 ### Workflows
 

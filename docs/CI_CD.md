@@ -14,27 +14,28 @@ secret scanning, required reviewers, secrets).
 
 | Workflow                  | File                                             | Trigger                                  | Purpose                                                                                                                                                                 |
 | ------------------------- | ------------------------------------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **CI**                    | `.github/workflows/ci.yml`                       | PR + push to `main`                      | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy.                               |
+| **CI**                    | `.github/workflows/ci.yml`                       | PR + push to `main`, plus nightly `17 3 * * *` (forces app and pack smoke) | Type-check, lint, format, codegen gates, unit/integration tests, build, bundle size, e2e (web + Electron), docs build, PR preview deploy.                               |
 | **CodeQL**                | _GitHub default setup_ (no workflow file)        | PR + push to `main`, weekly              | SAST over `javascript-typescript`. Managed in **Settings → Code security → Code scanning**, not a committed workflow.                                                   |
 | **Scorecard**             | `.github/workflows/scorecard.yml`                | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                                                             |
-| **Merge lane**            | `.github/workflows/merge-lane.yml`               | push to `main`, CI completion, auto-merge enabled, every 30 min, manual | Keeps one auto-merge PR at a time up to date with `main` so its required checks run on the real tip (see [Merging](#merging-the-merge-lane)). |
-| **Claude Code Review**    | `.github/workflows/claude-code-review.yml`       | `pull_request_target`: PR opened / ready / reopened; `claude-review` label | Sonnet review of the PR. The workflow file, `REVIEW.md`, and `.agents/skills/code-review/` are taken from the default branch, so a PR cannot loosen the rules it is judged by. The plugin job never checks out PR code (it reads the diff through `gh`). The skill job checks out the merge ref only to diff and read, then overwrites those rule files from the default branch before the model starts. No PR package scripts run. Skips drafts, bots, forks and docs/lockfile-only PRs (a `REVIEW.md` or code-review skill edit is still reviewed), and PRs whose body carries a `/ship-check` READY marker for the exact head sha (`<!-- restura:ship-check verdict=READY sha=<sha> -->`, the local review already ran). The label always forces a run, plus the repo Correctness/Standards/Spec `code-review` skill. Both jobs follow `REVIEW.md` (evidence rule, Important / Nit / Pre-existing tags, nit cap, skip paths) and the label re-run counts rounds so findings are not repeated and the fourth round asks for a rethink. |
-| **Eval harness**          | `.github/workflows/eval-harness.yml`             | manual dispatch; `eval-harness` label on a same-repo PR; observe mode when a same-repo PR touches `REVIEW.md` or the `code-review` skill | Runs the seam-bug harness eval or the routing eval. **Costs money** (real model calls): default split `test`, 3 runs per case on the label/dispatch path, per-run budget cap. Observe mode is not a gate: one run of the test split, $4 cap, compared with the latest `evals/harness/baselines/*.json`, `continue-on-error`, and it skips the model call when no baseline JSON is committed (ADR 0033). Forks never get the secret. The reviewer's Bash runs in the Claude Code sandbox with egress limited to the Claude API hosts and the npm registry (`sandbox: off` only to diagnose the sandbox). `save-baseline` also uploads a summary-only baseline to commit under `evals/harness/baselines/`. Uploads `.claude/metrics/evals/`. Never runs on push; not a required check. |
+| **Merge lane**            | `.github/workflows/merge-lane.yml`               | push to `main`, CI completion, `pull_request_target` (`auto_merge_enabled`, `unlabeled`, `reopened`), every 30 min, manual | Keeps one auto-merge PR at a time up to date with `main` so its required checks run on the real tip (see [Merging](#merging-the-merge-lane)). `pull_request_target` is a wake-up only; the workflow checks out `main`. |
+| **Claude Code Review**    | `.github/workflows/claude-code-review.yml`       | `pull_request_target`: PR opened / ready / reopened; `claude-review` label | Sonnet review of the PR. The workflow file, `REVIEW.md`, and `.agents/skills/code-review/` are taken from the default branch, so a PR cannot loosen the rules it is judged by. The plugin job never checks out PR code (it reads the diff through `gh`). The skill job checks out the merge ref only to diff and read, then overwrites those rule files from the default branch before the model starts. No PR package scripts run. The plugin job skips drafts, bots, forks, and docs/lockfile-only PRs. A `REVIEW.md`, code-review skill, or `.github/workflows/claude-code-review.yml` edit is still reviewed. The skill job runs only on the `claude-review` label, and only when the scope check is true and the PR is same-repo. It does not also skip drafts or bots, so a same-repo draft or bot PR with that label still runs the skill job. PRs whose body carries a `/ship-check` READY marker for the exact head sha (`<!-- restura:ship-check verdict=READY sha=<sha> -->`, the local review already ran) are skipped by the plugin job. The label forces the plugin job when the scope check is already true (a docs-only or lockfile-only PR stays skipped). It is the only way the Correctness/Standards/Spec `code-review` skill job starts. Both jobs follow `REVIEW.md` (evidence rule, Important / Nit / Pre-existing tags, nit cap, skip paths). The plugin prompt treats the fourth round as a rethink; `REVIEW.md` and the skill cap findings after three rounds. |
+| **Eval harness**          | `.github/workflows/eval-harness.yml`             | manual dispatch (harness or routing); `eval-harness` label runs the harness test split only; observe mode on a same-repo, non-draft, non-bot PR that touches `REVIEW.md`, `.github/workflows/eval-harness.yml`, or the `code-review` skill | **Costs money** (real model calls). The label path is suite `harness`, split `test`, 3 runs. Routing is `workflow_dispatch` input `suite: routing` only. Observe mode is not a gate: one harness test-split run, $4 cap, judge once, compared with the latest `evals/harness/baselines/*.json`, `continue-on-error`, and it skips the model call when no baseline JSON is committed (ADR 0033). Events are `opened`, `synchronize`, `reopened`, and `labeled` — marking a draft ready does not start it until the next push. Forks never get the secret. The reviewer's Bash runs in the Claude Code sandbox with egress limited to the Claude API hosts and the npm registry (`sandbox: off` only to diagnose the sandbox). `save-baseline` also uploads a summary-only baseline to commit under `evals/harness/baselines/`. Uploads `.claude/metrics/evals/`. Never runs on push; not a required check. |
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps; warns on new deps with an OpenSSF Scorecard below 3.                                            |
 | **Workflow lint**         | `.github/workflows/workflow-lint.yml`            | PR / push touching `.github/**`, weekly, manual | [zizmor](https://docs.zizmor.sh) static analysis of every workflow, action and `dependabot.yml`; SARIF to code scanning (category `zizmor`); fails on medium+ findings. |
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
 | **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Approves (as restura-bot) and auto-merges patch/minor dependency updates once required checks pass (see §4).                                                            |
 | **Dependabot alert remediation** | `.github/workflows/dependabot-remediate.yml` | Every 5 days + manual | Claude fixes open Dependabot alerts; a policy gate checks the patch and restura-bot opens and auto-merges the PR (see §4). |
 | **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | weekly, manual                           | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
-| **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → provenance → npm CLI (trusted publishing) → Docker → Cloudflare.                                 |
+| **Release**               | `.github/workflows/release.yml`                  | `workflow_dispatch` prepares the version PR (or publishes a prerelease / retries a tag). A stable publish also runs when the `release/prepare` PR from `restura-bot[bot]` is merged to `main` | Versioned, attested release: tag → notes → SBOM → desktop installers → provenance → npm CLI (trusted publishing) → Docker (only if `publish_docker` is true) → Cloudflare.                                 |
 | **Release signing check** | `.github/workflows/release-signing-check.yml`    | weekly, manual, signing config on `main` | Signs the macOS app with the real Developer ID cert (no notarize, no publish) so signing regressions surface before release day.                                        |
 | **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                                                           |
 | **Chrome extension**      | `.github/workflows/extension-chrome-release.yml` | tag `chrome-v*.*.*` + manual dry-run     | Build + zip the MV3 bundle, upload to the Chrome Web Store; attach `.zip` to a GitHub release.                                                                          |
+| **Claude Code**           | `.github/workflows/claude.yml`                   | issue and PR comments, `@claude` from OWNER/MEMBER/COLLABORATOR | Interactive Claude on an issue or PR thread. |
+| **Claude Security Review** | `.github/workflows/claude-security-review.yml`  | `pull_request` opened / ready / reopened / `claude-security-review` label | Security review. Checks out the PR merge ref. This workflow is `pull_request`, not `pull_request_target`. |
+| **Stale issues and PRs**  | `.github/workflows/stale-management.yml`         | weekly Sunday `0 0 * * 0`, plus manual   | Closes stale issues and PRs. |
+| **Release feed**          | `.github/workflows/release-feed.yml`             | called from `release.yml`, plus manual   | Builds `releases.json` for the in-app release notes and deploys the `restura-releases` Pages project. |
 
-> Releases are **never** cut on merge to `main`. Production ships only from a
-> manually-dispatched **Release** run (desktop/web/CLI) or a pushed `*-v*` tag
-> (extensions). See the [release runbook](#release-runbook) below and the
-> dedicated [extension release runbook](./EXTENSION_RELEASE.md).
+> Releases are **never** cut on an ordinary merge to `main`. A dispatch on `main` opens the `release/prepare` PR; merging that PR (restura-bot) is what publishes a stable release. A dispatch can also publish a prerelease or retry a tag. Extensions publish from a pushed `*-v*` tag. See the [release runbook](#release-runbook) below and the dedicated [extension release runbook](./EXTENSION_RELEASE.md).
 
 ---
 
@@ -53,7 +54,7 @@ verification steps are in [`SECURITY.md`](../SECURITY.md#verifying-downloads).
 | **No install scripts in CI**   | `npm ci --ignore-scripts` for repo deps | A dependency's install script never runs in CI or release jobs; jobs `npm rebuild` only the approved packages they need. Pinned tools under `.github/tools/` follow their own `allowScripts`. |
 | **Install-script review**      | `allowScripts` + `npm run lockfile:check` | Every lockfile entry with an install script needs a reviewed `true`/`false` decision in `package.json`. |
 | **Lockfile sources**           | `npm run lockfile:check`               | Every committed lockfile resolves only from `registry.npmjs.org` with an `integrity` hash. |
-| **Registry signatures**        | `npm audit signatures`                 | Run after install in `validate-static-build` and every release job that installs.   |
+| **Registry signatures**        | `npm audit signatures`                 | After install in `validate-static-build`, and in release `preflight` (when validate is not skipped), `desktop`, `build-cli`, and `deploy-web`. `prepare-stable` installs and does not run it. |
 | **Imported skill integrity**   | `npm run skills:check`                 | `.agents/skills/*` must match the hashes in `skills-lock.json`.                      |
 | **Build provenance (npm)**     | npm trusted publishing (OIDC)          | `restura-cli` published without any npm token; provenance attached automatically.    |
 | **Build provenance (desktop)** | `actions/attest-build-provenance`      | Signed provenance for every installer, minted in `attest-desktop` (no npm code).     |
@@ -230,9 +231,10 @@ default setup is enabled`), which is why there is no `codeql.yml` here.
 
 ### 4. Dependabot auto-merge
 
-Dependabot updates are **grouped** (`.github/dependabot.yml`): each weekly run
-opens one PR for all root npm patch/minor bumps, one for `docs-site`, and one
-for GitHub Actions. Majors arrive separately (families such as React, Vite/
+Dependabot updates are **grouped** (`.github/dependabot.yml`): each weekly npm run
+opens one PR for all root patch/minor bumps and one for `docs-site`. GitHub Actions
+updates are monthly (`interval: monthly`, `default-days: 7`), not part of that weekly run.
+Majors arrive separately (families such as React, Vite/
 Vitest, Radix, protobuf and Astro are grouped) and always need manual review.
 
 `dependabot-auto-merge.yml` approves patch/minor PRs as **restura-bot** and
@@ -277,7 +279,7 @@ Tune the auto-merge scope (e.g. patch-only) by editing the `case` in the
 `dependabot-remediate.yml` handles what grouped version updates don't: open
 security alerts, including transitive ones that need a parent bump or an override.
 Actions has no Dependabot-alert event, so it polls every 5 days (`workflow_dispatch`
-to run now). A new alert can wait up to 5 days. A poll with nothing to do makes no model calls.
+to run now). The cron is `17 3 */5 * *` (the 1st, 6th, 11th, 16th, 21st, and 26th), so the gap from the 26th to the 1st of a 31-day month is 6 days. A poll with nothing to do makes no model calls.
 
 1. **Detect** lists open npm alerts, reduced to validated fields so advisory prose
    never reaches the agent. It stops if a remediation PR is open, or if this exact
@@ -297,9 +299,12 @@ to run now). A new alert can wait up to 5 days. A poll with nothing to do makes 
 | `merge`  | Everything else                                                                                                             | PR with `--auto --squash` |
 
 Auto-merge is the normal lane, so all required checks apply on an up-to-date branch.
-It never uses `--admin`. CI treats this branch like a Dependabot PR (`--ignore-scripts`,
-no deploy preview, no Electron jobs), because it can bring in a brand-new release:
-security fixes skip the Dependabot cooldown by design.
+It never uses `--admin`. CI skips the deploy preview and the VS Code extension
+integration job for `dependabot[bot]` and for `head_ref == deps/dependabot-remediate`
+(every CI install already uses `--ignore-scripts`). Electron pack smoke is not
+skipped: a root `package.json` or lockfile change sets `pack=true`, and
+`Electron critical-path coverage` always runs. Security fixes skip the Dependabot
+cooldown by design, so this branch can bring in a release that has not aged.
 
 Prerequisites:
 
@@ -433,10 +438,10 @@ run no agent.
 | Workflow | Untrusted input it reads | Gating | Tokens it holds | Agent tools |
 |---|---|---|---|---|
 | `claude.yml` | Issue / PR / review text in the thread | `@claude` from OWNER, MEMBER or COLLABORATOR only; no bots | `GITHUB_TOKEN` read-only; Claude App token via OIDC (comments, branch pushes, never `main`) | `claude-code-action` defaults (no `--allowedTools` override), 30 turns |
-| `claude-code-review.yml` | PR diff and description | Same-repo, non-draft, non-bot PRs; `claude-review` label to re-run | `GITHUB_TOKEN` read-only; Claude App token via OIDC | Explicit allowlist: read/search tools, `git diff/log/rev-parse`, `gh pr view/diff/comment`, `gh issue view/list`, `gh search`, inline comments; no general `Bash` |
-| `claude-security-review.yml` | PR diff | Same-repo, non-draft, non-bot PRs; label to re-run | `GITHUB_TOKEN` read-only; Claude App token via OIDC | Explicit allowlist: read/search tools, `git diff/log/show`, `gh pr view/diff/comment`; no general `Bash` |
+| `claude-code-review.yml` | PR diff and description | `pull_request_target`. Plugin job: same-repo, non-draft, non-bot. Skill job: `claude-review` label plus a true scope check, same-repo only (no draft or bot skip) | `GITHUB_TOKEN` read-only; Claude App token via OIDC | Two allowlists, no general `Bash`. Plugin job: `gh pr view/diff/comment/list`, `gh issue view/list`, `gh search`, inline comments. Skill job: `Skill`, `Agent`, `Read`, `Glob`, `Grep`, `Write`, `git diff/log/rev-parse`, `gh pr view/comment`, `gh issue view` |
+| `claude-security-review.yml` | PR diff | `pull_request` (checks out the merge ref; not `pull_request_target`). Same-repo, non-draft, non-bot; label to re-run | `GITHUB_TOKEN` read-only; Claude App token via OIDC | `Agent`, `Read`, `Glob`, `Grep`, `Write`, `git diff/log/show`, `gh pr view/diff/comment`; no general `Bash` |
 | `dependabot-remediate.yml` | Dependabot alert and advisory text | Schedule / dispatch, `main` only | Remediate job: `contents: read`; the restura-bot token exists only in the later `publish` job, after a policy gate checks the patch | `Read/Glob/Grep`, `Edit` of `package.json` files only, `npm install/update --package-lock-only --ignore-scripts`, `npm ls/explain/view/audit` |
-| `eval-harness.yml` | Eval cases (repo content) and a same-repo PR | Dispatch, or `eval-harness` label on a same-repo, non-bot PR | `contents: read`; Claude OAuth token | `Bash` inside the Claude Code sandbox, egress limited to the Claude API and the npm registry |
+| `eval-harness.yml` | Eval cases (repo content) and a same-repo PR | Dispatch (harness or routing), `eval-harness` label (harness test split only), or observe mode on a same-repo non-draft non-bot PR that touches `REVIEW.md`, `eval-harness.yml`, or the `code-review` skill | `contents: read`; Claude OAuth token | `Bash` inside the Claude Code sandbox, egress limited to the Claude API and the npm registry |
 | `openwiki-update.yml` | Commit history | Schedule / dispatch | Job `contents`/`pull-requests: write`, but the checkout token is not persisted; the PR is opened by `create-pull-request`, not by the agent | OpenWiki CLI (OpenRouter) |
 
 Agent configuration (`.claude/`, `.agents/`, `AGENTS.md`, `CLAUDE.md`,
@@ -462,7 +467,9 @@ How it works:
    auto-merge" button). Nothing merges until the required checks are green on
    an up-to-date branch.
 3. `merge-lane.yml` runs `scripts/merge-lane.mjs` on every push to `main`, when
-   CI completes, when auto-merge is enabled, every 30 minutes, and on manual
+   CI completes, on `pull_request_target` (`auto_merge_enabled`, `unlabeled`,
+   `reopened` — removing `merge-lane:hold` or reopening a PR wakes the lane),
+   every 30 minutes, and on manual
    dispatch. It picks **one** PR at a time:
    - If an auto-merge PR is already up to date and its checks are still running
      (or it is mergeable and about to land), it waits.
@@ -547,8 +554,10 @@ the output and options.
    the SBOM attached) → **desktop** (signed installers uploaded
    to the draft) → **attest-desktop**, **build-cli** → **publish-cli**,
    **publish-docker** → **attest-image**, **deploy-web** →
-   **publish-release** (flips the draft to public once every required
-   downstream job, including both attestations, succeeds). Jobs that hold
+   **publish-release** (flips the draft to public once the required
+   downstream jobs succeed). `attest-desktop` is required. `attest-image` is
+   required only when Docker was opted in; if `publish-docker` and `attest-image`
+   are both skipped, the draft can still go public. Jobs that hold
    `id-token: write` (`attest-desktop`, `attest-image`, `publish-cli`) install
    no dependencies and run no repo build; they work only on the artifacts the
    earlier jobs uploaded. Desktop runs first because signing/notarization is

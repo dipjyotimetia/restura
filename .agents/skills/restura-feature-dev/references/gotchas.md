@@ -78,17 +78,9 @@ If two features genuinely need to share logic, extract it to `src/lib/shared/` a
 
 `src/features/http/lib/urlValidator.ts` is a renderer-side copy of the Worker's `validateURL`. The renderer copy is for instant UI feedback; the Worker copy is the security boundary. Keep them in sync — if you change one, change the other.
 
-## `npm run validate` doesn't type-check the Worker or Electron main
+## `npm run validate` type-checks Worker and Electron main
 
-It runs the renderer's `tsc` only. For full coverage:
-
-```bash
-npm run validate
-npx tsc --noEmit -p worker/tsconfig.json
-npx tsc --noEmit -p electron/tsconfig.json
-```
-
-CI runs all three. Add the relevant tsc to your local checklist whenever you've touched `worker/` or `electron/`.
+`validate` runs `validate:static`, which runs `type-check:all`. That includes `tsc -p electron/tsconfig.json` and `tsc -p worker/tsconfig.json`, plus the renderer, tooling, the HTTP feature project, echo, echo-local, the CLI, and both extensions. Plain `npm run type-check` is still renderer-only.
 
 ## Electron-only protocols are a valid outcome
 
@@ -104,7 +96,7 @@ The Network Console only sees protocols whose IPC handlers call `request-logger.
 
 ## `dns-guard.ts` is pre-flight only
 
-`electron/main/security/dns-guard.ts` resolves the hostname once _before_ the transport connects. It does **not** mitigate true DNS rebind — an attacker who controls the resolver can return a public IP on the pre-flight lookup and a private IP on the actual connect (TTL=0). Full protection requires a custom transport-level dispatcher with a `lookup` hook that re-applies `assertResolvedAddressAllowed` at connect time. The HTTP/gRPC paths already do this via undici's `Agent.connect.lookup`; everything else (WebSocket, Socket.IO, SSE, MCP) is pre-flight only. When you wire a new transport, prefer a connector-level `lookup` hook over (or in addition to) the pre-flight check. See ADR-0006.
+`electron/main/security/dns-guard.ts` resolves the hostname once _before_ the transport connects. It does **not** mitigate true DNS rebind — an attacker who controls the resolver can return a public IP on the pre-flight lookup and a private IP on the actual connect (TTL=0). Full protection requires a connector-level `lookup` that returns the address already checked. HTTP, gRPC (including reflection), WebSocket, SSE, Socket.IO, MCP, and MQTT pin that way. Kafka bootstrap brokers are still pre-flight only. When you wire a new transport, prefer a connector-level `lookup` hook over (or in addition to) the pre-flight check. See ADR-0006.
 
 ## `bindRendererCleanup` is per-handler, not global
 

@@ -118,13 +118,16 @@ cure is cases, added as defects escape, not more rounds.
 
 Per-PR evals stay rejected as a merge gate (they cost real model usage, and a noisy
 1-run result must not block a merge). A non-blocking observe run is the exception:
-when a same-repo, non-draft, non-bot pull request touches `REVIEW.md` or the
+when a same-repo, non-draft, non-bot pull request touches `REVIEW.md`,
+`.github/workflows/eval-harness.yml`, or the
 `code-review` skill, `eval-harness.yml` runs the harness **test** split **once**
 (per-case budget cap $4, judge once) against the latest committed file in
 `evals/harness/baselines/` and uploads the flip report. `continue-on-error` is set,
-and the check is not required. Forks never receive the Claude token. If no baseline
-JSON is committed, the job logs that and does not call the model. The label and
-`workflow_dispatch` paths are unchanged and remain the 3-run regression gate.
+and the check is not required. The workflow has no `ready_for_review` event, so
+marking a draft ready does not start observe mode until the next push. Forks never
+receive the Claude token. If no baseline JSON is committed, the job logs that and
+does not call the model. The `eval-harness` label runs the harness test split three
+times. Routing is `workflow_dispatch` only.
 
 ## References
 

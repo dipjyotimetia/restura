@@ -648,8 +648,8 @@ Tooling:
 - `npm run eval:new-case -- --from <fixPR#>` scaffolds a harness eval case from the PR that fixed a seam bug.
 - `node scripts/build-eval.mjs` runs the build-loop eval (real fix-PR tasks, hidden tests; `--dry-run` validates the tasks); see `evals/build/README.md`.
 - `npm run skills:report` summarizes skill usage plus subagent and stop outcomes from `.claude/metrics`.
-- Renderer changes are verified with `verify-ui-change`. Electron main, packaging, and launch-smoke changes are verified with `verify-desktop-change` (`npm run electron:compile`, then `npm run electron:smoke:unpacked`).
-- The `eval-harness` PR label (or a manual dispatch) runs the evals in CI; never on push. A pull request that edits `REVIEW.md` or the `code-review` skill also starts a non-blocking observe run against the committed baseline ([ADR 0033](./adr/0033-evals-gate-harness-changes.md)). Changes to reviewer topology, skill routing or the vendored-skill set still need the full before/after eval.
+- Renderer changes are verified with `verify-ui-change`. Electron main, packaging, and launch-smoke changes are verified with `verify-desktop-change`: `npm run electron:compile`, `npm run electron:build:web` when `dist/web/index.html` is missing or the renderer shell changed, then `npm run electron:smoke:unpacked`. If an `app.asar` already exists, the skill also runs the asar and packaged-require checks.
+- The `eval-harness` PR label runs the harness test split (3 runs) in CI; routing is `workflow_dispatch` only. Never on push. A same-repo, non-draft, non-bot pull request that edits `REVIEW.md`, `.github/workflows/eval-harness.yml`, or the `code-review` skill also starts a non-blocking observe run against the committed baseline ([ADR 0033](./adr/0033-evals-gate-harness-changes.md)). Marking a draft ready does not start it until the next push. Changes to reviewer topology, skill routing or the vendored-skill set still need the full before/after eval.
 
 Hooks in `.claude/hooks/` enforce staging, merge and push rules for agent
 sessions. Edit them with `npm run type-check:all` (they are type-checked via

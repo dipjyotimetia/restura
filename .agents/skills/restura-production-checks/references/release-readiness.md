@@ -13,18 +13,18 @@
 
 ## Pre-release checklist
 
-1. `npm run validate` clean (all six type-checks, lint, codegen, tests).
+1. `npm run validate` clean (`type-check:all` is eleven `tsc` projects: renderer, tooling, tooling-js, Electron, HTTP feature, Worker, echo, echo-local, CLI, Chrome extension, VS Code extension; plus lint, codegen, tests).
 2. `npm run size` under budget (`size-limit`).
 3. `npm run build` succeeds; web bundle present.
-4. `npm run electron:pack` succeeds on at least the host OS; CI `electron-pack-smoke` covers the matrix.
+4. `npm run electron:pack` succeeds on at least the host OS. CI job `electron-smoke` is the per-OS leg (`Electron pack smoke (ubuntu-latest)` and the macOS and Windows twins). The required check is `electron-smoke-gate`, named `Electron pack smoke`.
 5. `node scripts/verify-asar-renderer.mjs` passes — guards against `dist/web` layout drift breaking the packaged renderer entry. `node scripts/verify-packaged-main-requires.mjs` passes — every bare `require` reachable from the packaged main and preload resolves inside `app.asar`. `electron:compile` also runs that script with `--check-dev-dependencies`. `npm run electron:smoke:unpacked` launches the compiled app with `RESTURA_SMOKE=1` and expects a loaded window without an electron-builder pack (local stand-in; the `verify-desktop-change` skill). `node scripts/smoke-packaged-electron.mjs` does the same against `dist/installers` (CI's pack-smoke legs; launch crash, #1353).
 6. Docs in parity (`references/docs-parity.md`), `npm run docs:check` clean.
 7. `npm audit --audit-level=critical` clean (weekly CI is non-blocking — check it for a release).
 8. Capability matrix current (`npm run capabilities:check`).
 
-## Release workflow (`release.yml`, manual `workflow_dispatch`)
+## Release workflow (`release.yml`)
 
-Inputs: `release_bump` (patch/minor/major), `prerelease`, `prerelease_identifier`, `publish_docker`, `retry_release_tag` (retry a failed, unpublished stable release from main HEAD). Flow: preflight validate → semver bump → commit + tag → release notes (git-cliff) → SBOM → draft release → `desktop` (electron installers, all platforms) → then `publish-cli` (npm, stable only), `publish-docker` (GHCR, opt-in), `deploy-web` (Cloudflare, stable only) → publish draft. Desktop gates the irreversible surfaces.
+Inputs: `release_bump` (patch/minor/major), `prerelease`, `prerelease_identifier`, `publish_docker`, `retry_release_tag` (retry a failed, unpublished stable release from main HEAD). A dispatch on `main` opens the `release/prepare` PR. Merging that PR (restura-bot) publishes the stable release. Dispatch can also publish a prerelease or retry a tag. Flow: preflight validate → version bump PR → on merge, tag → release notes (git-cliff) → SBOM → draft release → `desktop` (electron installers, all platforms) → then `publish-cli` (npm, stable only), `publish-docker` (GHCR, only when `publish_docker` is true), `deploy-web` (Cloudflare, stable only) → publish draft. `attest-desktop` is required. `attest-image` is required only when Docker was opted in. Desktop gates the irreversible surfaces.
 
 - macOS builds are notarized (`docs/notary.md`); Sentry sourcemaps uploaded via `scripts/sentry-sourcemaps.mjs` on publish.
 - CLI publishes from the `cli/` workspace; Docker from the repo Dockerfile.

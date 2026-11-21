@@ -206,4 +206,4 @@ The main process has its own tsconfig:
 npx tsc --noEmit -p electron/tsconfig.json
 ```
 
-`npm run validate` runs the renderer's tsc — not the main process. Run the electron tsc explicitly when you change main-process code.
+`npm run validate` runs `type-check:all`, which includes `tsc -p electron/tsconfig.json`. `npm run type-check` is renderer-only.

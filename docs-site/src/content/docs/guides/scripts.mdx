@@ -1,6 +1,6 @@
 ---
 title: Scripts
-description: Pre-request and test scripts run in a sandboxed QuickJS WASM runtime. Native rs.* namespace, fully Postman pm.* compatible.
+description: Pre-request and test scripts run in a sandboxed QuickJS WASM runtime. Native rs.* namespace, with a Postman pm.* alias and a few documented gaps.
 ---
 
 import { Aside, Badge } from '@astrojs/starlight/components';
@@ -10,11 +10,11 @@ Every request can carry two kinds of script:
 - **Pre-request script** — runs before the request goes out. Mutate variables, sign a payload, decide a header.
 - **Test script** — runs after the response lands. Assert, extract, set environment variables.
 
-Both run in an **isolated QuickJS WASM sandbox**. No DOM. No filesystem. No arbitrary network. Memory and execution time are capped.
+Both run in an **isolated QuickJS WASM sandbox**. No DOM. No filesystem. No raw `fetch`. `rs.sendRequest` / `pm.sendRequest` is a host bridge through the SSRF-guarded proxy. Memory and execution time are capped.
 
 ## `rs.*` and `pm.*` — the same API
 
-Scripts use the native **`rs.*`** namespace. For drop-in Postman compatibility, **`pm`** is a live alias of the *same* object — `rs.expect(...)` and `pm.expect(...)` are identical, so existing Postman scripts run unchanged.
+Scripts use the native **`rs.*`** namespace. **`pm`** is a live alias of the *same* object — `rs.expect(...)` and `pm.expect(...)` are identical. Most Postman scripts run. They do not run unchanged: `headers.get('Set-Cookie')` joins every cookie (Postman returns the last), `xml2Json` is absent, and `require` is a fixed library set. The [Postman compatibility reference](/reference/postman-compat/) lists the rest. The CLI rejects `pm.sendRequest`, `pm.cookies`, and `pm.vault`.
 
 When you **import** a Postman collection, its `pm.*` calls are normalized to `rs.*` automatically; on **export**, they're rewritten back to `pm.*` so the output still runs in Postman. (The rewrite only touches real `pm.`/`rs.` identifiers — strings, comments, and regex literals are left intact.)
 
@@ -122,7 +122,7 @@ rs.environment.set('token', res.json().token);
 ```
 
 <Aside title="Scripting vs. workflows">
-For bounded multi-step orchestration, a [workflow](/guides/workflows/) is usually clearer than chaining `rs.sendRequest` calls in one script. The current safe OWS profile supports sequential `do`, `set`, `wait`, timeout/cancellation, and binding-only saved HTTP calls; branching, retries, and parallelism are intentionally unavailable.
+For bounded multi-step orchestration, a [workflow](/guides/workflows/) is usually clearer than chaining `rs.sendRequest` calls in one script. The safe OWS profile runs `if` guards, bounded `for` loops, `try`/`catch`, and saved HTTP or GraphQL calls. `fork`, `switch`, and retries are rejected.
 </Aside>
 
 ## Related

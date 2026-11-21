@@ -37,8 +37,9 @@ did not ship. Unit tests that mock `start()` do not catch that.
    run `node scripts/verify-asar-renderer.mjs <asar>` and
    `node scripts/verify-packaged-main-requires.mjs <asar>`, then
    `node scripts/smoke-packaged-electron.mjs`. CI's `Electron pack smoke` gate
-   does this on macOS, Windows and Ubuntu for app-path and packaging PRs. Do
-   not skip step 3 just because step 4 will run in CI.
+   does this on macOS, Windows and Ubuntu for app-path and packaging PRs, and
+   when the root `package.json` or `package-lock.json` changes. The nightly
+   schedule runs it too. Do not skip step 3 just because step 4 will run in CI.
 
 If any step fails, fix it and rerun from step 1. Do not report the desktop
 change as verified from type-check or unit tests alone.

@@ -47,7 +47,7 @@ The guard is the **single source of truth** — before the shared-protocol refac
 
 The self-hosted Node server's WebSocket relay resolves and validates the upstream, then dials the validated IP (Host and SNI keep the original name), so there is no rebind window between check and connect.
 
-The Electron main process additionally enforces a **pre-flight DNS guard**: hostnames are resolved before connecting, and `assertResolvedAddressAllowed` is called against every record returned. Note: this is *pre-flight only* — it does not mitigate a true DNS-rebind that swaps records at TTL=0 between resolve and connect.
+The Electron main process resolves hostnames and calls `assertResolvedAddressAllowed` on every record before connecting. HTTP, gRPC (including reflection), WebSocket, SSE, Socket.IO, MCP, and MQTT then pin the dial to the address that was checked (`createPinnedLookup`, `createPolicyPinnedFetch`, or `resolveGrpcDialAddress`). Kafka bootstrap brokers stop at the pre-flight check (`electron/main/handlers/kafka/connect-preflight.ts`), so a TTL=0 swap between resolve and connect is not mitigated for them. `electron/main/security/dns-guard.ts` by itself is pre-flight only.
 
 ### Wire-level auth signing
 

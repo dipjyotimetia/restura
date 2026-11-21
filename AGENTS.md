@@ -12,7 +12,7 @@ Codex MCP context lives in `.codex/config.toml` (chrome-devtools).
 
 ## Project Overview
 
-Restura is a multi-protocol API client — **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, MCP** — plus an **AI assistant** and an Electron-only **AI Lab** eval workbench. One React renderer ships to three targets: web (Cloudflare Pages + Worker), self-hosted Node/Docker, and Electron desktop. Restura can also act _as_ an MCP server. Node.js 24+.
+Restura is a multi-protocol API client — **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, MCP** — plus an **AI assistant** and an Electron-only **AI Lab** eval workbench. One React renderer ships to three targets: web (Cloudflare Pages + Worker), self-hosted Node/Docker, and Electron desktop. Restura can also act _as_ an MCP server. Developing this repo requires Node.js 24.18.0 and npm 12.1.0 (`scripts/verify-toolchain.mjs`); `package.json` `engines.node` is `>=24`.
 
 ## Commands you need most
 
